@@ -7,6 +7,7 @@ import { C, F, money } from "../lib/theme";
 import { api } from "../lib/api";
 import { useSession } from "../context/SessionContext";
 import { Locked, Pill, Spinner, ErrorNote, Eyebrow } from "../components/Atoms";
+import EstimateApprovalPanel from "../components/repairs/EstimateApprovalPanel";
 
 const STAGES = ["Received", "Diagnosing", "In progress", "Ready for pickup", "Delivered"];
 const STAGE_COLOR = { Received: C.blue, Diagnosing: C.amber, "In progress": C.stamp, "Ready for pickup": C.green, Delivered: C.inkSoft };
@@ -395,6 +396,15 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
           <Eyebrow>Reported issue</Eyebrow>
           <p className="mt-1 text-sm" style={{ fontFamily: F.body, color: C.ink }}>{ticket.issue}</p>
         </div>
+
+        <EstimateApprovalPanel
+          key={`${ticket.id}-${ticket.current_estimate?.id || "new"}`}
+          ticket={ticket}
+          services={services}
+          canManage={can("repairs.manage")}
+          canApprove={can("repairs.approve")}
+          onChanged={(updated) => { setTicket(updated); onChanged(updated); }}
+        />
 
         {activeReopen && (
           <div className="mt-3 p-3" data-panel style={{ border: `1px solid ${C.amber}`, backgroundColor: `${C.amber}0A` }}>

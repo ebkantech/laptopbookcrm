@@ -74,6 +74,11 @@ INSTALLED_APPS = [
 
 AUTH_USER_MODEL = 'accounts.User'
 
+# Existing project migrations use BigAutoField primary keys. Keep Django's
+# model default aligned with that established schema so future migrations do
+# not try to change every implicit primary key to AutoField.
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -90,6 +95,7 @@ REST_FRAMEWORK = {
     # not applied blanket to every API call.
     'DEFAULT_THROTTLE_RATES': {
         'login': os.environ.get('LOGIN_THROTTLE_RATE', '5/min'),
+        'repair_approval': os.environ.get('REPAIR_APPROVAL_THROTTLE_RATE', '60/hour'),
     },
 }
 
@@ -110,6 +116,9 @@ CORS_ALLOWED_ORIGINS = env_list(
     default="http://localhost:5173,http://127.0.0.1:5173",
 )
 CORS_ALLOW_CREDENTIALS = True
+
+# Set PUBLIC_FRONTEND_URL to the HTTPS customer-facing frontend origin in production.
+PUBLIC_FRONTEND_URL = os.environ.get("PUBLIC_FRONTEND_URL", "http://127.0.0.1:5173")
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

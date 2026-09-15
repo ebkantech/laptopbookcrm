@@ -1,7 +1,16 @@
+from django.conf import settings
 from django.db import models
+from django.db.models import Q
+from django.utils import timezone
 
 from catalog.models import Service, StockPoint
 from parties.models import Party
+
+
+DEFAULT_APPROVAL_TERMS = (
+    "I approve the final repair work and total amount shown in this estimate. "
+    "Any later change will be coordinated separately with the service centre."
+)
 
 
 class RepairTicket(models.Model):
@@ -36,6 +45,9 @@ class RepairTicket(models.Model):
 
     @property
     def total(self):
+        estimate = self.current_estimate
+        if estimate:
+            return estimate.total_amount
         return sum(s.charge for s in self.services.all())
 
     @property
@@ -47,6 +59,18 @@ class RepairTicket(models.Model):
         return self.STAGES[idx + 1] if idx + 1 < len(self.STAGES) else None
 
     @property
+    def current_estimate(self):
+        prefetched = getattr(self, "_prefetched_objects_cache", {}).get("estimates")
+        if prefetched is not None:
+            return next((estimate for estimate in prefetched if estimate.is_current), None)
+        return self.estimates.filter(is_current=True).first()
+
+    @property
+    def has_repair_approval(self):
+        estimate = self.current_estimate
+        return bool(estimate and estimate.is_approved)
+
+    @property
     def original_invoice(self):
         return self.invoices.filter(reopen__isnull=True).first()
 
@@ -54,6 +78,161 @@ class RepairTicket(models.Model):
     def active_reopen(self):
         """The most recent reopen that hasn't been settled yet, if any."""
         return self.reopens.filter(invoice__isnull=True).first()
+
+
+class RepairEstimate(models.Model):
+    """Immutable snapshot of the exact work and price presented for approval."""
+
+    ticket = models.ForeignKey(RepairTicket, on_delete=models.CASCADE, related_name="estimates")
+    version = models.PositiveSmallIntegerField()
+    is_current = models.BooleanField(default=True)
+    customer_name = models.CharField(max_length=120)
+    customer_phone = models.CharField(max_length=20)
+    device_brand = models.CharField(max_length=40)
+    device_model = models.CharField(max_length=80)
+    device_serial = models.CharField(max_length=60, blank=True)
+    reported_issue = models.TextField()
+    currency = models.CharField(max_length=3, default="INR")
+    total_amount = models.PositiveIntegerField()
+    advance_paid = models.PositiveIntegerField(default=0)
+    terms = models.TextField(default=DEFAULT_APPROVAL_TERMS)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="repair_estimates_created",
+    )
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ["-version"]
+        constraints = [
+            models.UniqueConstraint(fields=["ticket", "version"], name="unique_repair_estimate_version"),
+            models.UniqueConstraint(
+                fields=["ticket"], condition=Q(is_current=True), name="one_current_repair_estimate"
+            ),
+        ]
+
+    @property
+    def balance_due(self):
+        return max(0, self.total_amount - self.advance_paid)
+
+    def _approval_records(self):
+        prefetched = getattr(self, "_prefetched_objects_cache", {}).get("approvals")
+        return list(prefetched) if prefetched is not None else list(self.approvals.all())
+
+    @property
+    def approved_record(self):
+        approved = [row for row in self._approval_records() if row.status == RepairApproval.APPROVED]
+        return max(approved, key=lambda row: row.decided_at or row.created_at, default=None)
+
+    @property
+    def latest_approval(self):
+        approved = self.approved_record
+        if approved:
+            return approved
+        return max(self._approval_records(), key=lambda row: row.created_at, default=None)
+
+    @property
+    def is_approved(self):
+        return self.approved_record is not None
+
+    @property
+    def approval_status(self):
+        approval = self.latest_approval
+        if not approval:
+            return "not_sent"
+        if approval.status == RepairApproval.APPROVED:
+            return {
+                RepairApproval.CUSTOMER: "customer_approved",
+                RepairApproval.ADMIN: "admin_approved",
+                RepairApproval.SUPERADMIN: "superadmin_approved",
+            }.get(approval.source, "approved")
+        return approval.effective_status
+
+
+class RepairEstimateLine(models.Model):
+    estimate = models.ForeignKey(RepairEstimate, on_delete=models.CASCADE, related_name="lines")
+    service = models.ForeignKey(
+        Service, on_delete=models.SET_NULL, null=True, blank=True, related_name="repair_estimate_lines"
+    )
+    description = models.CharField(max_length=160)
+    quantity = models.PositiveSmallIntegerField(default=1)
+    unit_price = models.PositiveIntegerField()
+
+    class Meta:
+        ordering = ["id"]
+        constraints = [
+            models.CheckConstraint(condition=Q(quantity__gt=0), name="repair_estimate_quantity_gt_zero"),
+        ]
+
+    @property
+    def line_total(self):
+        return self.quantity * self.unit_price
+
+
+class RepairApproval(models.Model):
+    PENDING, APPROVED, REJECTED, EXPIRED, REVOKED = "pending", "approved", "rejected", "expired", "revoked"
+    STATUS_CHOICES = [(value, value.title()) for value in (PENDING, APPROVED, REJECTED, EXPIRED, REVOKED)]
+    CUSTOMER, ADMIN, SUPERADMIN = "customer", "admin", "superadmin"
+    SOURCE_CHOICES = [
+        (CUSTOMER, "Customer via secure link"),
+        (ADMIN, "Admin on behalf of customer"),
+        (SUPERADMIN, "Super Admin override"),
+    ]
+
+    estimate = models.ForeignKey(RepairEstimate, on_delete=models.CASCADE, related_name="approvals")
+    token_hash = models.CharField(max_length=64, unique=True, null=True, blank=True, editable=False)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=PENDING)
+    source = models.CharField(max_length=12, choices=SOURCE_CHOICES, blank=True)
+    sent_to_phone = models.CharField(max_length=20, blank=True)
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="repair_approvals_requested")
+    decided_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="repair_approvals_decided")
+    reason = models.TextField(blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["estimate"], condition=Q(status="pending"), name="one_pending_repair_approval_link"),
+            models.UniqueConstraint(fields=["estimate"], condition=Q(status="approved"), name="one_approved_repair_decision"),
+        ]
+
+    @property
+    def effective_status(self):
+        if self.status == self.PENDING and self.expires_at and timezone.now() >= self.expires_at:
+            return self.EXPIRED
+        return self.status
+
+
+class RepairTicketEvent(models.Model):
+    TICKET_CREATED = "ticket_created"
+    ESTIMATE_FINALIZED = "estimate_finalized"
+    APPROVAL_LINK_CREATED = "approval_link_created"
+    APPROVAL_DECIDED = "approval_decided"
+    STAGE_CHANGED = "stage_changed"
+    SETTLED = "settled"
+    EVENT_CHOICES = [
+        (TICKET_CREATED, "Ticket created"),
+        (ESTIMATE_FINALIZED, "Estimate finalized"),
+        (APPROVAL_LINK_CREATED, "Approval link created"),
+        (APPROVAL_DECIDED, "Approval decided"),
+        (STAGE_CHANGED, "Stage changed"),
+        (SETTLED, "Settled"),
+    ]
+
+    ticket = models.ForeignKey(RepairTicket, on_delete=models.CASCADE, related_name="events")
+    estimate = models.ForeignKey(RepairEstimate, on_delete=models.SET_NULL, null=True, blank=True, related_name="events")
+    event_type = models.CharField(max_length=30, choices=EVENT_CHOICES)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="repair_ticket_events")
+    metadata = models.JSONField(default=dict, blank=True)
+    at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ["at", "id"]
 
 
 class RepairInvoice(models.Model):
