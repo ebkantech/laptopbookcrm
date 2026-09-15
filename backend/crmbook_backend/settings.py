@@ -118,7 +118,7 @@ CORS_ALLOWED_ORIGINS = env_list(
 CORS_ALLOW_CREDENTIALS = True
 
 # Set PUBLIC_FRONTEND_URL to the HTTPS customer-facing frontend origin in production.
-PUBLIC_FRONTEND_URL = os.environ.get("PUBLIC_FRONTEND_URL", "http://127.0.0.1:5173")
+PUBLIC_FRONTEND_URL = os.environ.get("PUBLIC_FRONTEND_URL", "http://localhost:5173")
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
