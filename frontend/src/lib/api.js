@@ -74,11 +74,30 @@ async function request(path, { method = "GET", body, headers = {} } = {}) {
   return res.json();
 }
 
+async function publicRequest(path, { method = "GET", body } = {}) {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    let detail;
+    try { detail = await res.json(); } catch { detail = { detail: res.statusText }; }
+    const err = new Error(detail.detail || "Request failed");
+    err.status = res.status;
+    err.body = detail;
+    throw err;
+  }
+  return res.json();
+}
+
 export const api = {
   get: (path) => request(path),
   post: (path, body) => request(path, { method: "POST", body }),
   patch: (path, body) => request(path, { method: "PATCH", body }),
   del: (path) => request(path, { method: "DELETE" }),
+  publicGet: (path) => publicRequest(path),
+  publicPost: (path, body) => publicRequest(path, { method: "POST", body }),
 
   async login(username, password) {
     const res = await fetch(`${BASE_URL}/auth/token/`, {

@@ -18,6 +18,7 @@ import Accounting from "./pages/Accounting";
 import Broadcast from "./pages/Broadcast";
 import Settings from "./pages/Settings";
 import Warranty from "./pages/Warranty";
+import RepairApproval from "./pages/RepairApproval";
 
 const NAV = [
   { id: "home", label: "Dashboard", icon: LayoutDashboard },
@@ -111,6 +112,15 @@ function Gate() {
 }
 
 export default function App() {
+  const match = window.location.pathname.match(/^\/repair-approval\/([^/]+)\/?$/);
+  if (match) {
+    return (
+      <>
+        <AnimatedGradientBackground />
+        <RepairApproval token={decodeURIComponent(match[1])} />
+      </>
+    );
+  }
   return (
     <SessionProvider>
       <AnimatedGradientBackground />

@@ -5,18 +5,31 @@ from django.utils import timezone
 from rest_framework import permissions, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.views import APIView
 
 from accounts.permissions import HasPerm
 from catalog.models import Service
 from .models import Notification, RepairInvoice, RepairReopen, RepairReopenItem, RepairTicket
-from .serializers import RepairInvoiceListSerializer, RepairTicketSerializer
+from .serializers import (
+    FinalizeEstimateSerializer,
+    PublicApprovalDecisionSerializer,
+    PublicRepairApprovalSerializer,
+    RepairInvoiceListSerializer,
+    RepairTicketSerializer,
+    StaffApprovalSerializer,
+)
+from .services import approve_on_behalf, customer_decide, finalize_estimate, get_public_approval, issue_approval_link
 
 
 class RepairTicketViewSet(viewsets.ModelViewSet):
     queryset = (
         RepairTicket.objects
         .select_related("party", "stock_point")
-        .prefetch_related("services__part", "notifications", "invoices", "reopens__items", "reopens__invoice")
+        .prefetch_related(
+            "services__part", "notifications", "invoices", "reopens__items", "reopens__invoice",
+            "estimates__lines", "estimates__approvals", "events",
+        )
         .all()
     )
     serializer_class = RepairTicketSerializer
@@ -27,6 +40,8 @@ class RepairTicketViewSet(viewsets.ModelViewSet):
         "partial_update": "repairs.manage", "destroy": "repairs.manage",
         "advance": "repairs.manage", "settle": "repairs.manage",
         "set_stage": "repairs.manage", "reopen": "repairs.manage",
+        "finalize_estimate": "repairs.manage", "approval_link": "repairs.manage",
+        "approve_on_behalf": "repairs.approve",
     }
 
     def get_queryset(self):
@@ -63,12 +78,44 @@ class RepairTicketViewSet(viewsets.ModelViewSet):
         """
         return self.get_queryset().get(pk=ticket.pk)
 
+    def serialized_ticket(self, ticket_id):
+        return RepairTicketSerializer(self.get_queryset().get(pk=ticket_id)).data
+
+    @action(detail=True, methods=["post"], url_path="finalize-estimate")
+    def finalize_estimate(self, request, pk=None):
+        payload = FinalizeEstimateSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        ticket = self.get_object()
+        finalize_estimate(ticket, request.user, payload.validated_data["lines"], payload.validated_data.get("terms", ""))
+        return Response(self.serialized_ticket(ticket.pk))
+
+    @action(detail=True, methods=["post"], url_path="approval-link")
+    def approval_link(self, request, pk=None):
+        ticket = self.get_object()
+        approval, approval_url, whatsapp_url = issue_approval_link(ticket, request.user)
+        return Response({
+            "ticket": self.serialized_ticket(ticket.pk),
+            "approval_url": approval_url,
+            "whatsapp_url": whatsapp_url,
+            "expires_at": approval.expires_at,
+        })
+
+    @action(detail=True, methods=["post"], url_path="approve-on-behalf")
+    def approve_on_behalf(self, request, pk=None):
+        payload = StaffApprovalSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        ticket = self.get_object()
+        approve_on_behalf(ticket, request.user, payload.validated_data["reason"])
+        return Response(self.serialized_ticket(ticket.pk))
+
     @action(detail=True, methods=["post"])
     def advance(self, request, pk=None):
         ticket = self.get_object()
         stage = ticket.next_stage()
         if not stage:
             return Response({"detail": "Ticket is already at its final stage."}, status=400)
+        if stage == RepairTicket.IN_PROGRESS and not ticket.has_repair_approval:
+            return Response({"detail": "Final customer, Admin, or Super Admin approval is required before work starts."}, status=400)
         ticket.status = stage
         ticket.save(update_fields=["status"])
         text = (
@@ -103,6 +150,9 @@ class RepairTicketViewSet(viewsets.ModelViewSet):
             return Response({"detail": "This ticket has been delivered. Reopen it to make further changes."}, status=400)
         if target == ticket.status:
             return Response(RepairTicketSerializer(self._fresh(ticket)).data)
+
+        if target == RepairTicket.IN_PROGRESS and not ticket.has_repair_approval:
+            return Response({"detail": "Finalize the repair estimate and record customer, Admin, or Super Admin approval before work starts."}, status=400)
 
         current_idx = RepairTicket.STAGES.index(ticket.status)
         target_idx = RepairTicket.STAGES.index(target)
@@ -148,6 +198,8 @@ class RepairTicketViewSet(viewsets.ModelViewSet):
         else:
             if ticket.original_invoice:
                 return Response({"detail": "Already settled."}, status=400)
+            if not ticket.has_repair_approval:
+                return Response({"detail": "A final customer, Admin, or Super Admin approval is required before settlement."}, status=400)
             amount = ticket.total - ticket.advance_paid
             invoice = RepairInvoice.objects.create(
                 ticket=ticket, reopen=None, code=f"RPR-INV-{ticket.code.split('-')[1]}", amount=amount,
@@ -226,6 +278,27 @@ class RepairTicketViewSet(viewsets.ModelViewSet):
         Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=note)
 
         return Response(RepairTicketSerializer(self._fresh(ticket)).data, status=201)
+
+
+class RepairApprovalPublicView(APIView):
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "repair_approval"
+
+    def get(self, request, token):
+        return Response(PublicRepairApprovalSerializer(get_public_approval(token)).data)
+
+    def post(self, request, token):
+        payload = PublicApprovalDecisionSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        approval = customer_decide(
+            token,
+            payload.validated_data["decision"],
+            payload.validated_data.get("consent", False),
+            payload.validated_data.get("reason", ""),
+        )
+        return Response(PublicRepairApprovalSerializer(approval).data)
 
 
 class RepairInvoiceViewSet(viewsets.ReadOnlyModelViewSet):
