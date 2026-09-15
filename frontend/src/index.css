@@ -1,0 +1,96 @@
+@import url('https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Public+Sans:wght@400;500;600&display=swap');
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { background: #F3F5F9; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+.cb-shell { background: transparent; }
+.cb-shell button, .cb-shell input, .cb-shell select, .cb-shell textarea,
+.cb-shell [data-panel], .cb-shell [data-pill], .cb-shell [data-row] { border-radius: 10px; }
+.cb-shell [data-pill] { border-radius: 999px; }
+.cb-shell [data-donut] { border-radius: 999px; }
+.cb-shell ::placeholder { color: #96A0B5; }
+.cb-shell select { color-scheme: light; }
+
+/* ------------------------------------------------------------------ *
+ * Animated gradient background -- pure CSS, three drifting blobs
+ * behind a base wash. Fixed + full-viewport, sits at z-index -1 so
+ * every real UI element paints above it without extra work.
+ * ------------------------------------------------------------------ */
+.cb-gradient-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  background: linear-gradient(180deg, #F7F9FC 0%, #F3F5F9 100%);
+}
+.cb-blob {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(70px);
+  opacity: 0.55;
+  will-change: transform;
+}
+.cb-blob-1 {
+  width: 46vw; height: 46vw; min-width: 420px; min-height: 420px;
+  top: -12%; left: -8%;
+  background: radial-gradient(circle, #BFD3FA 0%, transparent 70%);
+  animation: cb-drift-1 26s ease-in-out infinite;
+}
+.cb-blob-2 {
+  width: 40vw; height: 40vw; min-width: 380px; min-height: 380px;
+  bottom: -14%; right: -6%;
+  background: radial-gradient(circle, #FBD9C4 0%, transparent 70%);
+  animation: cb-drift-2 32s ease-in-out infinite;
+}
+.cb-blob-3 {
+  width: 34vw; height: 34vw; min-width: 320px; min-height: 320px;
+  top: 30%; left: 55%;
+  background: radial-gradient(circle, #D9CFFB 0%, transparent 70%);
+  animation: cb-drift-3 38s ease-in-out infinite;
+}
+@keyframes cb-drift-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(6%, 8%) scale(1.08); }
+}
+@keyframes cb-drift-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-7%, -5%) scale(1.05); }
+}
+@keyframes cb-drift-3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-5%, 6%) scale(1.1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-blob { animation: none !important; }
+}
+
+.cb-shell [data-panel] {
+  box-shadow: 0 1px 2px rgba(20,26,44,0.06), 0 10px 24px -16px rgba(20,26,44,0.15);
+  transition: box-shadow 200ms ease, transform 200ms ease, border-color 200ms ease;
+}
+.cb-shell button { transition: filter 150ms ease, transform 150ms ease, box-shadow 150ms ease, opacity 150ms ease; }
+.cb-shell button:hover:not(:disabled) { filter: brightness(0.97); }
+.cb-shell button:active:not(:disabled) { transform: translateY(1px); }
+.cb-shell a { text-decoration: none; }
+.cb-shell input:focus, .cb-shell select:focus, .cb-shell textarea:focus {
+  outline: none; border-color: #E86A1C !important; box-shadow: 0 0 0 3px rgba(232,106,28,0.15);
+}
+.cb-shell [data-row]:hover { background-color: rgba(20,26,44,0.03); }
+
+/* ------------------------------------------------------------------ *
+ * Print scope -- when the label printer's "Print sticker" button
+ * fires window.print(), only the label itself should reach paper.
+ * ------------------------------------------------------------------ */
+@media print {
+  body * { visibility: hidden; }
+  #print-label-area, #print-label-area * { visibility: visible; }
+  #print-label-area {
+    position: absolute; top: 0; left: 0; width: 3in;
+    box-shadow: none !important;
+  }
+}
