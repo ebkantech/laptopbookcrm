@@ -2,7 +2,9 @@ Django>=5.0,<6.0
 djangorestframework>=3.15,<4.0
 djangorestframework-simplejwt>=5.3,<6.0
 django-cors-headers>=4.3,<5.0
+python-dotenv>=1.0,<2.0
 
-# Uncomment when switching from SQLite to PostgreSQL in production
-# (see .env.example for the POSTGRES_* variables this reads):
-# psycopg2-binary>=2.9,<3.0
+# Psycopg 3 is Django's modern PostgreSQL adapter. The binary extra keeps
+# Windows/local development simple while Render and similar PaaS services can
+# use the same dependency without a separate client-library build step.
+psycopg[binary]>=3.1.8,<4.0
