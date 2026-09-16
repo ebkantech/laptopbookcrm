@@ -13,6 +13,31 @@ DEFAULT_APPROVAL_TERMS = (
 )
 
 
+class RepairOrder(models.Model):
+    """One customer drop-off containing one (single) or several (bulk) devices."""
+
+    code = models.CharField(max_length=24, unique=True, null=True, blank=True)
+    party = models.ForeignKey(Party, on_delete=models.PROTECT, related_name="repair_orders")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="repair_orders_created",
+    )
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    @property
+    def repair_type(self):
+        return "bulk" if self.tickets.count() >= 2 else "single"
+
+    def __str__(self):
+        return self.code or f"Repair order {self.pk}"
+
+
 class RepairTicket(models.Model):
     RECEIVED, DIAGNOSING, IN_PROGRESS, READY, DELIVERED = (
         "Received", "Diagnosing", "In progress", "Ready for pickup", "Delivered",
@@ -24,6 +49,13 @@ class RepairTicket(models.Model):
     PAYMENT_CHOICES = [(ADVANCE, "25% advance"), (FULL, "Pay on delivery")]
 
     code = models.CharField(max_length=20, unique=True)
+    order = models.ForeignKey(
+        RepairOrder,
+        on_delete=models.PROTECT,
+        related_name="tickets",
+        null=True,
+        blank=True,
+    )
     party = models.ForeignKey(Party, on_delete=models.PROTECT, related_name="repair_tickets")
     brand = models.CharField(max_length=40)
     model_name = models.CharField(max_length=80)
@@ -183,6 +215,13 @@ class RepairApproval(models.Model):
     ]
 
     estimate = models.ForeignKey(RepairEstimate, on_delete=models.CASCADE, related_name="approvals")
+    order_approval = models.ForeignKey(
+        "RepairOrderApproval",
+        on_delete=models.SET_NULL,
+        related_name="ticket_approvals",
+        null=True,
+        blank=True,
+    )
     token_hash = models.CharField(max_length=64, unique=True, null=True, blank=True, editable=False)
     status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=PENDING)
     source = models.CharField(max_length=12, choices=SOURCE_CHOICES, blank=True)
@@ -208,6 +247,62 @@ class RepairApproval(models.Model):
         return self.status
 
 
+class RepairOrderApproval(models.Model):
+    """Immutable combined approval snapshot for every device in a bulk order."""
+
+    PENDING, APPROVED, REJECTED, EXPIRED, REVOKED = "pending", "approved", "rejected", "expired", "revoked"
+    STATUS_CHOICES = [(value, value.title()) for value in (PENDING, APPROVED, REJECTED, EXPIRED, REVOKED)]
+    CUSTOMER, ADMIN, SUPERADMIN = "customer", "admin", "superadmin"
+    SOURCE_CHOICES = [
+        (CUSTOMER, "Customer via secure link"),
+        (ADMIN, "Admin on behalf of customer"),
+        (SUPERADMIN, "Super Admin override"),
+    ]
+
+    order = models.ForeignKey(RepairOrder, on_delete=models.CASCADE, related_name="approvals")
+    version = models.PositiveSmallIntegerField()
+    snapshot = models.JSONField(default=dict, editable=False)
+    token_hash = models.CharField(max_length=64, unique=True, null=True, blank=True, editable=False)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=PENDING)
+    source = models.CharField(max_length=12, choices=SOURCE_CHOICES, blank=True)
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="repair_order_approvals_requested",
+    )
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="repair_order_approvals_decided",
+    )
+    reason = models.TextField(blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-version"]
+        constraints = [
+            models.UniqueConstraint(fields=["order", "version"], name="unique_repair_order_approval_version"),
+            models.UniqueConstraint(
+                fields=["order"], condition=Q(status="pending"), name="one_pending_repair_order_approval"
+            ),
+            models.UniqueConstraint(
+                fields=["order"], condition=Q(status="approved"), name="one_approved_repair_order_approval"
+            ),
+        ]
+
+    @property
+    def effective_status(self):
+        if self.status == self.PENDING and self.expires_at and timezone.now() >= self.expires_at:
+            return self.EXPIRED
+        return self.status
+
+
 class RepairTicketEvent(models.Model):
     TICKET_CREATED = "ticket_created"
     ESTIMATE_FINALIZED = "estimate_finalized"
@@ -215,6 +310,7 @@ class RepairTicketEvent(models.Model):
     APPROVAL_DECIDED = "approval_decided"
     STAGE_CHANGED = "stage_changed"
     SETTLED = "settled"
+    MODIFIED_AFTER_APPROVAL = "modified_after_approval"
     EVENT_CHOICES = [
         (TICKET_CREATED, "Ticket created"),
         (ESTIMATE_FINALIZED, "Estimate finalized"),
@@ -222,6 +318,7 @@ class RepairTicketEvent(models.Model):
         (APPROVAL_DECIDED, "Approval decided"),
         (STAGE_CHANGED, "Stage changed"),
         (SETTLED, "Settled"),
+        (MODIFIED_AFTER_APPROVAL, "Modified internally after approval"),
     ]
 
     ticket = models.ForeignKey(RepairTicket, on_delete=models.CASCADE, related_name="events")

@@ -113,7 +113,11 @@ class DashboardView(APIView):
         channel_sales.sort(key=lambda c: c["revenue_paid"], reverse=True)
 
         # -- rentals/churn: global, not affected by the date/channel filters above --
-        rentals = list(Rental.objects.select_related("party").prefetch_related("issues").all())
+        rentals = list(
+            Rental.objects.select_related("party")
+            .prefetch_related("issues", "lines")
+            .filter(status__in=[Rental.APPROVED, Rental.ACTIVE])
+        )
         rentals.sort(key=lambda r: r.churn_score, reverse=True)
         churn_leaderboard = [
             {
@@ -165,6 +169,7 @@ class DashboardView(APIView):
             "open_invoice_count": len(pending),
             "rentals_at_risk": sum(1 for r in rentals if r.churn_score >= 60),
             "rental_count": len(rentals),
+            "rental_device_count": sum(max(1, len(r.lines.all())) for r in rentals),
             "churn_leaderboard": churn_leaderboard,
             "channel_sales": channel_sales,
             "recurring_issues_by_unit": recurring_by_unit,

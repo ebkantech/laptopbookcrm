@@ -20,7 +20,7 @@ function PartyDetail({ partyId, onClose }) {
         <div className="flex items-start justify-between">
           <div>
             <p style={{ fontFamily: F.display, fontWeight: 600, fontSize: 18, color: C.ink }}>{party.name}</p>
-            <p className="mt-1 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{party.type} · {party.city} · customer since {fmt(party.joined)}</p>
+            <p className="mt-1 text-xs capitalize" style={{ fontFamily: F.mono, color: C.inkSoft }}>{party.type} · {party.customer_classification} · {party.city} · customer since {fmt(party.joined)}</p>
           </div>
           <button onClick={onClose}><X size={18} style={{ color: C.inkSoft }} /></button>
         </div>
@@ -91,7 +91,7 @@ export default function Parties() {
           <button key={p.id} onClick={() => setSelected(p.id)} data-row className="flex w-full items-center justify-between px-5 py-3.5 text-left sm:px-8" style={{ borderBottom: `1px solid ${C.rule}` }}>
             <div>
               <p className="text-sm" style={{ fontFamily: F.display, fontWeight: 600, color: C.ink }}>{p.name}</p>
-              <p className="text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{p.type} · {p.phone}</p>
+              <p className="text-xs capitalize" style={{ fontFamily: F.mono, color: C.inkSoft }}>{p.type} · {p.customer_classification} · {p.phone}</p>
             </div>
             <div className="text-right">
               <p className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{money(p.total_spent)}</p>

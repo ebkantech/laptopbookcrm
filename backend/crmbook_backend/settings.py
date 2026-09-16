@@ -96,6 +96,7 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'login': os.environ.get('LOGIN_THROTTLE_RATE', '5/min'),
         'repair_approval': os.environ.get('REPAIR_APPROVAL_THROTTLE_RATE', '60/hour'),
+        'rental_approval': os.environ.get('RENTAL_APPROVAL_THROTTLE_RATE', '60/hour'),
     },
 }
 

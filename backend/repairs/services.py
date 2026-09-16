@@ -10,7 +10,17 @@ from django.db.models import Max
 from django.utils import timezone
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 
-from .models import DEFAULT_APPROVAL_TERMS, Notification, RepairApproval, RepairEstimate, RepairEstimateLine, RepairTicket, RepairTicketEvent
+from .models import (
+    DEFAULT_APPROVAL_TERMS,
+    Notification,
+    RepairApproval,
+    RepairEstimate,
+    RepairEstimateLine,
+    RepairOrder,
+    RepairOrderApproval,
+    RepairTicket,
+    RepairTicketEvent,
+)
 
 
 APPROVAL_LINK_TTL = timedelta(hours=24)
@@ -58,6 +68,10 @@ def build_approval_url(raw_token):
     return f"{settings.PUBLIC_FRONTEND_URL.rstrip('/')}/repair-approval/{raw_token}"
 
 
+def build_order_approval_url(raw_token):
+    return f"{settings.PUBLIC_FRONTEND_URL.rstrip('/')}/repair-order-approval/{raw_token}"
+
+
 def build_whatsapp_url(phone, message):
     number = _normalise_whatsapp_number(phone)
     target = f"https://wa.me/{number}" if number else "https://wa.me/"
@@ -80,6 +94,10 @@ def finalize_estimate(ticket, user, lines, terms=""):
         current.approvals.filter(status=RepairApproval.PENDING).update(status=RepairApproval.REVOKED)
         current.is_current = False
         current.save(update_fields=["is_current"])
+    if ticket.order_id:
+        ticket.order.approvals.filter(status=RepairOrderApproval.PENDING).update(
+            status=RepairOrderApproval.REVOKED
+        )
 
     version = (RepairEstimate.objects.filter(ticket=ticket).aggregate(value=Max("version"))["value"] or 0) + 1
     prepared_lines, selected_services, total_amount = [], [], 0
@@ -208,5 +226,256 @@ def customer_decide(raw_token, decision, consent=False, reason=""):
             _record_event(estimate.ticket, RepairTicketEvent.APPROVAL_DECIDED, estimate=estimate, metadata={"decision": desired_status, "source": RepairApproval.CUSTOMER})
             Notification.objects.create(ticket=estimate.ticket, channel=Notification.WHATSAPP, text=f"Customer {desired_status} final estimate v{estimate.version} for {estimate.ticket.code}.")
             return approval
+    except IntegrityError as exc:
+        raise ApprovalConflict() from exc
+
+
+def _repair_order_snapshot(order, allow_customer_rejection=False):
+    tickets = list(
+        order.tickets.select_related("party").prefetch_related(
+            "estimates__lines", "estimates__approvals"
+        ).order_by("id")
+    )
+    if len(tickets) < 2:
+        raise ValidationError({"detail": "Combined approval is only used for bulk repair orders with two or more devices."})
+
+    devices = []
+    for ticket in tickets:
+        estimate = ticket.current_estimate
+        if not estimate:
+            raise ValidationError({
+                "detail": f"Finalize the exact work and cost for {ticket.code} before creating the combined link."
+            })
+        if estimate.is_approved:
+            raise ValidationError({"detail": f"{ticket.code} already has a final approval."})
+        if (
+            not allow_customer_rejection
+            and estimate.approvals.filter(
+                status=RepairApproval.REJECTED, source=RepairApproval.CUSTOMER
+            ).exists()
+        ):
+            raise ValidationError({
+                "detail": f"{ticket.code} was rejected by the customer. Internal Admin/Super Admin handling is required."
+            })
+        devices.append({
+            "ticket_id": ticket.pk,
+            "ticket_code": ticket.code,
+            "estimate_id": estimate.pk,
+            "estimate_version": estimate.version,
+            "brand": estimate.device_brand,
+            "model_name": estimate.device_model,
+            "serial": estimate.device_serial,
+            "reported_issue": estimate.reported_issue,
+            "lines": [
+                {
+                    "description": line.description,
+                    "quantity": line.quantity,
+                    "unit_price": line.unit_price,
+                    "line_total": line.line_total,
+                }
+                for line in estimate.lines.all()
+            ],
+            "total_amount": estimate.total_amount,
+        })
+
+    return {
+        "order_code": order.code,
+        "customer": {
+            "name": order.party.name,
+            "classification": order.party.customer_classification,
+        },
+        "repair_type": "bulk",
+        "currency": "INR",
+        "terms": DEFAULT_APPROVAL_TERMS,
+        "devices": devices,
+        "grand_total": sum(device["total_amount"] for device in devices),
+    }
+
+
+@transaction.atomic
+def issue_order_approval_link(order, user):
+    order = RepairOrder.objects.select_for_update().select_related("party").get(pk=order.pk)
+    if order.approvals.filter(status=RepairOrderApproval.APPROVED).exists():
+        raise ValidationError({"detail": "This repair order already has a final approval."})
+    now = timezone.now()
+    order.approvals.filter(
+        status=RepairOrderApproval.PENDING, expires_at__lte=now
+    ).update(status=RepairOrderApproval.EXPIRED)
+    order.approvals.filter(status=RepairOrderApproval.PENDING).update(status=RepairOrderApproval.REVOKED)
+    snapshot = _repair_order_snapshot(order)
+
+    estimate_ids = [device["estimate_id"] for device in snapshot["devices"]]
+    RepairApproval.objects.filter(
+        estimate_id__in=estimate_ids, status=RepairApproval.PENDING
+    ).update(status=RepairApproval.REVOKED)
+
+    version = (order.approvals.aggregate(value=Max("version"))["value"] or 0) + 1
+    raw_token = secrets.token_urlsafe(32)
+    approval = RepairOrderApproval.objects.create(
+        order=order,
+        version=version,
+        snapshot=snapshot,
+        token_hash=approval_token_hash(raw_token),
+        requested_by=user,
+        expires_at=now + APPROVAL_LINK_TTL,
+    )
+    for ticket in order.tickets.all():
+        _record_event(
+            ticket,
+            RepairTicketEvent.APPROVAL_LINK_CREATED,
+            actor=user,
+            estimate=ticket.current_estimate,
+            metadata={
+                "order_code": order.code,
+                "combined": True,
+                "version": version,
+                "expires_at": approval.expires_at.isoformat(),
+            },
+        )
+    return approval, build_order_approval_url(raw_token)
+
+
+def get_public_order_approval(raw_token, for_update=False):
+    if not raw_token or len(raw_token) > 200:
+        raise NotFound("This approval link is invalid or has expired.")
+    queryset = RepairOrderApproval.objects.select_related("order")
+    if for_update:
+        queryset = queryset.select_for_update()
+    try:
+        approval = queryset.get(token_hash=approval_token_hash(raw_token))
+    except RepairOrderApproval.DoesNotExist as exc:
+        raise NotFound("This approval link is invalid or has expired.") from exc
+    now = timezone.now()
+    if approval.expires_at and now >= approval.expires_at:
+        if approval.status == RepairOrderApproval.PENDING:
+            RepairOrderApproval.objects.filter(
+                pk=approval.pk, status=RepairOrderApproval.PENDING
+            ).update(status=RepairOrderApproval.EXPIRED)
+        raise ApprovalLinkGone()
+    if approval.status in (RepairOrderApproval.EXPIRED, RepairOrderApproval.REVOKED):
+        raise ApprovalLinkGone()
+    return approval
+
+
+def _record_order_decision(approval, source, decision, reason="", user=None):
+    desired_status = (
+        RepairOrderApproval.APPROVED if decision == "approve" else RepairOrderApproval.REJECTED
+    )
+    snapshot_devices = approval.snapshot.get("devices", [])
+    estimate_ids = [device["estimate_id"] for device in snapshot_devices]
+    estimates = {
+        estimate.pk: estimate
+        for estimate in RepairEstimate.objects.select_for_update().select_related("ticket").filter(
+            pk__in=estimate_ids
+        )
+    }
+    if len(estimates) != len(estimate_ids):
+        raise ApprovalConflict("One or more repair estimates no longer exist.")
+    for device in snapshot_devices:
+        estimate = estimates[device["estimate_id"]]
+        if not estimate.is_current or estimate.version != device["estimate_version"]:
+            raise ApprovalConflict("The repair work changed after this link was created.")
+        if estimate.approvals.filter(status=RepairApproval.APPROVED).exists():
+            raise ApprovalConflict()
+
+    now = timezone.now()
+    if RepairOrderApproval.objects.filter(
+        pk=approval.pk, status=RepairOrderApproval.PENDING
+    ).update(
+        status=desired_status,
+        source=source,
+        reason=reason,
+        decided_by=user,
+        decided_at=now,
+    ) != 1:
+        raise ApprovalConflict()
+
+    child_status = RepairApproval.APPROVED if decision == "approve" else RepairApproval.REJECTED
+    for estimate in estimates.values():
+        estimate.approvals.filter(status=RepairApproval.PENDING).update(status=RepairApproval.REVOKED)
+        RepairApproval.objects.create(
+            estimate=estimate,
+            order_approval=approval,
+            status=child_status,
+            source=source,
+            sent_to_phone=estimate.customer_phone,
+            requested_by=approval.requested_by,
+            decided_by=user,
+            reason=reason,
+            created_at=now,
+            decided_at=now,
+        )
+        _record_event(
+            estimate.ticket,
+            RepairTicketEvent.APPROVAL_DECIDED,
+            actor=user,
+            estimate=estimate,
+            metadata={
+                "decision": child_status,
+                "source": source,
+                "combined": True,
+                "order_code": approval.order.code,
+                "reason": reason,
+            },
+        )
+    approval.status = desired_status
+    approval.source = source
+    approval.reason = reason
+    approval.decided_by = user
+    approval.decided_at = now
+    return approval
+
+
+def customer_decide_order(raw_token, decision, consent=False, reason=""):
+    if decision not in ("approve", "reject"):
+        raise ValidationError({"decision": "Choose either approve or reject."})
+    if decision == "approve" and consent is not True:
+        raise ValidationError({"consent": "Confirm that you reviewed every device, work line, and cost."})
+    reason = (reason or "").strip()
+    try:
+        with transaction.atomic():
+            approval = get_public_order_approval(raw_token, for_update=True)
+            desired_status = (
+                RepairOrderApproval.APPROVED if decision == "approve" else RepairOrderApproval.REJECTED
+            )
+            if approval.status in (RepairOrderApproval.APPROVED, RepairOrderApproval.REJECTED):
+                if approval.status == desired_status:
+                    return approval
+                raise ApprovalConflict("A different final decision has already been recorded.")
+            return _record_order_decision(
+                approval, RepairOrderApproval.CUSTOMER, decision, reason=reason
+            )
+    except IntegrityError as exc:
+        raise ApprovalConflict() from exc
+
+
+def approve_order_on_behalf(order, user, reason):
+    if not user.has_perm_code("repairs.approve"):
+        raise PermissionDenied("You do not have permission to approve repair orders.")
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValidationError({"reason": "A reason is required for Admin or Super Admin approval."})
+    try:
+        with transaction.atomic():
+            order = RepairOrder.objects.select_for_update().get(pk=order.pk)
+            if order.approvals.filter(status=RepairOrderApproval.APPROVED).exists():
+                raise ApprovalConflict()
+            now = timezone.now()
+            order.approvals.filter(status=RepairOrderApproval.PENDING).update(
+                status=RepairOrderApproval.REVOKED
+            )
+            snapshot = _repair_order_snapshot(order, allow_customer_rejection=True)
+            version = (order.approvals.aggregate(value=Max("version"))["value"] or 0) + 1
+            source = RepairOrderApproval.SUPERADMIN if user.is_superuser else RepairOrderApproval.ADMIN
+            approval = RepairOrderApproval.objects.create(
+                order=order,
+                version=version,
+                snapshot=snapshot,
+                status=RepairOrderApproval.PENDING,
+                requested_by=user,
+            )
+            return _record_order_decision(
+                approval, source, "approve", reason=reason, user=user
+            )
     except IntegrityError as exc:
         raise ApprovalConflict() from exc

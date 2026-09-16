@@ -1,8 +1,11 @@
 from datetime import date
+import json
+from uuid import uuid4
 
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
 from django.utils import timezone
-from rest_framework import permissions, viewsets
+from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
@@ -10,25 +13,55 @@ from rest_framework.views import APIView
 
 from accounts.permissions import HasPerm
 from catalog.models import Service
-from .models import Notification, RepairInvoice, RepairReopen, RepairReopenItem, RepairTicket
+from .models import Notification, RepairInvoice, RepairOrder, RepairReopen, RepairReopenItem, RepairTicket, RepairTicketEvent
 from .serializers import (
+    CreateRepairOrderSerializer,
     FinalizeEstimateSerializer,
     PublicApprovalDecisionSerializer,
     PublicRepairApprovalSerializer,
+    PublicRepairOrderApprovalSerializer,
     RepairInvoiceListSerializer,
+    RepairOrderSerializer,
     RepairTicketSerializer,
     StaffApprovalSerializer,
 )
-from .services import approve_on_behalf, customer_decide, finalize_estimate, get_public_approval, issue_approval_link
+from .services import (
+    approve_on_behalf,
+    approve_order_on_behalf,
+    customer_decide,
+    customer_decide_order,
+    finalize_estimate,
+    get_public_approval,
+    get_public_order_approval,
+    issue_approval_link,
+    issue_order_approval_link,
+)
+
+
+def _private_response(data, status_code=status.HTTP_200_OK):
+    response = Response(data, status=status_code)
+    response["Cache-Control"] = "no-store, private"
+    response["Pragma"] = "no-cache"
+    response["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+def _audit_value(value):
+    if hasattr(value, "all") and hasattr(value, "values_list"):
+        return list(value.values_list("pk", flat=True))
+    if hasattr(value, "pk"):
+        return value.pk
+    return value
 
 
 class RepairTicketViewSet(viewsets.ModelViewSet):
     queryset = (
         RepairTicket.objects
-        .select_related("party", "stock_point")
+        .select_related("party", "stock_point", "order")
         .prefetch_related(
             "services__part", "notifications", "invoices", "reopens__items", "reopens__invoice",
             "estimates__lines", "estimates__approvals", "events",
+            "order__tickets__estimates__lines", "order__tickets__estimates__approvals",
         )
         .all()
     )
@@ -51,12 +84,39 @@ class RepairTicketViewSet(viewsets.ModelViewSet):
             qs = qs.filter(status=status)
         return qs
 
+    def perform_update(self, serializer):
+        ticket = self.get_object()
+        if ticket.has_repair_approval:
+            reason = (self.request.data.get("internal_change_reason") or "").strip()
+            if not reason:
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError({
+                    "internal_change_reason": "A reason is required when changing a customer-approved ticket."
+                })
+            before = {field: _audit_value(getattr(ticket, field)) for field in serializer.validated_data}
+            updated = serializer.save()
+            after = {field: _audit_value(getattr(updated, field)) for field in serializer.validated_data}
+            if before != after:
+                RepairTicketEvent.objects.create(
+                    ticket=updated,
+                    estimate=updated.current_estimate,
+                    event_type=RepairTicketEvent.MODIFIED_AFTER_APPROVAL,
+                    actor=self.request.user,
+                    metadata=json.loads(DjangoJSONEncoder().encode({
+                        "reason": reason,
+                        "before": before,
+                        "after": after,
+                    })),
+                )
+            return
+        serializer.save()
+
     @transaction.atomic
     def perform_create(self, serializer):
         services = serializer.validated_data.get("services", [])
-        last = RepairTicket.objects.order_by("-id").first()
-        next_num = 1044 + (last.id if last else 0) + 1
-        ticket = serializer.save(code=f"RPR-{next_num}", status=RepairTicket.RECEIVED)
+        ticket = serializer.save(code=f"TMP-{uuid4().hex[:16]}", status=RepairTicket.RECEIVED)
+        ticket.code = f"RPR-{1044 + ticket.pk}"
+        ticket.save(update_fields=["code"])
         device = f"{ticket.brand} {ticket.model_name}"
         Notification.objects.create(
             ticket=ticket, channel=Notification.WHATSAPP,
@@ -287,7 +347,7 @@ class RepairApprovalPublicView(APIView):
     throttle_scope = "repair_approval"
 
     def get(self, request, token):
-        return Response(PublicRepairApprovalSerializer(get_public_approval(token)).data)
+        return _private_response(PublicRepairApprovalSerializer(get_public_approval(token)).data)
 
     def post(self, request, token):
         payload = PublicApprovalDecisionSerializer(data=request.data)
@@ -298,7 +358,127 @@ class RepairApprovalPublicView(APIView):
             payload.validated_data.get("consent", False),
             payload.validated_data.get("reason", ""),
         )
-        return Response(PublicRepairApprovalSerializer(approval).data)
+        return _private_response(PublicRepairApprovalSerializer(approval).data)
+
+
+class RepairOrderViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = (
+        RepairOrder.objects.select_related("party")
+        .prefetch_related(
+            "approvals",
+            "tickets__party",
+            "tickets__stock_point",
+            "tickets__services__part",
+            "tickets__notifications",
+            "tickets__invoices",
+            "tickets__reopens__items",
+            "tickets__reopens__invoice",
+            "tickets__estimates__lines",
+            "tickets__estimates__approvals",
+            "tickets__events",
+        )
+        .all()
+    )
+    serializer_class = RepairOrderSerializer
+    permission_classes = [permissions.IsAuthenticated, HasPerm]
+    required_perms = {
+        "list": "repairs.view",
+        "retrieve": "repairs.view",
+        "create": "repairs.manage",
+        "approval_link": "repairs.manage",
+        "approve_on_behalf": "repairs.approve",
+    }
+
+    def get_serializer_class(self):
+        return CreateRepairOrderSerializer if self.action == "create" else RepairOrderSerializer
+
+    @transaction.atomic
+    def create(self, request, *args, **kwargs):
+        payload = CreateRepairOrderSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        data = payload.validated_data
+        devices = data.pop("devices")
+        order = RepairOrder.objects.create(
+            party=data["party"],
+            created_by=request.user,
+        )
+        order.code = f"RPR-ORD-{order.pk:06d}"
+        order.save(update_fields=["code"])
+
+        for device in devices:
+            services = device.pop("services")
+            total = sum(service.charge for service in services)
+            ticket = RepairTicket.objects.create(
+                order=order,
+                code=f"RPR-TEMP-{order.pk}-{len(order.tickets.all()) + 1}",
+                party=order.party,
+                brand=device["brand"],
+                model_name=device["model_name"],
+                serial=device["serial"],
+                stock_point=data["stock_point"],
+                issue=device["issue"],
+                received=data["received"],
+                expected=data.get("expected"),
+                payment=data["payment"],
+                advance_paid=round(total * 0.25) if data["payment"] == RepairTicket.ADVANCE else 0,
+            )
+            ticket.code = f"RPR-{1044 + ticket.pk}"
+            ticket.save(update_fields=["code"])
+            ticket.services.set(services)
+            device_label = f"{ticket.brand} {ticket.model_name}"
+            Notification.objects.create(
+                ticket=ticket,
+                channel=Notification.WHATSAPP,
+                text=f"Ticket {ticket.code} created for your {device_label} under order {order.code}.",
+            )
+            Notification.objects.create(
+                ticket=ticket,
+                channel=Notification.EMAIL,
+                text=f"Repair ticket {ticket.code} acknowledged under {order.code} -- {device_label}.",
+            )
+        fresh = self.get_queryset().get(pk=order.pk)
+        return Response(RepairOrderSerializer(fresh).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="approval-link")
+    def approval_link(self, request, pk=None):
+        approval, approval_url = issue_order_approval_link(self.get_object(), request.user)
+        return Response({
+            "order": RepairOrderSerializer(self.get_queryset().get(pk=approval.order_id)).data,
+            "approval_url": approval_url,
+            "expires_at": approval.expires_at,
+        })
+
+    @action(detail=True, methods=["post"], url_path="approve-on-behalf")
+    def approve_on_behalf(self, request, pk=None):
+        payload = StaffApprovalSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        approval = approve_order_on_behalf(
+            self.get_object(), request.user, payload.validated_data["reason"]
+        )
+        return Response(RepairOrderSerializer(self.get_queryset().get(pk=approval.order_id)).data)
+
+
+class RepairOrderApprovalPublicView(APIView):
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "repair_approval"
+
+    def get(self, request, token):
+        return _private_response(
+            PublicRepairOrderApprovalSerializer(get_public_order_approval(token)).data
+        )
+
+    def post(self, request, token):
+        payload = PublicApprovalDecisionSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        approval = customer_decide_order(
+            token,
+            payload.validated_data["decision"],
+            payload.validated_data.get("consent", False),
+            payload.validated_data.get("reason", ""),
+        )
+        return _private_response(PublicRepairOrderApprovalSerializer(approval).data)
 
 
 class RepairInvoiceViewSet(viewsets.ReadOnlyModelViewSet):

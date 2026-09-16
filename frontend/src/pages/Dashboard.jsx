@@ -165,7 +165,7 @@ export default function Dashboard({ onGo }) {
         <StatCard label="Pending collections" value={compact(data.pending_collections)} sub={`${data.open_invoice_count} invoices open`} trend={data.open_invoice_count ? "down" : undefined} icon={CreditCard} />
         <StatCard label="Stock on hand" value={`${data.total_stock_units} units`} sub={`${compact(data.stock_value)} at cost`} icon={Package} />
         <StatCard label="Low stock alerts" value={data.low_stock_count} sub="4 units or fewer" trend={data.low_stock_count ? "down" : undefined} icon={AlertTriangle} />
-        <StatCard label="Rentals at churn risk" value={data.rentals_at_risk} sub={`of ${data.rental_count} active rentals`} trend={data.rentals_at_risk ? "down" : undefined} icon={Repeat2} />
+        <StatCard label="Rentals at churn risk" value={data.rentals_at_risk} sub={`${data.rental_device_count ?? data.rental_count} devices across ${data.rental_count} active agreements`} trend={data.rentals_at_risk ? "down" : undefined} icon={Repeat2} />
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">

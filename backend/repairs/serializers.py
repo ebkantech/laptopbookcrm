@@ -2,14 +2,18 @@ from datetime import date
 
 from rest_framework import serializers
 
-from catalog.models import Service
+from catalog.models import Service, StockPoint
 from catalog.serializers import ServiceSerializer
+from parties.models import Party
 from .models import (
+    DEFAULT_APPROVAL_TERMS,
     Notification,
     RepairApproval,
     RepairEstimate,
     RepairEstimateLine,
     RepairInvoice,
+    RepairOrder,
+    RepairOrderApproval,
     RepairReopen,
     RepairReopenItem,
     RepairTicket,
@@ -44,6 +48,31 @@ class PublicApprovalDecisionSerializer(serializers.Serializer):
     decision = serializers.ChoiceField(choices=["approve", "reject"])
     consent = serializers.BooleanField(required=False, default=False)
     reason = serializers.CharField(required=False, allow_blank=True, max_length=500)
+
+
+class RepairOrderDeviceInputSerializer(serializers.Serializer):
+    brand = serializers.CharField(max_length=40, allow_blank=False, trim_whitespace=True)
+    model_name = serializers.CharField(max_length=80, allow_blank=False, trim_whitespace=True)
+    serial = serializers.CharField(max_length=60, allow_blank=False, trim_whitespace=True)
+    issue = serializers.CharField(allow_blank=False, trim_whitespace=True)
+    service_ids = serializers.PrimaryKeyRelatedField(
+        source="services", queryset=Service.objects.all(), many=True, allow_empty=False
+    )
+
+
+class CreateRepairOrderSerializer(serializers.Serializer):
+    party = serializers.PrimaryKeyRelatedField(queryset=Party.objects.all())
+    stock_point = serializers.PrimaryKeyRelatedField(queryset=StockPoint.objects.all())
+    received = serializers.DateField()
+    expected = serializers.DateField(required=False, allow_null=True)
+    payment = serializers.ChoiceField(choices=RepairTicket.PAYMENT_CHOICES, default=RepairTicket.ADVANCE)
+    devices = RepairOrderDeviceInputSerializer(many=True, allow_empty=False)
+
+    def validate_devices(self, devices):
+        serials = [device["serial"].casefold() for device in devices]
+        if len(serials) != len(set(serials)):
+            raise serializers.ValidationError("Each physical device needs a different serial or asset tag.")
+        return devices
 
 
 class NotificationSerializer(serializers.ModelSerializer):
@@ -149,6 +178,25 @@ class PublicRepairApprovalSerializer(serializers.Serializer):
         }
 
 
+class PublicRepairOrderApprovalSerializer(serializers.Serializer):
+    def to_representation(self, approval):
+        snapshot = approval.snapshot
+        return {
+            "status": approval.effective_status,
+            "source": approval.source,
+            "decided_at": approval.decided_at.isoformat() if approval.decided_at else None,
+            "expires_at": approval.expires_at.isoformat() if approval.expires_at else None,
+            "version": approval.version,
+            "order_code": snapshot.get("order_code"),
+            "customer": snapshot.get("customer", {}),
+            "repair_type": snapshot.get("repair_type"),
+            "devices": snapshot.get("devices", []),
+            "currency": snapshot.get("currency", "INR"),
+            "grand_total": snapshot.get("grand_total", 0),
+            "terms": snapshot.get("terms", DEFAULT_APPROVAL_TERMS),
+        }
+
+
 class RepairTicketSerializer(serializers.ModelSerializer):
     party_name = serializers.CharField(source="party.name", read_only=True)
     stock_point_name = serializers.CharField(source="stock_point.name", read_only=True)
@@ -167,6 +215,12 @@ class RepairTicketSerializer(serializers.ModelSerializer):
     current_estimate = serializers.SerializerMethodField()
     approval_status = serializers.SerializerMethodField()
     events = RepairTicketEventSerializer(many=True, read_only=True)
+    order_code = serializers.CharField(source="order.code", read_only=True)
+    repair_type = serializers.SerializerMethodField()
+    order_id = serializers.IntegerField(read_only=True)
+    order_device_count = serializers.SerializerMethodField()
+    order_progress = serializers.SerializerMethodField()
+    combined_approval_ready = serializers.SerializerMethodField()
 
     class Meta:
         model = RepairTicket
@@ -177,8 +231,17 @@ class RepairTicketSerializer(serializers.ModelSerializer):
             "notifications", "invoice", "reopens", "total", "balance_due",
             "warranty_active", "warranty_end_date", "can_reopen", "current_estimate",
             "approval_status", "events",
+            "order_id", "order_code", "repair_type", "order_device_count",
+            "order_progress", "combined_approval_ready",
         ]
         read_only_fields = ["code", "status"]
+
+    def validate(self, attrs):
+        if self.instance is None:
+            serial = (attrs.get("serial") or "").strip()
+            if not serial or serial == "—":
+                raise serializers.ValidationError({"serial": "Serial number or asset tag is required."})
+        return attrs
 
     def get_invoice(self, obj):
         # the ORIGINAL delivery's bill specifically -- a reopen's bill
@@ -214,6 +277,56 @@ class RepairTicketSerializer(serializers.ModelSerializer):
     def get_approval_status(self, obj):
         estimate = obj.current_estimate
         return estimate.approval_status if estimate else "not_sent"
+
+    def get_repair_type(self, obj):
+        return obj.order.repair_type if obj.order_id else "single"
+
+    def get_order_device_count(self, obj):
+        return obj.order.tickets.count() if obj.order_id else 1
+
+    def get_order_progress(self, obj):
+        if not obj.order_id:
+            return []
+        return [
+            {
+                "id": sibling.id,
+                "code": sibling.code,
+                "device": " ".join(part for part in [sibling.brand, sibling.model_name] if part).strip(),
+                "serial": sibling.serial,
+                "estimate_finalized": sibling.current_estimate is not None,
+                "approval_status": sibling.current_estimate.approval_status if sibling.current_estimate else "not_sent",
+            }
+            for sibling in obj.order.tickets.all()
+        ]
+
+    def get_combined_approval_ready(self, obj):
+        if not obj.order_id:
+            return False
+        progress = self.get_order_progress(obj)
+        return len(progress) >= 2 and all(item["estimate_finalized"] for item in progress)
+
+
+class RepairOrderSerializer(serializers.ModelSerializer):
+    party_name = serializers.CharField(source="party.name", read_only=True)
+    repair_type = serializers.CharField(read_only=True)
+    tickets = RepairTicketSerializer(many=True, read_only=True)
+    approval_status = serializers.SerializerMethodField()
+    ready_for_approval = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RepairOrder
+        fields = [
+            "id", "code", "party", "party_name", "repair_type", "created_at",
+            "tickets", "approval_status", "ready_for_approval",
+        ]
+
+    def get_approval_status(self, obj):
+        approval = obj.approvals.order_by("-version").first()
+        return approval.effective_status if approval else "not_sent"
+
+    def get_ready_for_approval(self, obj):
+        tickets = list(obj.tickets.all())
+        return len(tickets) >= 2 and all(ticket.current_estimate for ticket in tickets)
 
 
 class RepairInvoiceListSerializer(serializers.ModelSerializer):

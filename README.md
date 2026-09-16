@@ -2,7 +2,7 @@
 
 A laptop hardware business CRM: shared inventory across shops and online
 channels, sales invoicing with payment links, rentals with churn scoring,
-a repairs & service ticket lifecycle, cash/bank books, object-based role
+a repairs & service ticket lifecycle, secure customer approvals, cash/bank books, object-based role
 access, and WhatsApp/email touchpoints throughout.
 
 - **Backend**: Django + Django REST Framework, JWT auth, SQLite by default.
@@ -61,10 +61,10 @@ Open `http://localhost:5173`, sign in with any seeded user above.
 
 **Fully wired to the database** (not mock data): inventory & shared
 stock, parties & their WhatsApp/email thread, invoices (create decrements
-real stock, settle marks paid), rentals (churn score computed server-side
-in `rentals.models.Rental.churn_score`), repair tickets (full lifecycle:
+real stock, settle marks paid), single/bulk rentals with physical asset tracking,
+24-hour approval links and audit history, repair tickets (full lifecycle:
 create -> advance stage -> settle & auto-generate a repair invoice, with
-notifications logged at each step), cash book, bank book + reconciliation,
+notifications logged at each step), combined bulk-repair approval, cash book, bank book + reconciliation,
 roles & permissions matrix, broadcast campaigns, inbound WhatsApp orders.
 
 **Still demo data on the frontend**: the Dashboard's "Income trend"
@@ -111,10 +111,38 @@ frontend/
 - Move off SQLite to Postgres for concurrent writes (stock decrement
   currently uses an atomic `F()` update, which is safe on any backend,
   but SQLite's write-locking will bottleneck under real concurrent load).
-- Replace the Tailwind Play CDN `<script>` in `index.html` with a real
-  Tailwind build (`npm install -D tailwindcss postcss autoprefixer`) --
-  the CDN build is fine for development but not meant for production.
+- Tailwind and Bootstrap are bundled locally by Vite; keep `npm ci && npm run build`
+  in the production build pipeline. Public approval routes are lazy-loaded and
+  use a no-referrer policy.
 - Wire the WhatsApp Business API and an email provider behind the
   `Notification` / `Message` creation points.
 - Wire a payment gateway webhook to call `Invoice.settle` automatically
   instead of the manual "Mark settled" button.
+
+## 6. Rental and repair approval workflow
+
+- Rental type is derived from physical line count: one asset is `single`, two
+  or more assets are `bulk`; staff cannot manually create a contradictory type.
+- A rental approval freezes a 24-hour snapshot containing device identity,
+  duration, terms and monthly prices. Only a SHA-256 token hash is stored.
+- Admin/Super Admin approval requires a reason. Cancelling or closing an
+  agreement releases its assets and writes an audit event; agreements are not
+  hard-deleted.
+- A bulk repair order retains one ticket and final estimate per physical device.
+  Once every device estimate is finalized, one combined link displays all work,
+  device totals and the grand total. The decision is recorded against every
+  child estimate, so existing stage guards continue to apply.
+- Approval links are provider-independent: copy the HTTPS URL into WhatsApp or
+  email. WhatsApp Cloud API is not required for this workflow.
+
+After pulling approval-related changes, run:
+
+```bash
+cd backend
+python manage.py migrate
+python manage.py test
+
+cd ../frontend
+npm ci
+npm run build
+```
