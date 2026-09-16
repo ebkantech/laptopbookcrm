@@ -25,6 +25,8 @@ PERMS = {
     "invoices.settle": "Mark invoices settled",
     "inventory.edit": "Edit stock and product records",
     "rentals.manage": "Manage rental accounts",
+    "rentals.view": "View rental assets",
+    "rentals.approve": "Approve rental agreements on behalf of customers",
     "repairs.view": "View repair tickets",
     "repairs.manage": "Create tickets, update stages, and settle repair bills",
     "broadcast.send": "Send WhatsApp / email campaigns",
@@ -41,7 +43,7 @@ ROLES = {
     ]),
     "manager": ("Store Manager", [
         "cashbook.view", "cashbook.edit", "bankbook.view", "invoices.view", "invoices.create",
-        "invoices.settle", "inventory.edit", "rentals.manage", "repairs.view", "repairs.manage",
+        "invoices.settle", "inventory.edit", "rentals.view", "rentals.manage", "repairs.view", "repairs.manage",
         "broadcast.send", "warranty.manage",
     ]),
     "sales": ("Sales Executive", ["invoices.view", "invoices.create", "repairs.view", "repairs.manage", "broadcast.send", "warranty.manage"]),

@@ -5,6 +5,12 @@ class Party(models.Model):
     """A customer, dealer, or rental account -- everything the CRM sells to."""
     RETAIL, DEALER, RENTAL = "Retail", "Dealer", "Rental"
     TYPE_CHOICES = [(RETAIL, "Retail"), (DEALER, "Dealer"), (RENTAL, "Rental")]
+    INDIVIDUAL, BUSINESS, DEALER_CUSTOMER = "individual", "business", "dealer"
+    CUSTOMER_CLASSIFICATION_CHOICES = [
+        (INDIVIDUAL, "Individual"),
+        (BUSINESS, "Business / Corporate"),
+        (DEALER_CUSTOMER, "Dealer"),
+    ]
 
     name = models.CharField(max_length=120)
     type = models.CharField(max_length=10, choices=TYPE_CHOICES)
@@ -13,6 +19,13 @@ class Party(models.Model):
     gstin = models.CharField(max_length=20, blank=True)
     city = models.CharField(max_length=60, blank=True)
     joined = models.DateField()
+    # This is intentionally separate from the legacy `type` field. A party can
+    # be a rental customer and still be an individual, business, or dealer.
+    customer_classification = models.CharField(
+        max_length=12,
+        choices=CUSTOMER_CLASSIFICATION_CHOICES,
+        default=INDIVIDUAL,
+    )
 
     class Meta:
         ordering = ["name"]

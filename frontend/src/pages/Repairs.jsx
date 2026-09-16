@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Check, Cpu, IndianRupee, LayoutGrid, List, MapPinned, PackageCheck, Plus,
   Terminal, Truck, Wrench, X,
@@ -86,6 +86,7 @@ function QuickAddParty({ onClose, onAdded }) {
   const [type, setType] = useState("Retail");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [classification, setClassification] = useState("individual");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -96,7 +97,7 @@ function QuickAddParty({ onClose, onAdded }) {
     setError("");
     try {
       const party = await api.post("/parties/", {
-        name: name.trim(), type, phone: phone.trim(), email: email.trim(),
+        name: name.trim(), type, customer_classification: classification, phone: phone.trim(), email: email.trim(),
         joined: new Date().toISOString().slice(0, 10),
       });
       onAdded(party);
@@ -118,6 +119,9 @@ function QuickAddParty({ onClose, onAdded }) {
         <select value={type} onChange={(e) => setType(e.target.value)} className="bg-transparent px-2 py-1.5 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}>
           <option>Retail</option><option>Dealer</option><option>Rental</option>
         </select>
+        <select value={classification} onChange={(event) => setClassification(event.target.value)} className="bg-transparent px-2 py-1.5 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}>
+          <option value="individual">Individual</option><option value="business">Business / Corporate</option><option value="dealer">Dealer</option>
+        </select>
         <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone number" className="bg-transparent px-2 py-1.5 text-sm outline-none" style={{ fontFamily: F.mono, color: C.ink, border: `1px solid ${C.rule}` }} />
         <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email (optional)" className="bg-transparent px-2 py-1.5 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
       </div>
@@ -130,6 +134,8 @@ function QuickAddParty({ onClose, onAdded }) {
 }
 
 function NewTicketModal({ parties, services, stockPoints, onClose, onCreate }) {
+  const blankDevice = () => ({ brand: "Dell", model_name: "", serial: "", issue: "", service_ids: [] });
+  const [entryType, setEntryType] = useState("single");
   const [localParties, setLocalParties] = useState(parties);
   const [party, setParty] = useState(parties[0]?.id);
   const [addingParty, setAddingParty] = useState(false);
@@ -142,23 +148,37 @@ function NewTicketModal({ parties, services, stockPoints, onClose, onCreate }) {
   const [payment, setPayment] = useState("advance");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [bulkDevices, setBulkDevices] = useState([blankDevice(), blankDevice()]);
 
   const stockPoint = stockPoints.find((s) => s.id === stockPointId);
   const toggle = (id) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
-  const total = selected.reduce((s, id) => s + (services.find((sv) => sv.id === id)?.charge || 0), 0);
+  const singleTotal = selected.reduce((s, id) => s + (services.find((sv) => sv.id === id)?.charge || 0), 0);
+  const bulkTotal = bulkDevices.reduce((sum, device) => sum + device.service_ids.reduce((deviceSum, id) => deviceSum + (services.find((service) => service.id === id)?.charge || 0), 0), 0);
+  const total = entryType === "bulk" ? bulkTotal : singleTotal;
   const advance = Math.round(total * 0.25);
+  const updateBulkDevice = (index, patch) => setBulkDevices((current) => current.map((device, deviceIndex) => deviceIndex === index ? { ...device, ...patch } : device));
+  const toggleBulkService = (index, serviceId) => setBulkDevices((current) => current.map((device, deviceIndex) => deviceIndex !== index ? device : ({ ...device, service_ids: device.service_ids.includes(serviceId) ? device.service_ids.filter((id) => id !== serviceId) : [...device.service_ids, serviceId] })));
 
   const submit = async () => {
-    if (!model.trim() || !selected.length) return;
+    if (entryType === "single" && (!model.trim() || !serial.trim() || !issue.trim() || !selected.length)) return setError("Model, serial / asset tag, issue, and at least one service are required.");
+    if (entryType === "bulk" && bulkDevices.some((device) => !device.model_name.trim() || !device.serial.trim() || !device.issue.trim() || !device.service_ids.length)) return setError("Every bulk device needs model, serial / asset tag, issue, and at least one service.");
     setBusy(true);
     setError("");
     try {
+      if (entryType === "bulk") {
+        await onCreate({
+          party, stock_point: stockPointId, payment,
+          received: new Date().toISOString().slice(0, 10),
+          devices: bulkDevices.map((device) => ({ ...device, model_name: device.model_name.trim(), serial: device.serial.trim(), issue: device.issue.trim() })),
+        }, true);
+        return;
+      }
       await onCreate({
         party, brand, model_name: model.trim(), serial: serial.trim() || "—",
         stock_point: stockPointId, issue: issue.trim() || "Not specified",
         service_ids: selected, payment, advance_paid: payment === "advance" ? advance : 0,
         received: new Date().toISOString().slice(0, 10),
-      });
+      }, false);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -170,6 +190,10 @@ function NewTicketModal({ parties, services, stockPoints, onClose, onCreate }) {
     <div className="fixed inset-0 z-30 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(4,9,18,0.7)" }}>
       <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}>
         <div className="flex items-center justify-between"><Eyebrow>New repair ticket</Eyebrow><button onClick={onClose}><X size={16} style={{ color: C.inkSoft }} /></button></div>
+
+        <div className="mt-4 grid grid-cols-2" style={{ border: `1px solid ${C.rule}` }}>
+          {[["single", "Single · 1 device"], ["bulk", "Bulk · 2+ devices"]].map(([value, label]) => <button key={value} type="button" onClick={() => setEntryType(value)} className="py-2 text-xs uppercase" style={{ backgroundColor: entryType === value ? C.stamp : "transparent", color: entryType === value ? C.onAccent : C.inkSoft, fontWeight: 600 }}>{label}</button>)}
+        </div>
 
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Customer
@@ -189,7 +213,7 @@ function NewTicketModal({ parties, services, stockPoints, onClose, onCreate }) {
               {stockPoints.filter((s) => s.kind === "shop").map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </label>
-          <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Brand
+          {entryType === "single" && <><label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Brand
             <select value={brand} onChange={(e) => setBrand(e.target.value)} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}>
               {["Dell", "HP", "Lenovo", "Asus", "Acer", "Apple", "MSI"].map((b) => <option key={b} value={b}>{b}</option>)}
             </select>
@@ -198,16 +222,32 @@ function NewTicketModal({ parties, services, stockPoints, onClose, onCreate }) {
             <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="e.g. Latitude 5420" className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
           </label>
           <label className="block text-xs sm:col-span-2" style={{ fontFamily: F.body, color: C.inkSoft }}>Serial / asset tag
-            <input value={serial} onChange={(e) => setSerial(e.target.value)} placeholder="Optional" className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.mono, color: C.ink, border: `1px solid ${C.rule}` }} />
+            <input value={serial} onChange={(e) => setSerial(e.target.value)} placeholder="Required" className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.mono, color: C.ink, border: `1px solid ${C.rule}` }} />
           </label>
+          </>}
         </div>
 
-        <label className="mt-3 block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Reported issue
+        {entryType === "single" && <><label className="mt-3 block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Reported issue
           <textarea value={issue} onChange={(e) => setIssue(e.target.value)} rows={2} className="mt-1 w-full resize-none bg-transparent px-3 py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
         </label>
 
         <p className="mt-4 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em", color: C.inkSoft }}>Work needed</p>
         <div className="mt-2"><ServiceChecklist services={services} stockPointSlug={stockPoint?.slug} brand={brand} selected={selected} onToggle={toggle} /></div>
+        </>}
+
+        {entryType === "bulk" && <div className="mt-4 space-y-4">
+          {bulkDevices.map((device, index) => <section key={index} className="p-4" data-panel style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip2 }}>
+            <div className="flex items-center justify-between"><Eyebrow>Device {index + 1}</Eyebrow>{bulkDevices.length > 2 && <button type="button" onClick={() => setBulkDevices((current) => current.filter((_, deviceIndex) => deviceIndex !== index))}><X size={14} /></button>}</div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              <select value={device.brand} onChange={(event) => updateBulkDevice(index, { brand: event.target.value })} className="bg-transparent px-2 py-2 text-sm" style={{ border: `1px solid ${C.rule}` }}>{["Dell", "HP", "Lenovo", "Asus", "Acer", "Apple", "MSI"].map((item) => <option key={item}>{item}</option>)}</select>
+              <input value={device.model_name} onChange={(event) => updateBulkDevice(index, { model_name: event.target.value })} placeholder="Model · required" className="bg-transparent px-2 py-2 text-sm" style={{ border: `1px solid ${C.rule}` }} />
+              <input value={device.serial} onChange={(event) => updateBulkDevice(index, { serial: event.target.value })} placeholder="Serial / asset tag · required" className="bg-transparent px-2 py-2 text-sm" style={{ border: `1px solid ${C.rule}` }} />
+            </div>
+            <textarea value={device.issue} onChange={(event) => updateBulkDevice(index, { issue: event.target.value })} placeholder="Reported issue · required" rows={2} className="mt-2 w-full bg-transparent px-2 py-2 text-sm" style={{ border: `1px solid ${C.rule}` }} />
+            <div className="mt-3"><ServiceChecklist services={services} stockPointSlug={stockPoint?.slug} brand={device.brand} selected={device.service_ids} onToggle={(serviceId) => toggleBulkService(index, serviceId)} /></div>
+          </section>)}
+          <button type="button" onClick={() => setBulkDevices((current) => [...current, blankDevice()])} className="flex w-full items-center justify-center gap-1 py-2 text-xs uppercase" style={{ border: `1px dashed ${C.stamp}`, color: C.stamp }}><Plus size={13} /> Add another device</button>
+        </div>}
 
         <div className="mt-4 flex" style={{ border: `1px solid ${C.rule}` }}>
           {[["advance", "25% advance"], ["full", "Pay on delivery"]].map(([k, label]) => (
@@ -222,7 +262,7 @@ function NewTicketModal({ parties, services, stockPoints, onClose, onCreate }) {
 
         <ErrorNote message={error} />
         <button onClick={submit} disabled={busy} className="mt-4 flex w-full items-center justify-center gap-1.5 py-2.5 text-xs uppercase" style={{ backgroundColor: C.green, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em", opacity: busy ? 0.7 : 1 }}>
-          <Wrench size={13} /> {busy ? "Creating…" : "Generate ticket & notify customer"}
+          <Wrench size={13} /> {busy ? "Creating…" : entryType === "bulk" ? `Create bulk order · ${bulkDevices.length} tickets` : "Create single repair ticket"}
         </button>
       </div>
     </div>
@@ -365,8 +405,8 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
   const [services, setServices] = useState([]);
   const [reopening, setReopening] = useState(false);
 
-  const load = () => api.get(`/tickets/${ticketId}/`).then(setTicket);
-  useEffect(() => { load(); api.get("/services/").then((d) => setServices(d.results ?? d)); }, [ticketId]);
+  const load = useCallback(() => api.get(`/tickets/${ticketId}/`).then(setTicket), [ticketId]);
+  useEffect(() => { load(); api.get("/services/").then((d) => setServices(d.results ?? d)); }, [load]);
   if (!ticket) return null;
 
   const nextStage = STAGES[STAGES.indexOf(ticket.status) + 1];
@@ -383,6 +423,7 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
           <div>
             <div className="flex items-center gap-2">
               <p style={{ fontFamily: F.display, fontWeight: 700, fontSize: 18, color: C.ink }}>{ticket.code}</p>
+              {ticket.repair_type === "bulk" && <Pill color={C.blue}>Bulk · {ticket.order_code}</Pill>}
               {ticket.warranty_active && <Pill color={C.green}>warranty until {ticket.warranty_end_date}</Pill>}
             </div>
             <p className="mt-1 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{ticket.party_name} · {ticket.brand} {ticket.model_name} · {ticket.serial}</p>
@@ -621,23 +662,22 @@ export default function Repairs() {
   const [view, setView] = useState("list");
   const [flash, setFlash] = useState("");
 
-  const load = (status) => api.get(`/tickets/${status !== "all" ? `?status=${encodeURIComponent(status)}` : ""}`).then((d) => setTickets(d.results ?? d)).catch((e) => setError(e.message));
+  const load = useCallback((status) => api.get(`/tickets/${status !== "all" ? `?status=${encodeURIComponent(status)}` : ""}`).then((d) => setTickets(d.results ?? d)).catch((e) => setError(e.message)), []);
 
   useEffect(() => {
-    load("all");
     api.get("/parties/").then((d) => setParties(d.results ?? d));
     api.get("/services/").then((d) => setServices(d.results ?? d));
     api.get("/stock-points/").then((d) => setStockPoints(d.results ?? d));
-  }, []);
-  useEffect(() => { load(filter); }, [filter]);
+  }, [load]);
+  useEffect(() => { load(filter); }, [filter, load]);
 
   if (!can("repairs.view")) return <div className="flex-1 px-8 py-10"><Locked label="Your role doesn't include repairs & service access." /></div>;
   if (error) return <div className="flex-1 px-8 py-10"><ErrorNote message={error} /></div>;
   if (!tickets) return <Spinner label="Loading tickets…" />;
 
-  const create = async (payload) => {
-    const t = await api.post("/tickets/", payload);
-    setTickets((l) => [t, ...l]);
+  const create = async (payload, isBulk = false) => {
+    const result = await api.post(isBulk ? "/repair-orders/" : "/tickets/", payload);
+    setTickets((current) => isBulk ? [...result.tickets, ...current] : [result, ...current]);
     setAdding(false);
   };
 
@@ -693,7 +733,7 @@ export default function Repairs() {
             {tickets.map((t) => (
               <button key={t.id} onClick={() => setOpenId(t.id)} data-panel className="flex w-full flex-wrap items-center gap-3 px-4 py-3 text-left" style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip }}>
                 <div className="min-w-[160px] flex-1">
-                  <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{t.code}</span>
+                  <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{t.code}{t.repair_type === "bulk" ? ` · ${t.order_code}` : ""}</span>
                   <p className="mt-0.5 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{t.party_name} · {t.brand} {t.model_name}</p>
                 </div>
                 <span className="flex items-center gap-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}><MapPinned size={12} />{t.stock_point_name}</span>

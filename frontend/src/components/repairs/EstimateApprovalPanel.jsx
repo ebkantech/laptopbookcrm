@@ -31,8 +31,11 @@ export default function EstimateApprovalPanel({ ticket, services, canManage, can
   const [error, setError] = useState("");
 
   const estimate = ticket.current_estimate;
+  const isBulk = ticket.repair_type === "bulk" && ticket.order_id;
   const status = ticket.approval_status || "not_sent";
   const approved = ["customer_approved", "admin_approved", "superadmin_approved"].includes(status);
+  const combinedReady = !isBulk || ticket.combined_approval_ready;
+  const pendingOrderTickets = isBulk ? (ticket.order_progress || []).filter((item) => !item.estimate_finalized) : [];
   const total = useMemo(() => lines.reduce((sum, line) => sum + (Number(line.quantity) || 0) * (Number(line.unit_price) || 0), 0), [lines]);
 
   const updateLine = (index, field, value) => setLines((current) => current.map((line, i) => i === index ? { ...line, [field]: value } : line));
@@ -62,9 +65,10 @@ export default function EstimateApprovalPanel({ ticket, services, canManage, can
   const generateLink = async () => {
     setError(""); setBusy("link");
     try {
-      const data = await api.post(`/tickets/${ticket.id}/approval-link/`);
+      const data = await api.post(isBulk ? `/repair-orders/${ticket.order_id}/approval-link/` : `/tickets/${ticket.id}/approval-link/`);
       setLinks(data);
-      onChanged(data.ticket);
+      const updatedTicket = isBulk ? data.order?.tickets?.find((item) => item.id === ticket.id) : data.ticket;
+      if (updatedTicket) onChanged(updatedTicket);
     } catch (requestError) { setError(requestError.body?.detail || requestError.message); }
     finally { setBusy(""); }
   };
@@ -73,7 +77,11 @@ export default function EstimateApprovalPanel({ ticket, services, canManage, can
     setError("");
     if (!reason.trim()) { setError("Enter the reason for approving on behalf of the customer."); return; }
     setBusy("approve");
-    try { onChanged(await api.post(`/tickets/${ticket.id}/approve-on-behalf/`, { reason: reason.trim() })); }
+    try {
+      const result = await api.post(isBulk ? `/repair-orders/${ticket.order_id}/approve-on-behalf/` : `/tickets/${ticket.id}/approve-on-behalf/`, { reason: reason.trim() });
+      const updatedTicket = isBulk ? result.tickets?.find((item) => item.id === ticket.id) : result;
+      if (updatedTicket) onChanged(updatedTicket);
+    }
     catch (requestError) { setError(requestError.body?.detail || requestError.message); }
     finally { setBusy(""); }
   };
@@ -85,7 +93,7 @@ export default function EstimateApprovalPanel({ ticket, services, canManage, can
   return (
     <section className="mt-5 p-3" data-panel style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip2 }}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div><Eyebrow>Customer approval</Eyebrow><p className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Final work and cost must be approved before original repair work starts.</p></div>
+        <div><Eyebrow>{isBulk ? `Bulk approval · ${ticket.order_code}` : "Customer approval"}</Eyebrow><p className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{isBulk ? `Finalize every device in this ${ticket.order_device_count}-device order, then generate one combined approval link.` : "Final work and cost must be approved before original repair work starts."}</p></div>
         <Pill color={approved ? C.green : status === "pending" ? C.amber : C.inkSoft}>{statusLabel(status)}</Pill>
       </div>
 
@@ -93,6 +101,21 @@ export default function EstimateApprovalPanel({ ticket, services, canManage, can
         <div className="mt-3 space-y-1.5">
           {estimate.lines.map((line) => <div key={line.id} className="flex items-center justify-between text-xs" style={{ fontFamily: F.body, color: C.ink }}><span>{line.description} × {line.quantity}</span><span style={{ fontFamily: F.mono }}>{money(line.line_total)}</span></div>)}
           <div className="flex items-center justify-between border-t pt-2 text-sm" style={{ borderColor: C.rule, fontFamily: F.mono, fontWeight: 700 }}><span>Final estimate</span><span>{money(estimate.total_amount)}</span></div>
+        </div>
+      )}
+
+      {isBulk && ticket.order_progress?.length > 0 && (
+        <div className="mt-3 border-t pt-3" style={{ borderColor: C.rule }}>
+          <p className="text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, color: C.inkSoft }}>Bulk order readiness</p>
+          <div className="mt-2 space-y-1.5">
+            {ticket.order_progress.map((item) => (
+              <div key={item.id} className="flex items-center justify-between gap-3 text-xs" style={{ fontFamily: F.body }}>
+                <span style={{ color: C.ink }}>{item.code} · {item.device || "Device"}{item.serial ? ` · ${item.serial}` : ""}</span>
+                <span style={{ color: item.estimate_finalized ? C.green : C.carbon, fontWeight: 600 }}>{item.estimate_finalized ? "Finalized" : "Pending"}</span>
+              </div>
+            ))}
+          </div>
+          {!combinedReady && <p className="mt-2 text-xs" style={{ color: C.carbon }}>Finalize {pendingOrderTickets.map((item) => item.code).join(", ")} before generating or approving the combined order.</p>}
         </div>
       )}
 
@@ -113,11 +136,11 @@ export default function EstimateApprovalPanel({ ticket, services, canManage, can
         </div>
       )}
 
-      {estimate && !approved && canManage && !editing && <button onClick={generateLink} disabled={busy === "link"} className="mt-3 flex w-full items-center justify-center gap-1.5 py-2 text-xs uppercase" style={{ backgroundColor: C.green, color: C.onAccent, fontFamily: F.body, fontWeight: 600, opacity: busy === "link" ? 0.6 : 1 }}><Send size={13} /> {busy === "link" ? "Generating…" : "Generate 24-hour approval link"}</button>}
+      {estimate && !approved && canManage && !editing && <button onClick={generateLink} disabled={busy === "link" || !combinedReady} className="mt-3 flex w-full items-center justify-center gap-1.5 py-2 text-xs uppercase" style={{ backgroundColor: C.green, color: C.onAccent, fontFamily: F.body, fontWeight: 600, opacity: busy === "link" || !combinedReady ? 0.55 : 1, cursor: !combinedReady ? "not-allowed" : "pointer" }}><Send size={13} /> {busy === "link" ? "Generating…" : isBulk ? "Generate combined 24-hour link" : "Generate 24-hour approval link"}</button>}
 
-      {links && <div className="mt-3 space-y-2"><input readOnly value={links.approval_url} className="w-full px-2 py-1.5 text-xs" style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip }} /><div className="grid grid-cols-2 gap-2"><button onClick={() => copy(links.approval_url)} className="flex items-center justify-center gap-1 py-2 text-xs" style={{ border: `1px solid ${C.rule}` }}><Copy size={13} /> Copy link</button><a href={links.whatsapp_url} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-1 py-2 text-xs" style={{ backgroundColor: C.green, color: C.onAccent }}><ExternalLink size={13} /> Open WhatsApp</a></div></div>}
+      {links && <div className="mt-3 space-y-2"><input readOnly value={links.approval_url} className="w-full px-2 py-1.5 text-xs" style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip }} /><div className={`grid gap-2 ${links.whatsapp_url ? "grid-cols-2" : "grid-cols-1"}`}><button onClick={() => copy(links.approval_url)} className="flex items-center justify-center gap-1 py-2 text-xs" style={{ border: `1px solid ${C.rule}` }}><Copy size={13} /> Copy direct link</button>{links.whatsapp_url && <a href={links.whatsapp_url} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-1 py-2 text-xs" style={{ backgroundColor: C.green, color: C.onAccent }}><ExternalLink size={13} /> Open WhatsApp</a>}</div></div>}
 
-      {estimate && !approved && canApprove && !editing && <div className="mt-3 border-t pt-3" style={{ borderColor: C.rule }}><label className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Admin/Super Admin approval reason</label><textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={2} maxLength={500} className="mt-1 w-full px-2 py-1.5 text-xs" style={{ border: `1px solid ${C.rule}` }} /><button onClick={approveOnBehalf} disabled={busy === "approve"} className="mt-2 flex w-full items-center justify-center gap-1.5 py-2 text-xs uppercase" style={{ backgroundColor: C.blue, color: C.onAccent, fontFamily: F.body, fontWeight: 600 }}><ShieldCheck size={13} /> {busy === "approve" ? "Recording…" : "Approve on behalf"}</button></div>}
+      {estimate && !approved && canApprove && !editing && <div className="mt-3 border-t pt-3" style={{ borderColor: C.rule }}><label className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Admin/Super Admin approval reason</label><textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={2} maxLength={500} className="mt-1 w-full px-2 py-1.5 text-xs" style={{ border: `1px solid ${C.rule}` }} /><button onClick={approveOnBehalf} disabled={busy === "approve" || !combinedReady} className="mt-2 flex w-full items-center justify-center gap-1.5 py-2 text-xs uppercase" style={{ backgroundColor: C.blue, color: C.onAccent, fontFamily: F.body, fontWeight: 600, opacity: busy === "approve" || !combinedReady ? 0.55 : 1, cursor: !combinedReady ? "not-allowed" : "pointer" }}><ShieldCheck size={13} /> {busy === "approve" ? "Recording…" : "Approve on behalf"}</button></div>}
       {approved && <p className="mt-3 flex items-center gap-1.5 text-xs" style={{ fontFamily: F.body, color: C.green }}><CheckCircle2 size={14} /> Approved estimate snapshot is locked for this workflow.</p>}
       <div className="mt-3"><ErrorNote message={error} /></div>
     </section>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import {
   LayoutDashboard, Package, Receipt, Users, Repeat2, Landmark, Megaphone,
   Wrench, ShieldCheck, LogOut, Bell, Settings as SettingsIcon, BadgeCheck,
@@ -7,18 +7,20 @@ import { C, F } from "./lib/theme";
 import { SessionProvider, useSession } from "./context/SessionContext";
 import { Spinner } from "./components/Atoms";
 import AnimatedGradientBackground from "./components/AnimatedGradientBackground";
-import Login from "./pages/Login";
-import Dashboard from "./pages/Dashboard";
-import Inventory from "./pages/Inventory";
-import Invoices from "./pages/Invoices";
-import Parties from "./pages/Parties";
-import Rentals from "./pages/Rentals";
-import Repairs from "./pages/Repairs";
-import Accounting from "./pages/Accounting";
-import Broadcast from "./pages/Broadcast";
-import Settings from "./pages/Settings";
-import Warranty from "./pages/Warranty";
-import RepairApproval from "./pages/RepairApproval";
+const Login = lazy(() => import("./pages/Login"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Inventory = lazy(() => import("./pages/Inventory"));
+const Invoices = lazy(() => import("./pages/Invoices"));
+const Parties = lazy(() => import("./pages/Parties"));
+const Rentals = lazy(() => import("./pages/Rentals"));
+const Repairs = lazy(() => import("./pages/Repairs"));
+const Accounting = lazy(() => import("./pages/Accounting"));
+const Broadcast = lazy(() => import("./pages/Broadcast"));
+const Settings = lazy(() => import("./pages/Settings"));
+const Warranty = lazy(() => import("./pages/Warranty"));
+const RepairApproval = lazy(() => import("./pages/RepairApproval"));
+const RentalApproval = lazy(() => import("./pages/RentalApproval"));
+const RepairOrderApproval = lazy(() => import("./pages/RepairOrderApproval"));
 
 const NAV = [
   { id: "home", label: "Dashboard", icon: LayoutDashboard },
@@ -112,19 +114,37 @@ function Gate() {
 }
 
 export default function App() {
+  const repairOrderMatch = window.location.pathname.match(/^\/repair-order-approval\/([^/]+)\/?$/);
+  if (repairOrderMatch) {
+    return <Suspense fallback={<div className="cb-shell flex min-h-screen items-center justify-center"><Spinner label="Loading secure approval…" /></div>}>{(
+      <>
+        <AnimatedGradientBackground />
+        <RepairOrderApproval token={decodeURIComponent(repairOrderMatch[1])} />
+      </>
+    )}</Suspense>;
+  }
+  const rentalMatch = window.location.pathname.match(/^\/rental-approval\/([^/]+)\/?$/);
+  if (rentalMatch) {
+    return <Suspense fallback={<div className="cb-shell flex min-h-screen items-center justify-center"><Spinner label="Loading secure approval…" /></div>}>{(
+      <>
+        <AnimatedGradientBackground />
+        <RentalApproval token={decodeURIComponent(rentalMatch[1])} />
+      </>
+    )}</Suspense>;
+  }
   const match = window.location.pathname.match(/^\/repair-approval\/([^/]+)\/?$/);
   if (match) {
-    return (
+    return <Suspense fallback={<div className="cb-shell flex min-h-screen items-center justify-center"><Spinner label="Loading secure approval…" /></div>}>{(
       <>
         <AnimatedGradientBackground />
         <RepairApproval token={decodeURIComponent(match[1])} />
       </>
-    );
+    )}</Suspense>;
   }
-  return (
+  return <Suspense fallback={<div className="cb-shell flex min-h-screen items-center justify-center"><Spinner label="Loading CRMBook…" /></div>}>{(
     <SessionProvider>
       <AnimatedGradientBackground />
       <Gate />
     </SessionProvider>
-  );
+  )}</Suspense>;
 }

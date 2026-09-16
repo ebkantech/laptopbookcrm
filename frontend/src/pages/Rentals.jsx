@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import {
-  AlertOctagon, Check, Clock3, MessageCircle, MessageSquarePlus, Phone,
-  ShieldAlert, UserPlus, X,
+  AlertOctagon, Check, Clock3, Copy, Link2, MessageCircle, MessageSquarePlus, Phone,
+  Plus, ShieldAlert, ShieldCheck, UserPlus, X,
 } from "lucide-react";
 import { C, F, fmt, money } from "../lib/theme";
 import { api } from "../lib/api";
 import { useSession } from "../context/SessionContext";
 import { Eyebrow, Pill, Spinner, ErrorNote } from "../components/Atoms";
 import { PartyChatModal } from "../components/PartyThread";
+import RentalAgreementModal from "../components/rentals/RentalAgreementModal";
 
 const BAND_COLOR = { "High risk": C.carbon, Watch: C.amber, Healthy: C.green };
 const ISSUE_STATUS_COLOR = { Open: C.carbon, "In progress": C.amber, Resolved: C.green };
@@ -100,18 +101,63 @@ function IssueRow({ issue, staff, onAssigned, onResolved }) {
   );
 }
 
+function RentalActionModal({ rental, action, onClose, onCompleted }) {
+  const labels = {
+    approve: ["Admin / Super Admin approval", "Record approval"],
+    cancel: ["Cancel rental agreement", "Cancel agreement"],
+    close: ["Close rental agreement", "Close and release assets"],
+  };
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async () => {
+    if (!reason.trim()) return setError("A reason is required for the audit trail.");
+    setBusy(true);
+    setError("");
+    try {
+      const endpoint = action === "approve" ? "approve-on-behalf" : action;
+      onCompleted(await api.post(`/rentals/${rental.id}/${endpoint}/`, { reason: reason.trim() }));
+    } catch (requestError) {
+      setError(requestError.body?.detail || Object.values(requestError.body || {}).flat().join(" ") || requestError.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <div className="fixed inset-0 z-40 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(4,9,18,0.7)" }} onClick={onClose}><div className="w-full max-w-md p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }} onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between"><Eyebrow>{labels[action][0]}</Eyebrow><button onClick={onClose}><X size={16} /></button></div><p className="mt-2 text-sm" style={{ color: C.inkSoft }}>{rental.agreement_code} · {rental.party_name}</p><textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={3} placeholder="Required reason" className="mt-4 w-full bg-transparent p-3 text-sm" style={{ border: `1px solid ${C.rule}` }} /><ErrorNote message={error} /><button onClick={submit} disabled={busy} className="mt-4 flex w-full items-center justify-center gap-1.5 py-2.5 text-xs uppercase" style={{ backgroundColor: action === "cancel" ? C.carbon : action === "approve" ? C.green : C.blue, color: C.onAccent, opacity: busy ? 0.6 : 1 }}><ShieldCheck size={13} /> {busy ? "Saving…" : labels[action][1]}</button></div></div>;
+}
+
 export default function Rentals() {
   const { can } = useSession();
   const [rentals, setRentals] = useState(null);
   const [staff, setStaff] = useState([]);
+  const [parties, setParties] = useState([]);
+  const [assets, setAssets] = useState([]);
   const [error, setError] = useState("");
   const [raisingFor, setRaisingFor] = useState(null);
   const [chatWith, setChatWith] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const [approvalLink, setApprovalLink] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [rentalAction, setRentalAction] = useState(null);
 
   useEffect(() => {
     api.get("/rentals/").then((d) => setRentals(d.results ?? d)).catch((e) => setError(e.message));
     api.get("/users/").then((d) => setStaff(d.results ?? d));
+    api.get("/parties/").then((d) => setParties(d.results ?? d));
+    api.get("/rental-assets/").then((d) => setAssets(d.results ?? d));
   }, []);
+
+  const generateApprovalLink = async (rentalId) => {
+    setActionError("");
+    try {
+      const result = await api.post(`/rentals/${rentalId}/approval-link/`);
+      setApprovalLink(result.approval_url);
+    } catch (requestError) {
+      setActionError(requestError.body?.detail || requestError.message);
+    }
+  };
 
   const patchRental = (rentalId, issue) => {
     setRentals((list) => list.map((r) => {
@@ -128,8 +174,11 @@ export default function Rentals() {
 
   return (
     <div className="flex-1 overflow-y-auto px-5 py-6 sm:px-8">
-      <p style={{ fontFamily: F.display, fontWeight: 600, fontSize: 20, color: C.ink }}>Rental accounts</p>
+      <div className="flex flex-wrap items-start justify-between gap-3"><p style={{ fontFamily: F.display, fontWeight: 600, fontSize: 20, color: C.ink }}>Rental accounts</p>{can("rentals.manage") && <button onClick={() => setCreating(true)} className="flex items-center gap-1.5 px-3 py-2 text-xs" style={{ backgroundColor: C.carbon, color: C.onAccent }}><Plus size={13} /> New rental agreement</button>}</div>
       <p className="mt-1 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>Churn risk, next payment due, and client-raised issues — highest risk first</p>
+
+      <ErrorNote message={actionError} />
+      {approvalLink && <div className="mt-4 flex flex-wrap items-center gap-2 p-3" style={{ border: `1px solid ${C.green}`, backgroundColor: `${C.green}10` }}><Link2 size={14} style={{ color: C.green }} /><input readOnly value={approvalLink} className="min-w-0 flex-1 bg-transparent text-xs" style={{ fontFamily: F.mono, color: C.ink }} /><button onClick={() => navigator.clipboard?.writeText(approvalLink)} className="flex items-center gap-1 px-2 py-1 text-xs" style={{ border: `1px solid ${C.rule}` }}><Copy size={11} /> Copy</button><button onClick={() => setApprovalLink("")}><X size={14} /></button></div>}
 
       <div className="mt-6 space-y-3">
         {rentals.map((r) => {
@@ -139,7 +188,7 @@ export default function Rentals() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-sm" style={{ fontFamily: F.display, fontWeight: 600, color: C.ink }}>{r.party_name}</p>
-                  <p className="text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{r.product_label} · {money(r.monthly_fee)}/mo</p>
+                  <p className="text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{r.agreement_code ? `${r.agreement_code} · ${r.rental_type.toUpperCase()} · ` : ""}{r.product_label} · {money(r.total_monthly_fee ?? r.monthly_fee)}/mo</p>
                 </div>
                 <div className="flex items-center gap-2">
                   {r.open_issue_count > 0 && <Pill color={C.carbon}><ShieldAlert size={11} />{r.open_issue_count} open issue{r.open_issue_count !== 1 ? "s" : ""}</Pill>}
@@ -163,6 +212,10 @@ export default function Rentals() {
               </div>
 
               <div className="mt-3 flex flex-wrap gap-2">
+                {can("rentals.manage") && r.lines?.length > 0 && r.approval_status !== "approved" && <button onClick={() => generateApprovalLink(r.id)} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs" style={{ border: `1px solid ${C.green}`, color: C.green, fontFamily: F.body, fontWeight: 600 }}><Link2 size={12} /> Generate approval link</button>}
+                {can("rentals.approve") && r.lines?.length > 0 && r.approval_status !== "approved" && !["cancelled", "closed"].includes(r.status) && <button onClick={() => setRentalAction({ rental: r, action: "approve" })} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs" style={{ border: `1px solid ${C.blue}`, color: C.blue, fontWeight: 600 }}><ShieldCheck size={12} /> Approve on behalf</button>}
+                {can("rentals.manage") && ["draft", "pending_approval", "rejected"].includes(r.status) && <button onClick={() => setRentalAction({ rental: r, action: "cancel" })} className="px-2.5 py-1.5 text-xs" style={{ border: `1px solid ${C.carbon}`, color: C.carbon }}>Cancel agreement</button>}
+                {can("rentals.manage") && ["approved", "active"].includes(r.status) && <button onClick={() => setRentalAction({ rental: r, action: "close" })} className="px-2.5 py-1.5 text-xs" style={{ border: `1px solid ${C.blue}`, color: C.blue }}>Close agreement</button>}
                 <button onClick={() => setRaisingFor(r.id)} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs" style={{ border: `1px solid ${C.rule}`, fontFamily: F.body, color: C.inkSoft }}>
                   <MessageSquarePlus size={12} /> Raise issue
                 </button>
@@ -195,6 +248,8 @@ export default function Rentals() {
           onCreated={(issue) => { patchRental(raisingFor, issue); setRaisingFor(null); }} />
       )}
       {chatWith && <PartyChatModal partyId={chatWith.id} partyName={chatWith.name} onClose={() => setChatWith(null)} />}
+      {rentalAction && <RentalActionModal {...rentalAction} onClose={() => setRentalAction(null)} onCompleted={(updated) => { setRentals((current) => current.map((item) => item.id === updated.id ? updated : item)); setRentalAction(null); api.get("/rental-assets/").then((data) => setAssets(data.results ?? data)); }} />}
+      {creating && <RentalAgreementModal parties={parties} initialAssets={assets} onClose={() => setCreating(false)} onCreated={(created) => { setRentals((current) => [created, ...current]); setCreating(false); api.get("/rental-assets/").then((data) => setAssets(data.results ?? data)); }} />}
     </div>
   );
 }
