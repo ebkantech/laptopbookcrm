@@ -57,7 +57,43 @@ npm run dev
 
 Open `http://localhost:5173`, sign in with any seeded user above.
 
-## 3. What's live vs. what's still a stub
+## 3. Local PostgreSQL (recommended before deployment)
+
+SQLite remains the zero-setup default. To test the same database engine that
+will run in staging/production, install PostgreSQL 17 or newer locally, create a fresh
+`crmbook_dev` database and copy `backend/.env.example` to `backend/.env`.
+The `.env` file is ignored by Git; never commit a password.
+
+```env
+POSTGRES_DB=crmbook_dev
+POSTGRES_USER=crmbook_app
+POSTGRES_PASSWORD=use-a-unique-local-password
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_SSLMODE=
+POSTGRES_CONN_HEALTH_CHECKS=False
+```
+
+Then, from `backend/`, install dependencies and build a *fresh* demo database:
+
+```bash
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py seed_demo
+python manage.py check --database default
+python manage.py test
+```
+
+Django creates a temporary test database when running `manage.py test`. For
+this local-only setup, grant the local `crmbook_app` role `CREATEDB` once using
+the `postgres` administrator account. Do **not** grant `CREATEDB` to the
+application role used in staging or production.
+
+The existing SQLite file contains demo/test data, so do not copy it into the
+local PostgreSQL database. For a future real-data cutover, use a separately
+reviewed backup/export/import plan and a maintenance window.
+
+## 4. What's live vs. what's still a stub
 
 **Fully wired to the database** (not mock data): inventory & shared
 stock, parties & their WhatsApp/email thread, invoices (create decrements
@@ -83,7 +119,7 @@ ready), and the "Quotation assistant" chat screen from the prototype
 wasn't ported -- it can be rebuilt against `/api/parties/`,
 `/api/products/`, and `/api/whatsapp-orders/`.
 
-## 4. Project layout
+## 5. Project layout
 
 ```
 backend/
@@ -105,7 +141,7 @@ frontend/
   src/pages/               one file per module, matching the nav
 ```
 
-## 5. Before production
+## 6. Before production
 
 - Swap `SECRET_KEY` and set `DEBUG=False`, real `ALLOWED_HOSTS`.
 - Move off SQLite to Postgres for concurrent writes (stock decrement
@@ -119,7 +155,7 @@ frontend/
 - Wire a payment gateway webhook to call `Invoice.settle` automatically
   instead of the manual "Mark settled" button.
 
-## 6. Rental and repair approval workflow
+## 7. Rental and repair approval workflow
 
 - Rental type is derived from physical line count: one asset is `single`, two
   or more assets are `bulk`; staff cannot manually create a contradictory type.

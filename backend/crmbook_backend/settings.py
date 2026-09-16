@@ -11,7 +11,14 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# A local backend/.env is convenient for developer-only credentials. It is
+# ignored by Git, and real environment variables supplied by a host always
+# take precedence because override=False.
+load_dotenv(BASE_DIR / ".env", override=False)
 
 
 def env_bool(name, default=False):
@@ -152,12 +159,18 @@ TEMPLATES = [
 WSGI_APPLICATION = 'crmbook_backend.wsgi.application'
 
 # ---------------------------------------------------------------- #
-# Database -- SQLite by default (dev), PostgreSQL when DATABASE_URL-
-# style env vars are set (production). No extra package required for
-# the SQLite path; install `psycopg2-binary` when you switch.
+# Database -- SQLite by default; PostgreSQL when POSTGRES_DB is set.
+# The same POSTGRES_* configuration works locally, in staging, and in
+# production. Set POSTGRES_SSLMODE=require when a managed provider requires
+# encrypted database transport; leave it unset for a local server.
 # ---------------------------------------------------------------- #
 
 if os.environ.get("POSTGRES_DB"):
+    postgres_options = {}
+    postgres_sslmode = os.environ.get("POSTGRES_SSLMODE", "").strip()
+    if postgres_sslmode:
+        postgres_options["sslmode"] = postgres_sslmode
+
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
@@ -167,8 +180,11 @@ if os.environ.get("POSTGRES_DB"):
             'HOST': os.environ.get("POSTGRES_HOST", "localhost"),
             'PORT': os.environ.get("POSTGRES_PORT", "5432"),
             'CONN_MAX_AGE': int(os.environ.get("POSTGRES_CONN_MAX_AGE", 60)),
+            'CONN_HEALTH_CHECKS': env_bool("POSTGRES_CONN_HEALTH_CHECKS", default=not DEBUG),
         }
     }
+    if postgres_options:
+        DATABASES['default']['OPTIONS'] = postgres_options
 else:
     DATABASES = {
         'default': {
