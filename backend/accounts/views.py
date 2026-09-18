@@ -3,17 +3,30 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.exceptions import AuthenticationFailed, TokenError
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from .models import Permission, Role, User
+from .permissions import IsStaffAccount
 from .serializers import PermissionSerializer, RoleSerializer, UserSerializer
 from .throttling import LoginRateThrottle
 
 
+class StaffTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """Issue staff JWTs only; customer identities use cookie sessions."""
+
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        if hasattr(self.user, "customer_profile"):
+            raise AuthenticationFailed("Invalid username or password")
+        return data
+
+
 class ThrottledTokenObtainPairView(TokenObtainPairView):
     """Same as SimpleJWT's login view, with brute-force rate limiting applied."""
+    serializer_class = StaffTokenObtainPairSerializer
     throttle_classes = [LoginRateThrottle]
 
 
@@ -40,7 +53,7 @@ class LogoutView(APIView):
 class PermissionViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Permission.objects.all()
     serializer_class = PermissionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsStaffAccount]
 
 
 class RoleViewSet(viewsets.ReadOnlyModelViewSet):
@@ -51,7 +64,7 @@ class RoleViewSet(viewsets.ReadOnlyModelViewSet):
     """
     queryset = Role.objects.prefetch_related("permissions").all()
     serializer_class = RoleSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsStaffAccount]
 
 
 class UserViewSet(viewsets.ReadOnlyModelViewSet):
@@ -62,7 +75,7 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
     """
     queryset = User.objects.select_related("role").all()
     serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsStaffAccount]
 
     @action(detail=False, methods=["get"], url_path="me")
     def me(self, request):

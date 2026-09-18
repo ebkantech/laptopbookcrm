@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.permissions import IsStaffAccount
 from catalog.models import Product, StockPoint
 from rentals.models import Rental
 from repairs.models import RepairInvoice
@@ -36,7 +37,7 @@ class DashboardView(APIView):
     Rentals/churn aren't tied to a sales channel or invoice date, so
     that section stays global regardless of these filters.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsStaffAccount]
 
     def get(self, request):
         date_from = _parse_date(request.query_params.get("date_from"))

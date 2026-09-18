@@ -21,6 +21,7 @@ const Warranty = lazy(() => import("./pages/Warranty"));
 const RepairApproval = lazy(() => import("./pages/RepairApproval"));
 const RentalApproval = lazy(() => import("./pages/RentalApproval"));
 const RepairOrderApproval = lazy(() => import("./pages/RepairOrderApproval"));
+const CustomerPortal = lazy(() => import("./pages/CustomerPortal"));
 
 const NAV = [
   { id: "home", label: "Dashboard", icon: LayoutDashboard },
@@ -114,6 +115,16 @@ function Gate() {
 }
 
 export default function App() {
+  const customerActivateMatch = window.location.pathname.match(/^\/customer\/activate\/([^/]+)\/?$/);
+  const customerResetMatch = window.location.pathname.match(/^\/customer\/reset-password\/([^/]+)\/?$/);
+  const customerPortalMatch = window.location.pathname.match(/^\/customer(?:\/(?:login|dashboard))?\/?$/);
+  if (customerActivateMatch || customerResetMatch || customerPortalMatch) {
+    const mode = customerActivateMatch ? "activate" : customerResetMatch ? "reset" : "login";
+    const token = customerActivateMatch?.[1] || customerResetMatch?.[1] || "";
+    return <Suspense fallback={<div className="cb-shell flex min-h-screen items-center justify-center"><Spinner label="Loading customer portal..." /></div>}>
+      <CustomerPortal mode={mode} token={decodeURIComponent(token)} />
+    </Suspense>;
+  }
   const repairOrderMatch = window.location.pathname.match(/^\/repair-order-approval\/([^/]+)\/?$/);
   if (repairOrderMatch) {
     return <Suspense fallback={<div className="cb-shell flex min-h-screen items-center justify-center"><Spinner label="Loading secure approval…" /></div>}>{(

@@ -77,6 +77,7 @@ INSTALLED_APPS = [
     'broadcast',
     'dashboard',
     'warranty',
+    'customer_portal',
 ]
 
 AUTH_USER_MODEL = 'accounts.User'
@@ -104,6 +105,8 @@ REST_FRAMEWORK = {
         'login': os.environ.get('LOGIN_THROTTLE_RATE', '5/min'),
         'repair_approval': os.environ.get('REPAIR_APPROVAL_THROTTLE_RATE', '60/hour'),
         'rental_approval': os.environ.get('RENTAL_APPROVAL_THROTTLE_RATE', '60/hour'),
+        'customer_login': os.environ.get('CUSTOMER_LOGIN_THROTTLE_RATE', '20/hour'),
+        'customer_token': os.environ.get('CUSTOMER_TOKEN_THROTTLE_RATE', '30/hour'),
     },
 }
 
@@ -122,8 +125,19 @@ SIMPLE_JWT = {
 CORS_ALLOWED_ORIGINS = env_list(
     "DJANGO_CORS_ALLOWED_ORIGINS",
     default="http://localhost:5173,http://127.0.0.1:5173",
-)
+) or ["http://localhost:5173", "http://127.0.0.1:5173"]
 CORS_ALLOW_CREDENTIALS = True
+CSRF_TRUSTED_ORIGINS = env_list(
+    "DJANGO_CSRF_TRUSTED_ORIGINS",
+    default="http://localhost:5173,http://127.0.0.1:5173",
+) or ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+# Customer browsers use Django's server-side session cookie. JavaScript never
+# receives the session identifier; unsafe requests additionally require CSRF.
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_AGE = int(os.environ.get("CUSTOMER_PORTAL_SESSION_SECONDS", 28800))
+CSRF_COOKIE_SAMESITE = "Lax"
 
 # Set PUBLIC_FRONTEND_URL to the HTTPS customer-facing frontend origin in production.
 PUBLIC_FRONTEND_URL = os.environ.get("PUBLIC_FRONTEND_URL", "http://localhost:5173")
@@ -135,6 +149,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'customer_portal.middleware.CustomerPortalSessionMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -253,3 +268,14 @@ if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 X_FRAME_OPTIONS = 'DENY'
+
+# Customer portal behaviour and branding. In production PUBLIC_FRONTEND_URL
+# should be the HTTPS portal origin, for example portal.vantagecomputers.com.
+CUSTOMER_PORTAL_TOKEN_HOURS = int(os.environ.get("CUSTOMER_PORTAL_TOKEN_HOURS", 24))
+CUSTOMER_PORTAL_GRACE_DAYS = int(os.environ.get("CUSTOMER_PORTAL_GRACE_DAYS", 30))
+CUSTOMER_PORTAL_IDLE_SECONDS = int(os.environ.get("CUSTOMER_PORTAL_IDLE_SECONDS", 1800))
+CUSTOMER_PORTAL_SESSION_SECONDS = int(os.environ.get("CUSTOMER_PORTAL_SESSION_SECONDS", 28800))
+CUSTOMER_PHONE_DEFAULT_COUNTRY_CODE = os.environ.get("CUSTOMER_PHONE_DEFAULT_COUNTRY_CODE", "91")
+CUSTOMER_PORTAL_BRAND_NAME = os.environ.get("CUSTOMER_PORTAL_BRAND_NAME", "Vantage Computers")
+CUSTOMER_PORTAL_SUPPORT_PHONE = os.environ.get("CUSTOMER_PORTAL_SUPPORT_PHONE", "")
+CUSTOMER_PORTAL_SUPPORT_EMAIL = os.environ.get("CUSTOMER_PORTAL_SUPPORT_EMAIL", "")

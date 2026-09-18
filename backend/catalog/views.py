@@ -5,7 +5,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.permissions import HasPerm
+from accounts.permissions import HasPerm, IsStaffAccount
 from .models import Part, Product, Service, Stock, StockPoint, Variant
 from .serializers import (
     PartSerializer, ProductSerializer, ServiceSerializer, StockPointSerializer, VariantSerializer,
@@ -16,7 +16,7 @@ from .utils import next_code
 class StockPointViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = StockPoint.objects.all()
     serializer_class = StockPointSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsStaffAccount]
 
 
 class ProductViewSet(viewsets.ModelViewSet):
@@ -75,14 +75,14 @@ class ProductViewSet(viewsets.ModelViewSet):
 class PartViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Part.objects.prefetch_related("stock__stock_point").all()
     serializer_class = PartSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsStaffAccount]
 
 
 class ServiceViewSet(viewsets.ReadOnlyModelViewSet):
     """The Hardware/Software work catalogue used to build a repair ticket."""
     queryset = Service.objects.select_related("part").all()
     serializer_class = ServiceSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsStaffAccount]
 
 
 class AddStockView(APIView):

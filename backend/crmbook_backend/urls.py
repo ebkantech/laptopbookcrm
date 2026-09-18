@@ -10,6 +10,7 @@ urlpatterns = [
     path('api/auth/token/', ThrottledTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/auth/logout/', LogoutView.as_view(), name='logout'),
+    path('api/customer/', include('customer_portal.urls')),
 
     path('api/', include('accounts.urls')),
     path('api/', include('catalog.urls')),
