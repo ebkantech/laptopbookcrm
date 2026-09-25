@@ -1,0 +1,4364 @@
+{
+ "parties": [
+  {
+   "name": "Kishan Kumar",
+   "phone": "8076402725",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 7,
+   "opening_balance": 0,
+   "joined": "2026-01-07"
+  },
+  {
+   "name": "Harshita Goswami",
+   "phone": "7669210566",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 7,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Ashish Kumar",
+   "phone": "9599967105",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 7,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "MOHAMAD RIZWAN KHAN",
+   "phone": "7840867589",
+   "email": "",
+   "gstin": "",
+   "city": "Uttarakhand",
+   "credit_days": 30,
+   "opening_balance": 47850,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Subham Thakur",
+   "phone": "7889119695",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-06-16"
+  },
+  {
+   "name": "Shubham Kashyap",
+   "phone": "7500938711",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 6600,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Sudhanshu Grover",
+   "phone": "8506062282",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-17"
+  },
+  {
+   "name": "Persis Hanna",
+   "phone": "9711002975",
+   "email": "",
+   "gstin": "",
+   "city": "Uttar Pradesh",
+   "credit_days": 0,
+   "opening_balance": 53000,
+   "joined": "2025-04-03"
+  },
+  {
+   "name": "Pankaj singh yadav",
+   "phone": "7017169045",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "PRIYANSHU DUBEY",
+   "phone": "8736984857",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "PRIYA YADAV",
+   "phone": "9354076161",
+   "email": "",
+   "gstin": "",
+   "city": "Uttar Pradesh",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Akash stepup",
+   "phone": "9548134924",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 1100,
+   "joined": "2025-04-10"
+  },
+  {
+   "name": "shadab Nawab",
+   "phone": "9310081609",
+   "email": "nawabshadab@gmail.com",
+   "gstin": "",
+   "city": "Delhi",
+   "credit_days": 30,
+   "opening_balance": 11000,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Tezzkart",
+   "phone": "9716856953",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 3000,
+   "joined": "2025-04-12"
+  },
+  {
+   "name": "Ashwani Dwivedi",
+   "phone": "8189084235",
+   "email": "",
+   "gstin": "",
+   "city": "Delhi",
+   "credit_days": 30,
+   "opening_balance": 18000,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "PRIYANKA JI",
+   "phone": "8447709077",
+   "email": "PPaul723@Gmail.com",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 19500,
+   "joined": "2025-04-03"
+  },
+  {
+   "name": "JAYANTA PRASAD",
+   "phone": "9891825447",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 7500,
+   "joined": "2025-04-09"
+  },
+  {
+   "name": "Sunita Singh ji",
+   "phone": "7042063145",
+   "email": "sunitas048@gmail.com",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 35000,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "NISHA PANDEY",
+   "phone": "9999895496",
+   "email": "Nishapandey21dec@gmail.com",
+   "gstin": "",
+   "city": "Delhi",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Aman Sethi",
+   "phone": "8950505077",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 0,
+   "opening_balance": 0,
+   "joined": "2026-01-13"
+  },
+  {
+   "name": "MANJESH KUMAR",
+   "phone": "8451842283",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 7,
+   "opening_balance": 0,
+   "joined": "2025-11-07"
+  },
+  {
+   "name": "Adarsh kumar Gupta",
+   "phone": "6379275940",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2026-01-10"
+  },
+  {
+   "name": "Ridhi Jain",
+   "phone": "7535812339",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 12000,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "ROYAL COMPUTER SOLUTION",
+   "phone": "8826233356",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-07-08"
+  },
+  {
+   "name": "SAKSHI GAUTAM",
+   "phone": "9560592774",
+   "email": "SGAUTAM9204@GMAIL.COM",
+   "gstin": "",
+   "city": "Uttar Pradesh",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-11-09"
+  },
+  {
+   "name": "SONAM",
+   "phone": "8448279823",
+   "email": "",
+   "gstin": "",
+   "city": "Uttar Pradesh",
+   "credit_days": 30,
+   "opening_balance": 6000,
+   "joined": "2025-04-14"
+  },
+  {
+   "name": "Shanu Bhardwaj",
+   "phone": "9625593138",
+   "email": "",
+   "gstin": "",
+   "city": "Delhi",
+   "credit_days": 30,
+   "opening_balance": 12000,
+   "joined": "2025-04-21"
+  },
+  {
+   "name": "JULI ARYA",
+   "phone": "9560359412",
+   "email": "ARYA.JULI1996@GMAIL.COM",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-08-11"
+  },
+  {
+   "name": "SHUBHAM GUPTA",
+   "phone": "9654508865",
+   "email": "",
+   "gstin": "",
+   "city": "Uttar Pradesh",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-07-13"
+  },
+  {
+   "name": "JEETU RCS",
+   "phone": "7827709260",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-07-22"
+  },
+  {
+   "name": "sonia",
+   "phone": "9540620949",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "sultan",
+   "phone": "9540781036",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Rajni Kumari",
+   "phone": "7428032878",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "SHARIQ ANSARI",
+   "phone": "8130858511",
+   "email": "shariq.excess@gmail.com",
+   "gstin": "",
+   "city": "Delhi",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-05-21"
+  },
+  {
+   "name": "Pratap Enterprises",
+   "phone": "9311242730",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Ramesh Singh",
+   "phone": "8882480888",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-05-13"
+  },
+  {
+   "name": "AJAY KUMAR",
+   "phone": "8449008687",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Sonali",
+   "phone": "8617259291",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 6000,
+   "joined": "2025-04-22"
+  },
+  {
+   "name": "AKANSHA",
+   "phone": "9810908380",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Chandni Swarnkar",
+   "phone": "9075008038",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-12"
+  },
+  {
+   "name": "GAURAV SHARMA",
+   "phone": "7838534771",
+   "email": "",
+   "gstin": "",
+   "city": "Delhi",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-02"
+  },
+  {
+   "name": "ANKUSH KAPUR",
+   "phone": "8287740440",
+   "email": "",
+   "gstin": "",
+   "city": "Delhi",
+   "credit_days": 30,
+   "opening_balance": 2000,
+   "joined": "2025-04-29"
+  },
+  {
+   "name": "Amit jha visiontek",
+   "phone": "9643553672",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 21000,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Aayush",
+   "phone": "9811963484",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-12"
+  },
+  {
+   "name": "Shubham Sakhuja",
+   "phone": "9953367666",
+   "email": "",
+   "gstin": "",
+   "city": "Haryana",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Nitin Sharma",
+   "phone": "9711307970",
+   "email": "saviournitin19@gmail.com",
+   "gstin": "",
+   "city": "Delhi",
+   "credit_days": 30,
+   "opening_balance": 1000,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Aaishwariya Dua",
+   "phone": "9650480202",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 7,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "MD ALI RAJ",
+   "phone": "9708400054",
+   "email": "mdaliraj27494@gmail.com",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Deepika Gautam",
+   "phone": "9336972515",
+   "email": "freakyop016@gmail.com",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-23"
+  },
+  {
+   "name": "KANHAIYA LAL",
+   "phone": "8287760109",
+   "email": "KANHAYALAL982@GMAIL.COM",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "NISHANT SIROHI",
+   "phone": "8826085223",
+   "email": "",
+   "gstin": "",
+   "city": "Uttar Pradesh",
+   "credit_days": 30,
+   "opening_balance": 36300,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Munish Bansal",
+   "phone": "9711285331",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Nagendra",
+   "phone": "9999046686",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "RAJENDRA JI GENIUS STAR",
+   "phone": "7838123526",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2026-02-14"
+  },
+  {
+   "name": "Abdul kadir",
+   "phone": "8527965985",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 1000,
+   "joined": "2025-04-07"
+  },
+  {
+   "name": "Rahul Tiwari",
+   "phone": "9818338287",
+   "email": "",
+   "gstin": "",
+   "city": "Uttar Pradesh",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Anant",
+   "phone": "8077883081",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "SANTLAL JD",
+   "phone": "9871339405",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "aman yadav",
+   "phone": "9625695220",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "David James",
+   "phone": "7535812339",
+   "email": "",
+   "gstin": "",
+   "city": "Uttar Pradesh",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Azam",
+   "phone": "9811939969",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 21000,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "IQBAL KHAN",
+   "phone": "9990826171",
+   "email": "",
+   "gstin": "",
+   "city": "Delhi",
+   "credit_days": 0,
+   "opening_balance": 3000,
+   "joined": "2025-04-24"
+  },
+  {
+   "name": "Tanvi Jain",
+   "phone": "9927943129",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "NARESH KUMAR",
+   "phone": "7568707559",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "AKSHAY SAXENA",
+   "phone": "8218334319",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "VIJAY SHARMA",
+   "phone": "7042431189",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Shahbaz Khan",
+   "phone": "7737861396",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Manisha Bharti",
+   "phone": "8587063235",
+   "email": "manishabharti701150@gmail.com",
+   "gstin": "",
+   "city": "Uttar Pradesh",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Gunja singh",
+   "phone": "9129585215",
+   "email": "",
+   "gstin": "",
+   "city": "Delhi",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Manish Kumar",
+   "phone": "8447112627",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "NITIN",
+   "phone": "9999467115",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Faizan Ali",
+   "phone": "9001059506",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Pankaj shiv bro",
+   "phone": "8384021995",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 61850,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Abu bakar",
+   "phone": "8448867154",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "U PAVAN VARMA",
+   "phone": "9963884459",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Shipra Bhasin",
+   "phone": "9958776870",
+   "email": "",
+   "gstin": "",
+   "city": "Uttar Pradesh",
+   "credit_days": 30,
+   "opening_balance": 11000,
+   "joined": "2025-04-18"
+  },
+  {
+   "name": "Shivam Tiwari",
+   "phone": "7827841669",
+   "email": "st0020826@gmail.com",
+   "gstin": "",
+   "city": "Uttar Pradesh",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Rakhi Kashyap",
+   "phone": "9717536607",
+   "email": "",
+   "gstin": "",
+   "city": "Uttar Pradesh",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Sameer",
+   "phone": "8447622870",
+   "email": "",
+   "gstin": "",
+   "city": "Delhi",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "KALPIT GUPTA",
+   "phone": "9720662868",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Brahma Datt",
+   "phone": "8006727221",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 7,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Kavya",
+   "phone": "9779779952",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Vikas Gaur",
+   "phone": "9711548404",
+   "email": "",
+   "gstin": "",
+   "city": "Uttar Pradesh",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Umar Khan",
+   "phone": "9811797868",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 0,
+   "opening_balance": 71400,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Yasir",
+   "phone": "9315985612",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "KULVANT",
+   "phone": "9548459462",
+   "email": "",
+   "gstin": "",
+   "city": "Delhi",
+   "credit_days": 30,
+   "opening_balance": 1000,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "NADEEM SAQUIB",
+   "phone": "9064167296",
+   "email": "",
+   "gstin": "",
+   "city": "Uttar Pradesh",
+   "credit_days": 1,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "PRIYANSHI MISHRA",
+   "phone": "9821426314",
+   "email": "himanshu.imt.1989@gmail.com",
+   "gstin": "",
+   "city": "Delhi",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Priyanka Srivastav",
+   "phone": "9560690284",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 7,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "SANYAM MAHESH TYAGI",
+   "phone": "9871764378",
+   "email": "",
+   "gstin": "",
+   "city": "Uttar Pradesh",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Cash Sale",
+   "phone": "8800226123",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 0,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  },
+  {
+   "name": "Sachin",
+   "phone": "9971390024",
+   "email": "",
+   "gstin": "",
+   "city": "",
+   "credit_days": 30,
+   "opening_balance": 0,
+   "joined": "2025-04-01"
+  }
+ ],
+ "invoices": [
+  {
+   "voucher_no": "426",
+   "date": "2025-04-01",
+   "party": "Azam",
+   "items_text": "",
+   "discount": 0,
+   "total": 3375,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "427",
+   "date": "2025-04-01",
+   "party": "Ridhi Jain",
+   "items_text": "",
+   "discount": 0,
+   "total": 22500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "428",
+   "date": "2025-04-01",
+   "party": "Ridhi Jain",
+   "items_text": "Laptop On Rent, MACBOOK AIR LAPTOP ON RENT",
+   "discount": 0,
+   "total": 17500,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "HP 840 G3 i5-6th/8GB/256GB SSD",
+     "qty": 10,
+     "rate": 1500,
+     "amount": 15000
+    },
+    {
+     "item": "MACBOOK AIR LAPTOP ON RENT",
+     "description": "",
+     "qty": 1,
+     "rate": 2500,
+     "amount": 2500
+    }
+   ]
+  },
+  {
+   "voucher_no": "474",
+   "date": "2025-04-01",
+   "party": "MOHAMAD RIZWAN KHAN",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "429",
+   "date": "2025-04-02",
+   "party": "GAURAV SHARMA",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "430",
+   "date": "2025-04-03",
+   "party": "PRIYANKA JI",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "441",
+   "date": "2025-04-03",
+   "party": "Persis Hanna",
+   "items_text": "",
+   "discount": 0,
+   "total": 15000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "432",
+   "date": "2025-04-07",
+   "party": "Abdul kadir",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "Security Deposit @5000",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "434",
+   "date": "2025-04-09",
+   "party": "JAYANTA PRASAD",
+   "items_text": "Dell Latitude 7290 i5-8th/16GB/256GB SSD",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Dell Latitude 7290 i5-8th/16GB/256GB SSD",
+     "description": "",
+     "qty": 1,
+     "rate": 2000,
+     "amount": 2000
+    }
+   ]
+  },
+  {
+   "voucher_no": "435",
+   "date": "2025-04-10",
+   "party": "Akash stepup",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "436",
+   "date": "2025-04-10",
+   "party": "GAURAV SHARMA",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "437",
+   "date": "2025-04-11",
+   "party": "JAYANTA PRASAD",
+   "items_text": "Laptop On Rent",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "Dell Latitude 7270 i5-6th/8GB/256GB SSD",
+     "qty": 1,
+     "rate": 1500,
+     "amount": 1500
+    }
+   ]
+  },
+  {
+   "voucher_no": "438",
+   "date": "2025-04-12",
+   "party": "Aayush",
+   "items_text": "",
+   "discount": 0,
+   "total": 800,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "440",
+   "date": "2025-04-12",
+   "party": "Chandni Swarnkar",
+   "items_text": "",
+   "discount": 0,
+   "total": 3500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "449",
+   "date": "2025-04-12",
+   "party": "Tezzkart",
+   "items_text": "",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "472",
+   "date": "2025-04-14",
+   "party": "SONAM",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "442",
+   "date": "2025-04-17",
+   "party": "Aayush",
+   "items_text": "",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "443",
+   "date": "2025-04-17",
+   "party": "Sudhanshu Grover",
+   "items_text": "Laptop On Rent",
+   "discount": 0,
+   "total": 26400,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "i5/8GB/256GB SSD",
+     "qty": 11,
+     "rate": 2400,
+     "amount": 26400
+    }
+   ]
+  },
+  {
+   "voucher_no": "444",
+   "date": "2025-04-18",
+   "party": "Shipra Bhasin",
+   "items_text": "RENT CHARGES",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "RENT CHARGES",
+     "description": "HP G42 i3/4GB Ram/256GB SSD With USB Mouse",
+     "qty": 1,
+     "rate": 1000,
+     "amount": 1000
+    }
+   ]
+  },
+  {
+   "voucher_no": "512",
+   "date": "2025-04-21",
+   "party": "Shanu Bhardwaj",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "448",
+   "date": "2025-04-22",
+   "party": "Sonali",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "445",
+   "date": "2025-04-23",
+   "party": "Deepika Gautam",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "446",
+   "date": "2025-04-24",
+   "party": "IQBAL KHAN",
+   "items_text": "RENT CHARGES",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "RENT CHARGES",
+     "description": "Samsung Pentium/4GB Ram/128GB SSD 1+1 Rent Received",
+     "qty": 1,
+     "rate": 1000,
+     "amount": 1000
+    }
+   ]
+  },
+  {
+   "voucher_no": "447",
+   "date": "2025-04-24",
+   "party": "Akash stepup",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "450",
+   "date": "2025-04-29",
+   "party": "ANKUSH KAPUR",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "451",
+   "date": "2025-05-01",
+   "party": "Azam",
+   "items_text": "",
+   "discount": 0,
+   "total": 3375,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "452",
+   "date": "2025-05-01",
+   "party": "Ridhi Jain",
+   "items_text": "",
+   "discount": 0,
+   "total": 22500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "453",
+   "date": "2025-05-01",
+   "party": "Ridhi Jain",
+   "items_text": "Laptop On Rent, MACBOOK AIR LAPTOP ON RENT",
+   "discount": 0,
+   "total": 17500,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "HP 840 G3 i5-6th/8GB/256GB SSD",
+     "qty": 10,
+     "rate": 1500,
+     "amount": 15000
+    },
+    {
+     "item": "MACBOOK AIR LAPTOP ON RENT",
+     "description": "",
+     "qty": 1,
+     "rate": 2500,
+     "amount": 2500
+    }
+   ]
+  },
+  {
+   "voucher_no": "475",
+   "date": "2025-05-01",
+   "party": "MOHAMAD RIZWAN KHAN",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "454",
+   "date": "2025-05-02",
+   "party": "GAURAV SHARMA",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "455",
+   "date": "2025-05-03",
+   "party": "PRIYANKA JI",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "465",
+   "date": "2025-05-03",
+   "party": "Persis Hanna",
+   "items_text": "",
+   "discount": 0,
+   "total": 15000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "460",
+   "date": "2025-05-10",
+   "party": "Akash stepup",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "461",
+   "date": "2025-05-10",
+   "party": "GAURAV SHARMA",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "462",
+   "date": "2025-05-11",
+   "party": "JAYANTA PRASAD",
+   "items_text": "Laptop On Rent",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "Dell Latitude 7270 i5-6th/8GB/256GB SSD",
+     "qty": 1,
+     "rate": 1500,
+     "amount": 1500
+    }
+   ]
+  },
+  {
+   "voucher_no": "463",
+   "date": "2025-05-12",
+   "party": "Aayush",
+   "items_text": "",
+   "discount": 0,
+   "total": 800,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "492",
+   "date": "2025-05-12",
+   "party": "Tezzkart",
+   "items_text": "",
+   "discount": 0,
+   "total": 1500,
+   "narration": "RENTAL CHARGE Desktop On Rent to Rahul 9310911734",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "466",
+   "date": "2025-05-13",
+   "party": "Ramesh Singh",
+   "items_text": "",
+   "discount": 0,
+   "total": 2400,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "473",
+   "date": "2025-05-14",
+   "party": "SONAM",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "467",
+   "date": "2025-05-17",
+   "party": "Aayush",
+   "items_text": "",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "468",
+   "date": "2025-05-17",
+   "party": "Sudhanshu Grover",
+   "items_text": "Laptop On Rent",
+   "discount": 0,
+   "total": 21600,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "i5/8GB/256GB SSD",
+     "qty": 9,
+     "rate": 2400,
+     "amount": 21600
+    }
+   ]
+  },
+  {
+   "voucher_no": "476",
+   "date": "2025-05-21",
+   "party": "SHARIQ ANSARI",
+   "items_text": "",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "513",
+   "date": "2025-05-21",
+   "party": "Shanu Bhardwaj",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "469",
+   "date": "2025-05-23",
+   "party": "Deepika Gautam",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "470",
+   "date": "2025-05-24",
+   "party": "IQBAL KHAN",
+   "items_text": "RENT CHARGES",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "RENT CHARGES",
+     "description": "Samsung Pentium/4GB Ram/128GB SSD 1+1 Rent Received",
+     "qty": 1,
+     "rate": 1000,
+     "amount": 1000
+    }
+   ]
+  },
+  {
+   "voucher_no": "471",
+   "date": "2025-05-24",
+   "party": "Akash stepup",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "477",
+   "date": "2025-05-29",
+   "party": "ANKUSH KAPUR",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "478",
+   "date": "2025-06-01",
+   "party": "Azam",
+   "items_text": "",
+   "discount": 0,
+   "total": 3375,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "480",
+   "date": "2025-06-01",
+   "party": "Ridhi Jain",
+   "items_text": "Laptop On Rent, MACBOOK AIR LAPTOP ON RENT",
+   "discount": 0,
+   "total": 17500,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "HP 840 G3 i5-6th/8GB/256GB SSD",
+     "qty": 10,
+     "rate": 1500,
+     "amount": 15000
+    },
+    {
+     "item": "MACBOOK AIR LAPTOP ON RENT",
+     "description": "",
+     "qty": 1,
+     "rate": 2500,
+     "amount": 2500
+    }
+   ]
+  },
+  {
+   "voucher_no": "552",
+   "date": "2025-06-01",
+   "party": "MOHAMAD RIZWAN KHAN",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "481",
+   "date": "2025-06-02",
+   "party": "GAURAV SHARMA",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "482",
+   "date": "2025-06-03",
+   "party": "PRIYANKA JI",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "483",
+   "date": "2025-06-03",
+   "party": "Persis Hanna",
+   "items_text": "",
+   "discount": 0,
+   "total": 15000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "484",
+   "date": "2025-06-10",
+   "party": "Akash stepup",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "486",
+   "date": "2025-06-11",
+   "party": "JAYANTA PRASAD",
+   "items_text": "Laptop On Rent",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "Dell Latitude 7270 i5-6th/8GB/256GB SSD",
+     "qty": 1,
+     "rate": 1500,
+     "amount": 1500
+    }
+   ]
+  },
+  {
+   "voucher_no": "493",
+   "date": "2025-06-12",
+   "party": "Tezzkart",
+   "items_text": "",
+   "discount": 0,
+   "total": 1500,
+   "narration": "RENTAL CHARGE Desktop On Rent to Rahul 9310911734",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "491",
+   "date": "2025-06-14",
+   "party": "SONAM",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "490",
+   "date": "2025-06-16",
+   "party": "Subham Thakur",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "495",
+   "date": "2025-06-17",
+   "party": "Sudhanshu Grover",
+   "items_text": "Laptop On Rent",
+   "discount": 0,
+   "total": 21600,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "i5/8GB/256GB SSD",
+     "qty": 9,
+     "rate": 2400,
+     "amount": 21600
+    }
+   ]
+  },
+  {
+   "voucher_no": "514",
+   "date": "2025-06-21",
+   "party": "Shanu Bhardwaj",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "496",
+   "date": "2025-06-23",
+   "party": "Deepika Gautam",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "497",
+   "date": "2025-06-24",
+   "party": "IQBAL KHAN",
+   "items_text": "RENT CHARGES",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "RENT CHARGES",
+     "description": "Samsung Pentium/4GB Ram/128GB SSD 1+1 Rent Received",
+     "qty": 1,
+     "rate": 1000,
+     "amount": 1000
+    }
+   ]
+  },
+  {
+   "voucher_no": "498",
+   "date": "2025-06-24",
+   "party": "Akash stepup",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "499",
+   "date": "2025-06-29",
+   "party": "ANKUSH KAPUR",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "500",
+   "date": "2025-07-01",
+   "party": "Azam",
+   "items_text": "",
+   "discount": 0,
+   "total": 3375,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "501",
+   "date": "2025-07-01",
+   "party": "Ridhi Jain",
+   "items_text": "",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "502",
+   "date": "2025-07-01",
+   "party": "Ridhi Jain",
+   "items_text": "Laptop On Rent, MACBOOK AIR LAPTOP ON RENT",
+   "discount": 0,
+   "total": 16000,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "HP 840 G3 i5-6th/8GB/256GB SSD",
+     "qty": 9,
+     "rate": 1500,
+     "amount": 13500
+    },
+    {
+     "item": "MACBOOK AIR LAPTOP ON RENT",
+     "description": "",
+     "qty": 1,
+     "rate": 2500,
+     "amount": 2500
+    }
+   ]
+  },
+  {
+   "voucher_no": "553",
+   "date": "2025-07-01",
+   "party": "MOHAMAD RIZWAN KHAN",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "503",
+   "date": "2025-07-03",
+   "party": "PRIYANKA JI",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "504",
+   "date": "2025-07-03",
+   "party": "Persis Hanna",
+   "items_text": "",
+   "discount": 0,
+   "total": 15000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "588",
+   "date": "2025-07-08",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 10000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "589",
+   "date": "2025-07-08",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 10000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "559",
+   "date": "2025-07-10",
+   "party": "Akash stepup",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "505",
+   "date": "2025-07-11",
+   "party": "JAYANTA PRASAD",
+   "items_text": "Laptop On Rent",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "Dell Latitude 7270 i5-6th/8GB/256GB SSD",
+     "qty": 1,
+     "rate": 1500,
+     "amount": 1500
+    }
+   ]
+  },
+  {
+   "voucher_no": "536",
+   "date": "2025-07-12",
+   "party": "Tezzkart",
+   "items_text": "",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "526",
+   "date": "2025-07-13",
+   "party": "SHUBHAM GUPTA",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "527",
+   "date": "2025-07-14",
+   "party": "SHUBHAM GUPTA",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "534",
+   "date": "2025-07-14",
+   "party": "SONAM",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "508",
+   "date": "2025-07-16",
+   "party": "Subham Thakur",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "590",
+   "date": "2025-07-17",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 4950,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "515",
+   "date": "2025-07-21",
+   "party": "Shanu Bhardwaj",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "591",
+   "date": "2025-07-21",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 1452,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "592",
+   "date": "2025-07-21",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 10644,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "593",
+   "date": "2025-07-21",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 18968,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "516",
+   "date": "2025-07-22",
+   "party": "JEETU RCS",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "528",
+   "date": "2025-07-22",
+   "party": "SHUBHAM GUPTA",
+   "items_text": "",
+   "discount": 0,
+   "total": 5000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "511",
+   "date": "2025-07-24",
+   "party": "IQBAL KHAN",
+   "items_text": "RENT CHARGES",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "RENT CHARGES",
+     "description": "Samsung Pentium/4GB Ram/128GB SSD 1+1 Rent Received",
+     "qty": 1,
+     "rate": 1000,
+     "amount": 1000
+    }
+   ]
+  },
+  {
+   "voucher_no": "558",
+   "date": "2025-07-24",
+   "party": "Akash stepup",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "525",
+   "date": "2025-07-28",
+   "party": "SHUBHAM GUPTA",
+   "items_text": "",
+   "discount": 0,
+   "total": 5000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "517",
+   "date": "2025-07-29",
+   "party": "ANKUSH KAPUR",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "518",
+   "date": "2025-08-01",
+   "party": "Azam",
+   "items_text": "",
+   "discount": 0,
+   "total": 3375,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "519",
+   "date": "2025-08-01",
+   "party": "Ridhi Jain",
+   "items_text": "",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "520",
+   "date": "2025-08-01",
+   "party": "Ridhi Jain",
+   "items_text": "Laptop On Rent, MACBOOK AIR LAPTOP ON RENT",
+   "discount": 0,
+   "total": 16000,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "HP 840 G3 i5-6th/8GB/256GB SSD",
+     "qty": 9,
+     "rate": 1500,
+     "amount": 13500
+    },
+    {
+     "item": "MACBOOK AIR LAPTOP ON RENT",
+     "description": "",
+     "qty": 1,
+     "rate": 2500,
+     "amount": 2500
+    }
+   ]
+  },
+  {
+   "voucher_no": "554",
+   "date": "2025-08-01",
+   "party": "MOHAMAD RIZWAN KHAN",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "521",
+   "date": "2025-08-03",
+   "party": "PRIYANKA JI",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "523",
+   "date": "2025-08-03",
+   "party": "Persis Hanna",
+   "items_text": "",
+   "discount": 0,
+   "total": 15000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "594",
+   "date": "2025-08-06",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 1577,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "595",
+   "date": "2025-08-07",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 4612,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "596",
+   "date": "2025-08-07",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 18485,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "560",
+   "date": "2025-08-10",
+   "party": "Akash stepup",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "522",
+   "date": "2025-08-11",
+   "party": "JAYANTA PRASAD",
+   "items_text": "Laptop On Rent",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "Dell Latitude 7270 i5-6th/8GB/256GB SSD",
+     "qty": 1,
+     "rate": 1500,
+     "amount": 1500
+    }
+   ]
+  },
+  {
+   "voucher_no": "544",
+   "date": "2025-08-11",
+   "party": "JULI ARYA",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "545",
+   "date": "2025-08-11",
+   "party": "JULI ARYA",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "524",
+   "date": "2025-08-12",
+   "party": "SHUBHAM GUPTA",
+   "items_text": "",
+   "discount": 0,
+   "total": 10000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "537",
+   "date": "2025-08-12",
+   "party": "Tezzkart",
+   "items_text": "",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "535",
+   "date": "2025-08-14",
+   "party": "SONAM",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "531",
+   "date": "2025-08-16",
+   "party": "Subham Thakur",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "597",
+   "date": "2025-08-16",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 25000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "533",
+   "date": "2025-08-17",
+   "party": "Sudhanshu Grover",
+   "items_text": "Laptop On Rent",
+   "discount": 0,
+   "total": 26400,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "i5/8GB/256GB SSD",
+     "qty": 11,
+     "rate": 2400,
+     "amount": 26400
+    }
+   ]
+  },
+  {
+   "voucher_no": "598",
+   "date": "2025-08-20",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 15608,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "551",
+   "date": "2025-08-21",
+   "party": "Shanu Bhardwaj",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "599",
+   "date": "2025-08-21",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 10282,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "562",
+   "date": "2025-08-24",
+   "party": "Akash stepup",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "600",
+   "date": "2025-08-28",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 10000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "538",
+   "date": "2025-08-29",
+   "party": "ANKUSH KAPUR",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "539",
+   "date": "2025-09-01",
+   "party": "Azam",
+   "items_text": "",
+   "discount": 0,
+   "total": 3375,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "540",
+   "date": "2025-09-01",
+   "party": "Ridhi Jain",
+   "items_text": "Laptop On Rent, MACBOOK AIR LAPTOP ON RENT",
+   "discount": 0,
+   "total": 16000,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "HP 840 G3 i5-6th/8GB/256GB SSD",
+     "qty": 9,
+     "rate": 1500,
+     "amount": 13500
+    },
+    {
+     "item": "MACBOOK AIR LAPTOP ON RENT",
+     "description": "",
+     "qty": 1,
+     "rate": 2500,
+     "amount": 2500
+    }
+   ]
+  },
+  {
+   "voucher_no": "541",
+   "date": "2025-09-01",
+   "party": "Ridhi Jain",
+   "items_text": "",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "555",
+   "date": "2025-09-01",
+   "party": "MOHAMAD RIZWAN KHAN",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "542",
+   "date": "2025-09-03",
+   "party": "PRIYANKA JI",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "549",
+   "date": "2025-09-03",
+   "party": "Persis Hanna",
+   "items_text": "",
+   "discount": 0,
+   "total": 15000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "601",
+   "date": "2025-09-04",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 1471,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "602",
+   "date": "2025-09-04",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 1414,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "570",
+   "date": "2025-09-05",
+   "party": "Ridhi Jain",
+   "items_text": "LAPTOP ON RENT, Security Deposit",
+   "discount": 0,
+   "total": 4500,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "LAPTOP ON RENT",
+     "description": "",
+     "qty": 1,
+     "rate": 1500,
+     "amount": 1500
+    },
+    {
+     "item": "Security Deposit",
+     "description": "",
+     "qty": 1,
+     "rate": 3000,
+     "amount": 3000
+    }
+   ]
+  },
+  {
+   "voucher_no": "543",
+   "date": "2025-09-08",
+   "party": "Ridhi Jain",
+   "items_text": "",
+   "discount": 0,
+   "total": 10500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "546",
+   "date": "2025-09-11",
+   "party": "JAYANTA PRASAD",
+   "items_text": "Laptop On Rent",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "Dell Latitude 7270 i5-6th/8GB/256GB SSD",
+     "qty": 1,
+     "rate": 1500,
+     "amount": 1500
+    }
+   ]
+  },
+  {
+   "voucher_no": "550",
+   "date": "2025-09-12",
+   "party": "Tezzkart",
+   "items_text": "",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "573",
+   "date": "2025-09-12",
+   "party": "SHUBHAM GUPTA",
+   "items_text": "",
+   "discount": 0,
+   "total": 12000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "584",
+   "date": "2025-09-15",
+   "party": "SONAM",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "556",
+   "date": "2025-09-16",
+   "party": "Subham Thakur",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "564",
+   "date": "2025-09-19",
+   "party": "Akash stepup",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "678",
+   "date": "2025-09-21",
+   "party": "Shanu Bhardwaj",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "603",
+   "date": "2025-09-22",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 14827,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "604",
+   "date": "2025-09-22",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 10000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "605",
+   "date": "2025-09-22",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 981,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "606",
+   "date": "2025-09-22",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 1532,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "563",
+   "date": "2025-09-24",
+   "party": "Akash stepup",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "607",
+   "date": "2025-09-24",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 10783,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "608",
+   "date": "2025-09-27",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 12000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "609",
+   "date": "2025-09-28",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 1471,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "565",
+   "date": "2025-09-29",
+   "party": "ANKUSH KAPUR",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "566",
+   "date": "2025-10-01",
+   "party": "Azam",
+   "items_text": "",
+   "discount": 0,
+   "total": 3375,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "567",
+   "date": "2025-10-01",
+   "party": "Ridhi Jain",
+   "items_text": "Laptop On Rent, MACBOOK AIR LAPTOP ON RENT",
+   "discount": 0,
+   "total": 16000,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "HP 840 G3 i5-6th/8GB/256GB SSD",
+     "qty": 9,
+     "rate": 1500,
+     "amount": 13500
+    },
+    {
+     "item": "MACBOOK AIR LAPTOP ON RENT",
+     "description": "",
+     "qty": 1,
+     "rate": 2500,
+     "amount": 2500
+    }
+   ]
+  },
+  {
+   "voucher_no": "568",
+   "date": "2025-10-01",
+   "party": "Ridhi Jain",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "643",
+   "date": "2025-10-01",
+   "party": "MOHAMAD RIZWAN KHAN",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "569",
+   "date": "2025-10-03",
+   "party": "PRIYANKA JI",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "663",
+   "date": "2025-10-03",
+   "party": "Persis Hanna",
+   "items_text": "",
+   "discount": 0,
+   "total": 15000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "610",
+   "date": "2025-10-08",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 19577,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "571",
+   "date": "2025-10-11",
+   "party": "JAYANTA PRASAD",
+   "items_text": "Laptop On Rent",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "Dell Latitude 7270 i5-6th/8GB/256GB SSD",
+     "qty": 1,
+     "rate": 1500,
+     "amount": 1500
+    }
+   ]
+  },
+  {
+   "voucher_no": "611",
+   "date": "2025-10-11",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 21000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "574",
+   "date": "2025-10-12",
+   "party": "SHUBHAM GUPTA",
+   "items_text": "",
+   "discount": 0,
+   "total": 12000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "575",
+   "date": "2025-10-12",
+   "party": "Tezzkart",
+   "items_text": "",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "585",
+   "date": "2025-10-15",
+   "party": "SONAM",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "576",
+   "date": "2025-10-16",
+   "party": "Subham Thakur",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "612",
+   "date": "2025-10-16",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 283,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "613",
+   "date": "2025-10-16",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 12119,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "578",
+   "date": "2025-10-19",
+   "party": "Akash stepup",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "679",
+   "date": "2025-10-21",
+   "party": "Shanu Bhardwaj",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "579",
+   "date": "2025-10-29",
+   "party": "ANKUSH KAPUR",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "580",
+   "date": "2025-11-01",
+   "party": "Azam",
+   "items_text": "",
+   "discount": 0,
+   "total": 3375,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "581",
+   "date": "2025-11-01",
+   "party": "Ridhi Jain",
+   "items_text": "Laptop On Rent",
+   "discount": 0,
+   "total": 15000,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "HP 840 G3 i5-6th/8GB/256GB SSD",
+     "qty": 10,
+     "rate": 1500,
+     "amount": 15000
+    }
+   ]
+  },
+  {
+   "voucher_no": "582",
+   "date": "2025-11-01",
+   "party": "Ridhi Jain",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "644",
+   "date": "2025-11-01",
+   "party": "MOHAMAD RIZWAN KHAN",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "583",
+   "date": "2025-11-03",
+   "party": "PRIYANKA JI",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "614",
+   "date": "2025-11-03",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 7990,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "615",
+   "date": "2025-11-03",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 1414,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "616",
+   "date": "2025-11-03",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 1471,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "617",
+   "date": "2025-11-03",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 357,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "664",
+   "date": "2025-11-03",
+   "party": "Persis Hanna",
+   "items_text": "",
+   "discount": 0,
+   "total": 15000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "586",
+   "date": "2025-11-07",
+   "party": "MANJESH KUMAR",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "587",
+   "date": "2025-11-09",
+   "party": "SAKSHI GAUTAM",
+   "items_text": "",
+   "discount": 0,
+   "total": 1200,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "618",
+   "date": "2025-11-09",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 479,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "619",
+   "date": "2025-11-11",
+   "party": "JAYANTA PRASAD",
+   "items_text": "Laptop On Rent",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "Dell Latitude 7270 i5-6th/8GB/256GB SSD",
+     "qty": 1,
+     "rate": 1500,
+     "amount": 1500
+    }
+   ]
+  },
+  {
+   "voucher_no": "691",
+   "date": "2025-11-12",
+   "party": "Tezzkart",
+   "items_text": "",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "632",
+   "date": "2025-11-14",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 19500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "666",
+   "date": "2025-11-15",
+   "party": "SONAM",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "622",
+   "date": "2025-11-16",
+   "party": "Subham Thakur",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "625",
+   "date": "2025-11-19",
+   "party": "Akash stepup",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "680",
+   "date": "2025-11-21",
+   "party": "Shanu Bhardwaj",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "629",
+   "date": "2025-11-22",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 8355,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "630",
+   "date": "2025-11-22",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 1452,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "631",
+   "date": "2025-11-22",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 5820,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "628",
+   "date": "2025-11-28",
+   "party": "MANJESH KUMAR",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "633",
+   "date": "2025-11-28",
+   "party": "ROYAL COMPUTER SOLUTION",
+   "items_text": "",
+   "discount": 0,
+   "total": 20000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "634",
+   "date": "2025-11-29",
+   "party": "ANKUSH KAPUR",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "637",
+   "date": "2025-12-01",
+   "party": "Ridhi Jain",
+   "items_text": "Laptop On Rent",
+   "discount": 0,
+   "total": 15000,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "HP 840 G3 i5-6th/8GB/256GB SSD",
+     "qty": 10,
+     "rate": 1500,
+     "amount": 15000
+    }
+   ]
+  },
+  {
+   "voucher_no": "645",
+   "date": "2025-12-01",
+   "party": "MOHAMAD RIZWAN KHAN",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "639",
+   "date": "2025-12-03",
+   "party": "PRIYANKA JI",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "642",
+   "date": "2025-12-03",
+   "party": "Persis Hanna",
+   "items_text": "",
+   "discount": 0,
+   "total": 15000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "640",
+   "date": "2025-12-05",
+   "party": "MANJESH KUMAR",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "641",
+   "date": "2025-12-09",
+   "party": "SAKSHI GAUTAM",
+   "items_text": "",
+   "discount": 0,
+   "total": 1200,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "646",
+   "date": "2025-12-11",
+   "party": "JAYANTA PRASAD",
+   "items_text": "Laptop On Rent",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "Dell Latitude 7270 i5-6th/8GB/256GB SSD",
+     "qty": 1,
+     "rate": 2000,
+     "amount": 2000
+    }
+   ]
+  },
+  {
+   "voucher_no": "648",
+   "date": "2025-12-12",
+   "party": "MANJESH KUMAR",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "692",
+   "date": "2025-12-12",
+   "party": "Tezzkart",
+   "items_text": "",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "667",
+   "date": "2025-12-15",
+   "party": "SONAM",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "650",
+   "date": "2025-12-16",
+   "party": "Subham Thakur",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "652",
+   "date": "2025-12-19",
+   "party": "Akash stepup",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "653",
+   "date": "2025-12-19",
+   "party": "MANJESH KUMAR",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "681",
+   "date": "2025-12-21",
+   "party": "Shanu Bhardwaj",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "655",
+   "date": "2025-12-26",
+   "party": "MANJESH KUMAR",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "657",
+   "date": "2025-12-29",
+   "party": "ANKUSH KAPUR",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "658",
+   "date": "2026-01-01",
+   "party": "Ridhi Jain",
+   "items_text": "Laptop On Rent",
+   "discount": 0,
+   "total": 15000,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "HP 840 G3 i5-6th/8GB/256GB SSD",
+     "qty": 10,
+     "rate": 1500,
+     "amount": 15000
+    }
+   ]
+  },
+  {
+   "voucher_no": "668",
+   "date": "2026-01-01",
+   "party": "MOHAMAD RIZWAN KHAN",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "660",
+   "date": "2026-01-02",
+   "party": "MANJESH KUMAR",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "661",
+   "date": "2026-01-03",
+   "party": "PRIYANKA JI",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "665",
+   "date": "2026-01-03",
+   "party": "Persis Hanna",
+   "items_text": "",
+   "discount": 0,
+   "total": 15000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "RR/SL/26-27/59",
+   "date": "2026-01-07",
+   "party": "Kishan Kumar",
+   "items_text": "",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "662",
+   "date": "2026-01-09",
+   "party": "SAKSHI GAUTAM",
+   "items_text": "",
+   "discount": 0,
+   "total": 1200,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "669",
+   "date": "2026-01-09",
+   "party": "MANJESH KUMAR",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "670",
+   "date": "2026-01-10",
+   "party": "Adarsh kumar Gupta",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "718",
+   "date": "2026-01-11",
+   "party": "JAYANTA PRASAD",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "693",
+   "date": "2026-01-12",
+   "party": "Tezzkart",
+   "items_text": "",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "685",
+   "date": "2026-01-13",
+   "party": "Aman Sethi",
+   "items_text": "LAPTOP ON RENT, Security Deposit",
+   "discount": 0,
+   "total": 9000,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "LAPTOP ON RENT",
+     "description": "",
+     "qty": 2,
+     "rate": 1000,
+     "amount": 2000
+    },
+    {
+     "item": "Security Deposit",
+     "description": "",
+     "qty": 2,
+     "rate": 3500,
+     "amount": 7000
+    }
+   ]
+  },
+  {
+   "voucher_no": "707",
+   "date": "2026-01-15",
+   "party": "SONAM",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "673",
+   "date": "2026-01-16",
+   "party": "Subham Thakur",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "674",
+   "date": "2026-01-16",
+   "party": "MANJESH KUMAR",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "675",
+   "date": "2026-01-17",
+   "party": "Sudhanshu Grover",
+   "items_text": "Laptop On Rent",
+   "discount": 0,
+   "total": 12000,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "i5/8GB/256GB SSD",
+     "qty": 5,
+     "rate": 2400,
+     "amount": 12000
+    }
+   ]
+  },
+  {
+   "voucher_no": "677",
+   "date": "2026-01-19",
+   "party": "Akash stepup",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "682",
+   "date": "2026-01-20",
+   "party": "Shanu Bhardwaj",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "683",
+   "date": "2026-01-23",
+   "party": "MANJESH KUMAR",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "686",
+   "date": "2026-01-29",
+   "party": "ANKUSH KAPUR",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "687",
+   "date": "2026-01-30",
+   "party": "MANJESH KUMAR",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "688",
+   "date": "2026-02-01",
+   "party": "Ridhi Jain",
+   "items_text": "Laptop On Rent",
+   "discount": 0,
+   "total": 15000,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "HP 840 G3 i5-6th/8GB/256GB SSD",
+     "qty": 10,
+     "rate": 1500,
+     "amount": 15000
+    }
+   ]
+  },
+  {
+   "voucher_no": "699",
+   "date": "2026-02-01",
+   "party": "MOHAMAD RIZWAN KHAN",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "690",
+   "date": "2026-02-03",
+   "party": "PRIYANKA JI",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "705",
+   "date": "2026-02-03",
+   "party": "Persis Hanna",
+   "items_text": "",
+   "discount": 0,
+   "total": 15000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "694",
+   "date": "2026-02-06",
+   "party": "MANJESH KUMAR",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "RR/SL/26-27/60",
+   "date": "2026-02-07",
+   "party": "Kishan Kumar",
+   "items_text": "",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "716",
+   "date": "2026-02-10",
+   "party": "Ridhi Jain",
+   "items_text": "Laptop On Rent",
+   "discount": 0,
+   "total": 1900,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "HP 840 G3 i5-6th/8GB/256GB SSD",
+     "qty": 2,
+     "rate": 950,
+     "amount": 1900
+    }
+   ]
+  },
+  {
+   "voucher_no": "719",
+   "date": "2026-02-11",
+   "party": "JAYANTA PRASAD",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "704",
+   "date": "2026-02-12",
+   "party": "Tezzkart",
+   "items_text": "",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "698",
+   "date": "2026-02-13",
+   "party": "Aman Sethi",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "700",
+   "date": "2026-02-14",
+   "party": "RAJENDRA JI GENIUS STAR",
+   "items_text": "Laptop On Rent, hp laptop i5 6th",
+   "discount": 0,
+   "total": 28500,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "HP 840 G3 i5-6th/8GB/256GB SSD",
+     "qty": 1,
+     "rate": 12000,
+     "amount": 12000
+    },
+    {
+     "item": "hp laptop i5 6th",
+     "description": "",
+     "qty": 1,
+     "rate": 16500,
+     "amount": 16500
+    }
+   ]
+  },
+  {
+   "voucher_no": "708",
+   "date": "2026-02-15",
+   "party": "SONAM",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "701",
+   "date": "2026-02-16",
+   "party": "Subham Thakur",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "702",
+   "date": "2026-02-17",
+   "party": "Sudhanshu Grover",
+   "items_text": "Laptop On Rent",
+   "discount": 0,
+   "total": 12000,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "Laptop On Rent",
+     "description": "i5/8GB/256GB SSD",
+     "qty": 5,
+     "rate": 2400,
+     "amount": 12000
+    }
+   ]
+  },
+  {
+   "voucher_no": "703",
+   "date": "2026-02-19",
+   "party": "Akash stepup",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "712",
+   "date": "2026-02-20",
+   "party": "Shanu Bhardwaj",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "710",
+   "date": "2026-02-28",
+   "party": "ANKUSH KAPUR",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "709",
+   "date": "2026-03-01",
+   "party": "MOHAMAD RIZWAN KHAN",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "714",
+   "date": "2026-03-01",
+   "party": "Ridhi Jain",
+   "items_text": "LAPTOP ON RENT, Macbook Pro On Rent",
+   "discount": 0,
+   "total": 22000,
+   "narration": "",
+   "mode": "item invoice",
+   "items": [
+    {
+     "item": "LAPTOP ON RENT",
+     "description": "",
+     "qty": 13,
+     "rate": 1500,
+     "amount": 19500
+    },
+    {
+     "item": "Macbook Pro On Rent",
+     "description": "",
+     "qty": 1,
+     "rate": 2500,
+     "amount": 2500
+    }
+   ]
+  },
+  {
+   "voucher_no": "706",
+   "date": "2026-03-03",
+   "party": "Persis Hanna",
+   "items_text": "",
+   "discount": 0,
+   "total": 15000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "723",
+   "date": "2026-03-03",
+   "party": "PRIYANKA JI",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "RR/SL/26-27/61",
+   "date": "2026-03-07",
+   "party": "Kishan Kumar",
+   "items_text": "",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "713",
+   "date": "2026-03-12",
+   "party": "JAYANTA PRASAD",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "715",
+   "date": "2026-03-12",
+   "party": "Tezzkart",
+   "items_text": "",
+   "discount": 0,
+   "total": 1500,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "RR/SL/26-27/3",
+   "date": "2026-03-15",
+   "party": "SONAM",
+   "items_text": "",
+   "discount": 0,
+   "total": 1000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "717",
+   "date": "2026-03-19",
+   "party": "Akash stepup",
+   "items_text": "",
+   "discount": 0,
+   "total": 3000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "721",
+   "date": "2026-03-20",
+   "party": "Shanu Bhardwaj",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  },
+  {
+   "voucher_no": "725",
+   "date": "2026-03-28",
+   "party": "ANKUSH KAPUR",
+   "items_text": "",
+   "discount": 0,
+   "total": 2000,
+   "narration": "",
+   "mode": "accounting invoice",
+   "items": []
+  }
+ ],
+ "items_master": [
+  {
+   "name": "RENT CHARGES",
+   "category": "",
+   "price": 1000
+  },
+  {
+   "name": "Security Deposit",
+   "category": "",
+   "price": 8000
+  },
+  {
+   "name": "Rental Charges",
+   "category": "Laptop",
+   "price": 1200
+  },
+  {
+   "name": "HP M10 Wired Mouse",
+   "category": "",
+   "price": 350
+  },
+  {
+   "name": "hp laptop i5 6th",
+   "category": "",
+   "price": 16500
+  },
+  {
+   "name": "DELIVERY CHARGES",
+   "category": "",
+   "price": 500
+  },
+  {
+   "name": "Dell Latitude 7290 i5-8th/16GB/256GB SSD",
+   "category": "Laptop",
+   "price": 2000
+  },
+  {
+   "name": "hp mother board",
+   "category": "",
+   "price": 0
+  },
+  {
+   "name": "HP 430 I3 1ST 4GB 320GB",
+   "category": "",
+   "price": 750
+  },
+  {
+   "name": "Ravtron 2 Pin Power Cable",
+   "category": "",
+   "price": 200
+  },
+  {
+   "name": "FRONYECH 24 INCH MONITOR MON0072 IPS",
+   "category": "",
+   "price": 1400
+  },
+  {
+   "name": "DELL KEYBOARD CHANGE",
+   "category": "",
+   "price": 700
+  },
+  {
+   "name": "Laptop On Rent",
+   "category": "",
+   "price": 2200
+  },
+  {
+   "name": "Macbook Pro On Rent",
+   "category": "",
+   "price": 3000
+  },
+  {
+   "name": "MACBOOK AIR LAPTOP ON RENT",
+   "category": "",
+   "price": 0
+  },
+  {
+   "name": "LAPTOP ON RENT",
+   "category": "",
+   "price": 0
+  }
+ ],
+ "rental_summary": [
+  {
+   "party": "ANKUSH KAPUR",
+   "invoices": 12,
+   "first_invoice": "2025-04-29",
+   "last_invoice": "2026-03-28",
+   "total_sales": 24000
+  },
+  {
+   "party": "Aayush",
+   "invoices": 4,
+   "first_invoice": "2025-04-12",
+   "last_invoice": "2025-05-17",
+   "total_sales": 4600
+  },
+  {
+   "party": "Abdul kadir",
+   "invoices": 1,
+   "first_invoice": "2025-04-07",
+   "last_invoice": "2025-04-07",
+   "total_sales": 1000
+  },
+  {
+   "party": "Adarsh kumar Gupta",
+   "invoices": 1,
+   "first_invoice": "2026-01-10",
+   "last_invoice": "2026-01-10",
+   "total_sales": 2000
+  },
+  {
+   "party": "Akash stepup",
+   "invoices": 18,
+   "first_invoice": "2025-04-10",
+   "last_invoice": "2026-03-19",
+   "total_sales": 32000
+  },
+  {
+   "party": "Aman Sethi",
+   "invoices": 2,
+   "first_invoice": "2026-01-13",
+   "last_invoice": "2026-02-13",
+   "total_sales": 11000
+  },
+  {
+   "party": "Azam",
+   "invoices": 8,
+   "first_invoice": "2025-04-01",
+   "last_invoice": "2025-11-01",
+   "total_sales": 27000
+  },
+  {
+   "party": "Chandni Swarnkar",
+   "invoices": 1,
+   "first_invoice": "2025-04-12",
+   "last_invoice": "2025-04-12",
+   "total_sales": 3500
+  },
+  {
+   "party": "Deepika Gautam",
+   "invoices": 3,
+   "first_invoice": "2025-04-23",
+   "last_invoice": "2025-06-23",
+   "total_sales": 6000
+  },
+  {
+   "party": "GAURAV SHARMA",
+   "invoices": 5,
+   "first_invoice": "2025-04-02",
+   "last_invoice": "2025-06-02",
+   "total_sales": 7000
+  },
+  {
+   "party": "IQBAL KHAN",
+   "invoices": 4,
+   "first_invoice": "2025-04-24",
+   "last_invoice": "2025-07-24",
+   "total_sales": 4000
+  },
+  {
+   "party": "JAYANTA PRASAD",
+   "invoices": 13,
+   "first_invoice": "2025-04-09",
+   "last_invoice": "2026-03-12",
+   "total_sales": 22000
+  },
+  {
+   "party": "JEETU RCS",
+   "invoices": 1,
+   "first_invoice": "2025-07-22",
+   "last_invoice": "2025-07-22",
+   "total_sales": 1000
+  },
+  {
+   "party": "JULI ARYA",
+   "invoices": 2,
+   "first_invoice": "2025-08-11",
+   "last_invoice": "2025-08-11",
+   "total_sales": 3000
+  },
+  {
+   "party": "Kishan Kumar",
+   "invoices": 3,
+   "first_invoice": "2026-01-07",
+   "last_invoice": "2026-03-07",
+   "total_sales": 4500
+  },
+  {
+   "party": "MANJESH KUMAR",
+   "invoices": 12,
+   "first_invoice": "2025-11-07",
+   "last_invoice": "2026-02-06",
+   "total_sales": 12000
+  },
+  {
+   "party": "MOHAMAD RIZWAN KHAN",
+   "invoices": 12,
+   "first_invoice": "2025-04-01",
+   "last_invoice": "2026-03-01",
+   "total_sales": 36000
+  },
+  {
+   "party": "PRIYANKA JI",
+   "invoices": 12,
+   "first_invoice": "2025-04-03",
+   "last_invoice": "2026-03-03",
+   "total_sales": 24000
+  },
+  {
+   "party": "Persis Hanna",
+   "invoices": 12,
+   "first_invoice": "2025-04-03",
+   "last_invoice": "2026-03-03",
+   "total_sales": 180000
+  },
+  {
+   "party": "RAJENDRA JI GENIUS STAR",
+   "invoices": 1,
+   "first_invoice": "2026-02-14",
+   "last_invoice": "2026-02-14",
+   "total_sales": 28500
+  },
+  {
+   "party": "ROYAL COMPUTER SOLUTION",
+   "invoices": 36,
+   "first_invoice": "2025-07-08",
+   "last_invoice": "2025-11-28",
+   "total_sales": 315874
+  },
+  {
+   "party": "Ramesh Singh",
+   "invoices": 1,
+   "first_invoice": "2025-05-13",
+   "last_invoice": "2025-05-13",
+   "total_sales": 2400
+  },
+  {
+   "party": "Ridhi Jain",
+   "invoices": 22,
+   "first_invoice": "2025-04-01",
+   "last_invoice": "2026-03-01",
+   "total_sales": 270900
+  },
+  {
+   "party": "SAKSHI GAUTAM",
+   "invoices": 3,
+   "first_invoice": "2025-11-09",
+   "last_invoice": "2026-01-09",
+   "total_sales": 3600
+  },
+  {
+   "party": "SHARIQ ANSARI",
+   "invoices": 1,
+   "first_invoice": "2025-05-21",
+   "last_invoice": "2025-05-21",
+   "total_sales": 1500
+  },
+  {
+   "party": "SHUBHAM GUPTA",
+   "invoices": 7,
+   "first_invoice": "2025-07-13",
+   "last_invoice": "2025-10-12",
+   "total_sales": 50000
+  },
+  {
+   "party": "SONAM",
+   "invoices": 12,
+   "first_invoice": "2025-04-14",
+   "last_invoice": "2026-03-15",
+   "total_sales": 12000
+  },
+  {
+   "party": "Shanu Bhardwaj",
+   "invoices": 12,
+   "first_invoice": "2025-04-21",
+   "last_invoice": "2026-03-20",
+   "total_sales": 24000
+  },
+  {
+   "party": "Shipra Bhasin",
+   "invoices": 1,
+   "first_invoice": "2025-04-18",
+   "last_invoice": "2025-04-18",
+   "total_sales": 1000
+  },
+  {
+   "party": "Sonali",
+   "invoices": 1,
+   "first_invoice": "2025-04-22",
+   "last_invoice": "2025-04-22",
+   "total_sales": 2000
+  },
+  {
+   "party": "Subham Thakur",
+   "invoices": 9,
+   "first_invoice": "2025-06-16",
+   "last_invoice": "2026-02-16",
+   "total_sales": 18000
+  },
+  {
+   "party": "Sudhanshu Grover",
+   "invoices": 6,
+   "first_invoice": "2025-04-17",
+   "last_invoice": "2026-02-17",
+   "total_sales": 120000
+  },
+  {
+   "party": "Tezzkart",
+   "invoices": 12,
+   "first_invoice": "2025-04-12",
+   "last_invoice": "2026-03-12",
+   "total_sales": 18000
+  }
+ ]
+}

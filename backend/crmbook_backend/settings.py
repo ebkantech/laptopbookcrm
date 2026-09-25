@@ -46,7 +46,7 @@ SECRET_KEY = os.environ.get(
 )
 
 # Defaults to False (safe) -- set DJANGO_DEBUG=True explicitly for local dev.
-DEBUG = env_bool("DJANGO_DEBUG", default=True)
+DEBUG = env_bool("DJANGO_DEBUG", default=False)
 
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", default="localhost,127.0.0.1")
 
@@ -77,6 +77,7 @@ INSTALLED_APPS = [
     'broadcast',
     'dashboard',
     'warranty',
+    'portal',
 ]
 
 AUTH_USER_MODEL = 'accounts.User'
@@ -121,12 +122,12 @@ SIMPLE_JWT = {
 
 CORS_ALLOWED_ORIGINS = env_list(
     "DJANGO_CORS_ALLOWED_ORIGINS",
-    default="http://localhost:5173,http://127.0.0.1:5173",
+    default="http://localhost:5174,http://127.0.0.1:5174",
 )
 CORS_ALLOW_CREDENTIALS = True
 
 # Set PUBLIC_FRONTEND_URL to the HTTPS customer-facing frontend origin in production.
-PUBLIC_FRONTEND_URL = os.environ.get("PUBLIC_FRONTEND_URL", "http://localhost:5173")
+PUBLIC_FRONTEND_URL = os.environ.get("PUBLIC_FRONTEND_URL", "http://localhost:5174")
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

@@ -31,6 +31,7 @@ PERMS = {
     "repairs.manage": "Create tickets, update stages, and settle repair bills",
     "broadcast.send": "Send WhatsApp / email campaigns",
     "warranty.manage": "Register and edit customer warranties",
+    "portal.manage": "Send customer portal access links",
     "roles.manage": "Change roles and permissions",
     "reports.export": "Export accounting reports",
 }
@@ -44,7 +45,7 @@ ROLES = {
     "manager": ("Store Manager", [
         "cashbook.view", "cashbook.edit", "bankbook.view", "invoices.view", "invoices.create",
         "invoices.settle", "inventory.edit", "rentals.view", "rentals.manage", "repairs.view", "repairs.manage",
-        "broadcast.send", "warranty.manage",
+        "broadcast.send", "warranty.manage", "portal.manage",
     ]),
     "sales": ("Sales Executive", ["invoices.view", "invoices.create", "repairs.view", "repairs.manage", "broadcast.send", "warranty.manage"]),
     "auditor": ("Auditor \u2014 read only", ["cashbook.view", "bankbook.view", "invoices.view", "repairs.view", "reports.export"]),
