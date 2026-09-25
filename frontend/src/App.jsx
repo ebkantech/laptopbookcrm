@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Package, Receipt, Users, Repeat2, Landmark, Megaphone,
   Wrench, ShieldCheck, LogOut, Bell, Settings as SettingsIcon, BadgeCheck,
 } from "lucide-react";
-import { C, F } from "./lib/theme";
+import { C, F, APP_NAME, APP_VERSION } from "./lib/theme";
 import { SessionProvider, useSession } from "./context/SessionContext";
 import { Spinner } from "./components/Atoms";
 import AnimatedGradientBackground from "./components/AnimatedGradientBackground";
@@ -21,6 +21,7 @@ const Warranty = lazy(() => import("./pages/Warranty"));
 const RepairApproval = lazy(() => import("./pages/RepairApproval"));
 const RentalApproval = lazy(() => import("./pages/RentalApproval"));
 const RepairOrderApproval = lazy(() => import("./pages/RepairOrderApproval"));
+const PortalApp = lazy(() => import("./PortalApp"));
 
 const NAV = [
   { id: "home", label: "Dashboard", icon: LayoutDashboard },
@@ -35,15 +36,33 @@ const NAV = [
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];
 
+function VersionBadge({ size = "xs" }) {
+  return (
+    <span
+      className={size === "xs" ? "text-[10px]" : "text-xs"}
+      style={{
+        fontFamily: F.mono, fontWeight: 700, color: C.orange,
+        border: `1.5px solid ${C.orange}`, padding: "1px 6px",
+        letterSpacing: "0.05em", backgroundColor: `${C.orange}14`,
+      }}
+    >
+      {APP_VERSION}
+    </span>
+  );
+}
+
 function Shell() {
   const { me, logout } = useSession();
   const [view, setView] = useState("home");
 
   return (
     <div className="cb-shell flex h-screen w-full overflow-hidden">
-      <div className="fixed inset-x-0 top-0 z-10 md:hidden" style={{ backgroundColor: C.deep, borderBottom: `1px solid ${C.rule}` }}>
+      <div className="fixed inset-x-0 top-0 z-10 md:hidden" style={{ backgroundColor: C.deep, borderBottom: `2px solid ${C.ruleStrong || C.rule}` }}>
         <div className="flex items-center justify-between px-4 py-3">
-          <span style={{ fontFamily: F.display, fontWeight: 600, color: C.ink }}>CRMBook</span>
+          <span className="flex items-center gap-2">
+            <span style={{ fontFamily: F.display, fontWeight: 700, color: C.ink, letterSpacing: "0.02em" }}>{APP_NAME}</span>
+            <VersionBadge />
+          </span>
           <button onClick={logout}><LogOut size={16} style={{ color: C.carbon }} /></button>
         </div>
         <div className="flex gap-4 overflow-x-auto px-4 pb-2">
@@ -55,17 +74,24 @@ function Shell() {
         </div>
       </div>
 
-      <aside className="hidden w-56 shrink-0 flex-col justify-between py-6 md:flex" style={{ backgroundColor: C.deep, borderRight: `1px solid ${C.rule}` }}>
-        <div>
+      <aside className="hidden w-60 shrink-0 flex-col py-6 md:flex" style={{ backgroundColor: C.deep, borderRight: `2px solid ${C.ruleStrong}`, boxShadow: "4px 0 20px rgba(0,0,0,0.35)" }}>
+        {/* Nav scrolls independently and never pushes the account block
+            below the fold -- min-h-0 is required for a flex child to be
+            allowed to shrink/scroll instead of overflowing its parent. */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="px-5">
-            <p className="text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.18em", color: C.orange }}>CRMBook</p>
-            <p className="mt-2 text-base" style={{ fontFamily: F.display, fontWeight: 600, color: C.ink }}>Vantage Computers</p>
+            <p className="text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 700, letterSpacing: "0.2em", color: C.orange }}>Operations Platform</p>
+            <div className="mt-2 flex items-center gap-2">
+              <p className="text-lg" style={{ fontFamily: F.display, fontWeight: 800, color: C.ink, letterSpacing: "-0.01em" }}>{APP_NAME}</p>
+              <VersionBadge />
+            </div>
+            <p className="mt-1 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>Vantage Computers</p>
           </div>
           <nav className="mt-8">
             {NAV.map(({ icon: Icon, label, id }) => {
               const active = view === id;
               return (
-                <button key={id} onClick={() => setView(id)} className="flex w-full items-center gap-2.5 px-5 py-2.5 text-sm" style={{ fontFamily: F.body, color: active ? C.ink : C.inkSoft, fontWeight: active ? 600 : 400, borderLeft: `2px solid ${active ? C.orange : "transparent"}` }}>
+                <button key={id} onClick={() => setView(id)} className="flex w-full items-center gap-2.5 px-5 py-2.5 text-sm" style={{ fontFamily: F.body, color: active ? C.ink : C.inkSoft, fontWeight: active ? 700 : 400, backgroundColor: active ? C.slip2 : "transparent", borderLeft: `3px solid ${active ? C.orange : "transparent"}` }}>
                   <Icon size={15} /><span className="flex-1 text-left">{label}</span>
                 </button>
               );
@@ -73,7 +99,9 @@ function Shell() {
           </nav>
         </div>
 
-        <div className="px-5">
+        {/* shrink-0 + a top border keeps this pinned and always visible,
+            even when the nav list above is long enough to scroll. */}
+        <div className="shrink-0 px-5 pt-4" style={{ borderTop: `1px solid ${C.rule}` }}>
           <div className="mb-3 flex items-center gap-2">
             <Bell size={13} style={{ color: C.carbon }} />
             <span className="text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>Signed in</span>
@@ -123,6 +151,12 @@ export default function App() {
       </>
     )}</Suspense>;
   }
+  const portalMatch = window.location.pathname.match(/^\/portal(?:\/([^/]+))?\/?$/);
+  if (portalMatch) {
+    return <Suspense fallback={<div className="cb-shell flex min-h-screen items-center justify-center"><Spinner label="Loading your portal…" /></div>}>{(
+      <PortalApp token={portalMatch[1] ? decodeURIComponent(portalMatch[1]) : null} />
+    )}</Suspense>;
+  }
   const rentalMatch = window.location.pathname.match(/^\/rental-approval\/([^/]+)\/?$/);
   if (rentalMatch) {
     return <Suspense fallback={<div className="cb-shell flex min-h-screen items-center justify-center"><Spinner label="Loading secure approval…" /></div>}>{(
@@ -141,7 +175,7 @@ export default function App() {
       </>
     )}</Suspense>;
   }
-  return <Suspense fallback={<div className="cb-shell flex min-h-screen items-center justify-center"><Spinner label="Loading CRMBook…" /></div>}>{(
+  return <Suspense fallback={<div className="cb-shell flex min-h-screen items-center justify-center"><Spinner label={`Loading ${APP_NAME}…`} /></div>}>{(
     <SessionProvider>
       <AnimatedGradientBackground />
       <Gate />

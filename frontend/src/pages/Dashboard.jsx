@@ -45,7 +45,7 @@ function MiniDonut({ data, colors, centerLabel, centerSub }) {
 function RecurringIssues({ byUnit, byModel, onGo }) {
   if (!byUnit.length && !byModel.length) return null;
   return (
-    <div className="mt-4" data-panel style={{ border: `1px solid ${C.carbon}`, backgroundColor: `${C.carbon}0A` }}>
+    <div className="mt-4" data-panel style={{ border: `2px solid ${C.carbon}`, backgroundColor: `${C.carbon}14`, boxShadow: "0 6px 18px rgba(0,0,0,0.35)" }}>
       <div className="flex items-center justify-between p-4 pb-0">
         <p className="flex items-center gap-1.5 text-sm" style={{ fontFamily: F.body, fontWeight: 600, color: C.ink }}>
           <RotateCcw size={14} style={{ color: C.carbon }} /> Recurring issues on rented laptops
@@ -130,7 +130,7 @@ export default function Dashboard({ onGo }) {
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-end gap-3" data-panel style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip, padding: 12 }}>
+      <div className="mt-4 flex flex-wrap items-end gap-3" data-panel style={{ border: `2px solid ${C.ruleStrong || C.rule}`, backgroundColor: C.slip, padding: 12, boxShadow: "0 4px 14px rgba(0,0,0,0.3)" }}>
         <div className="flex items-center gap-1.5">
           <CalendarRange size={14} style={{ color: C.inkSoft }} />
           <span className="text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.08em", color: C.inkSoft }}>Filter</span>
@@ -169,7 +169,7 @@ export default function Dashboard({ onGo }) {
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div data-panel className="p-4" style={{ border: `1px solid ${C.orange}`, backgroundColor: C.slip }}>
+        <div data-panel className="p-4" style={{ border: `2px solid ${C.orange}`, backgroundColor: C.slip, boxShadow: "0 6px 18px rgba(0,0,0,0.4)" }}>
           <p className="text-sm" style={{ fontFamily: F.body, fontWeight: 600, color: C.ink }}>Income trend -- monthly</p>
           <p className="text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>demo series -- wire to real historicals once available</p>
           <div className="mt-3" style={{ height: 230 }}>
@@ -189,7 +189,7 @@ export default function Dashboard({ onGo }) {
           </div>
         </div>
 
-        <div data-panel className="p-4" style={{ border: `1px solid ${C.orange}`, backgroundColor: C.slip }}>
+        <div data-panel className="p-4" style={{ border: `2px solid ${C.orange}`, backgroundColor: C.slip, boxShadow: "0 6px 18px rgba(0,0,0,0.4)" }}>
           <p className="text-sm" style={{ fontFamily: F.body, fontWeight: 600, color: C.ink }}>Low stock, act soon</p>
           <div className="mt-3 space-y-2">
             {data.low_stock.slice(0, 6).map((item, i) => (
@@ -207,7 +207,7 @@ export default function Dashboard({ onGo }) {
         </div>
       </div>
 
-      <div className="mt-4" data-panel style={{ border: `1px solid ${C.orange}`, backgroundColor: C.slip }}>
+      <div className="mt-4" data-panel style={{ border: `2px solid ${C.orange}`, backgroundColor: C.slip, boxShadow: "0 6px 18px rgba(0,0,0,0.4)" }}>
         <div className="flex items-center justify-between p-4 pb-0">
           <p className="text-sm" style={{ fontFamily: F.body, fontWeight: 600, color: C.ink }}>Customer churn risk -- rentals</p>
           <button onClick={() => onGo("rentals")} className="text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: C.stamp }}>View rentals →</button>
@@ -247,7 +247,7 @@ function SalesByChannel({ channelSales }) {
         Sales by channel -- shops and every online channel, separately
       </p>
 
-      <div className="mt-3" data-panel style={{ border: `1px solid ${C.orange}`, backgroundColor: C.slip }}>
+      <div className="mt-3" data-panel style={{ border: `2px solid ${C.orange}`, backgroundColor: C.slip, boxShadow: "0 6px 18px rgba(0,0,0,0.4)" }}>
         <div className="p-4">
           <p className="text-sm" style={{ fontFamily: F.body, fontWeight: 600, color: C.ink }}>Paid revenue by channel</p>
           <div className="mt-3" style={{ height: Math.max(180, chartData.length * 34) }}>

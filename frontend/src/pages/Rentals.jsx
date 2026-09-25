@@ -35,7 +35,7 @@ function RaiseIssueModal({ rentalId, onClose, onCreated }) {
 
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(4,9,18,0.7)" }} onClick={onClose}>
-      <div className="w-full max-w-sm p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }} onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-sm p-6" data-panel style={{ backgroundColor: C.slip, border: `2px solid ${C.ruleStrong || C.rule}`, boxShadow: "0 10px 30px rgba(0,0,0,0.5)" }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between"><Eyebrow>Raise an issue</Eyebrow><button onClick={onClose}><X size={16} style={{ color: C.inkSoft }} /></button></div>
         <p className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Log what the client is reporting about their rented equipment.</p>
         <div className="mt-4 space-y-3">
@@ -125,7 +125,7 @@ function RentalActionModal({ rental, action, onClose, onCompleted }) {
     }
   };
 
-  return <div className="fixed inset-0 z-40 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(4,9,18,0.7)" }} onClick={onClose}><div className="w-full max-w-md p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }} onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between"><Eyebrow>{labels[action][0]}</Eyebrow><button onClick={onClose}><X size={16} /></button></div><p className="mt-2 text-sm" style={{ color: C.inkSoft }}>{rental.agreement_code} · {rental.party_name}</p><textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={3} placeholder="Required reason" className="mt-4 w-full bg-transparent p-3 text-sm" style={{ border: `1px solid ${C.rule}` }} /><ErrorNote message={error} /><button onClick={submit} disabled={busy} className="mt-4 flex w-full items-center justify-center gap-1.5 py-2.5 text-xs uppercase" style={{ backgroundColor: action === "cancel" ? C.carbon : action === "approve" ? C.green : C.blue, color: C.onAccent, opacity: busy ? 0.6 : 1 }}><ShieldCheck size={13} /> {busy ? "Saving…" : labels[action][1]}</button></div></div>;
+  return <div className="fixed inset-0 z-40 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(4,9,18,0.7)" }} onClick={onClose}><div className="w-full max-w-md p-6" data-panel style={{ backgroundColor: C.slip, border: `2px solid ${C.ruleStrong || C.rule}`, boxShadow: "0 10px 30px rgba(0,0,0,0.5)" }} onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between"><Eyebrow>{labels[action][0]}</Eyebrow><button onClick={onClose}><X size={16} /></button></div><p className="mt-2 text-sm" style={{ color: C.inkSoft }}>{rental.agreement_code} · {rental.party_name}</p><textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={3} placeholder="Required reason" className="mt-4 w-full bg-transparent p-3 text-sm" style={{ border: `1px solid ${C.rule}` }} /><ErrorNote message={error} /><button onClick={submit} disabled={busy} className="mt-4 flex w-full items-center justify-center gap-1.5 py-2.5 text-xs uppercase" style={{ backgroundColor: action === "cancel" ? C.carbon : action === "approve" ? C.green : C.blue, color: C.onAccent, opacity: busy ? 0.6 : 1 }}><ShieldCheck size={13} /> {busy ? "Saving…" : labels[action][1]}</button></div></div>;
 }
 
 export default function Rentals() {
@@ -141,13 +141,45 @@ export default function Rentals() {
   const [approvalLink, setApprovalLink] = useState("");
   const [actionError, setActionError] = useState("");
   const [rentalAction, setRentalAction] = useState(null);
+  const [flash, setFlash] = useState("");
+  const [sendingLinkFor, setSendingLinkFor] = useState(null);
+  const [accessLogs, setAccessLogs] = useState({});
 
   useEffect(() => {
     api.get("/rentals/").then((d) => setRentals(d.results ?? d)).catch((e) => setError(e.message));
     api.get("/users/").then((d) => setStaff(d.results ?? d));
     api.get("/parties/").then((d) => setParties(d.results ?? d));
     api.get("/rental-assets/").then((d) => setAssets(d.results ?? d));
+    if (can("portal.manage")) {
+      // Latest portal login per party -- shown as a small line under each
+      // rental card so staff can see whether the customer has actually
+      // used the link/OTP that was sent to them.
+      api.get("/portal-access-logs/").then((d) => {
+        const latestByParty = {};
+        (d.results ?? d).forEach((log) => {
+          const existing = latestByParty[log.party];
+          if (!existing || new Date(log.created_at) > new Date(existing.created_at)) {
+            latestByParty[log.party] = log;
+          }
+        });
+        setAccessLogs(latestByParty);
+      });
+    }
   }, []);
+
+  const sendPortalLink = async (partyId, partyName) => {
+    setSendingLinkFor(partyId);
+    setActionError("");
+    try {
+      await api.post("/portal-invites/", { party: partyId });
+      setFlash(`Portal link + verification code sent to ${partyName}.`);
+      setTimeout(() => setFlash(""), 5000);
+    } catch (requestError) {
+      setActionError(requestError.body?.detail || requestError.message);
+    } finally {
+      setSendingLinkFor(null);
+    }
+  };
 
   const generateApprovalLink = async (rentalId) => {
     setActionError("");
@@ -178,13 +210,14 @@ export default function Rentals() {
       <p className="mt-1 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>Churn risk, next payment due, and client-raised issues — highest risk first</p>
 
       <ErrorNote message={actionError} />
-      {approvalLink && <div className="mt-4 flex flex-wrap items-center gap-2 p-3" style={{ border: `1px solid ${C.green}`, backgroundColor: `${C.green}10` }}><Link2 size={14} style={{ color: C.green }} /><input readOnly value={approvalLink} className="min-w-0 flex-1 bg-transparent text-xs" style={{ fontFamily: F.mono, color: C.ink }} /><button onClick={() => navigator.clipboard?.writeText(approvalLink)} className="flex items-center gap-1 px-2 py-1 text-xs" style={{ border: `1px solid ${C.rule}` }}><Copy size={11} /> Copy</button><button onClick={() => setApprovalLink("")}><X size={14} /></button></div>}
+      {flash && <div className="mt-4 flex items-center gap-2 p-3" style={{ border: `1px solid ${C.green}`, backgroundColor: `${C.green}10` }}><ShieldCheck size={14} style={{ color: C.green }} /><span className="text-xs" style={{ fontFamily: F.body, color: C.ink }}>{flash}</span></div>}
+      {approvalLink &&<div className="mt-4 flex flex-wrap items-center gap-2 p-3" style={{ border: `1px solid ${C.green}`, backgroundColor: `${C.green}10` }}><Link2 size={14} style={{ color: C.green }} /><input readOnly value={approvalLink} className="min-w-0 flex-1 bg-transparent text-xs" style={{ fontFamily: F.mono, color: C.ink }} /><button onClick={() => navigator.clipboard?.writeText(approvalLink)} className="flex items-center gap-1 px-2 py-1 text-xs" style={{ border: `1px solid ${C.rule}` }}><Copy size={11} /> Copy</button><button onClick={() => setApprovalLink("")}><X size={14} /></button></div>}
 
       <div className="mt-6 space-y-3">
         {rentals.map((r) => {
           const left = r.tenure_months - r.months_paid;
           return (
-            <div key={r.id} data-panel className="p-4" style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip }}>
+            <div key={r.id} data-panel className="p-4" style={{ border: `2px solid ${C.ruleStrong || C.rule}`, backgroundColor: C.slip, boxShadow: "0 6px 18px rgba(0,0,0,0.35)" }}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-sm" style={{ fontFamily: F.display, fontWeight: 600, color: C.ink }}>{r.party_name}</p>
@@ -225,7 +258,18 @@ export default function Rentals() {
                 {r.churn_score >= 60 && (
                   <button className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs" style={{ border: `1px solid ${C.rule}`, fontFamily: F.body, color: C.inkSoft }}><Phone size={12} />Call customer</button>
                 )}
+                {can("portal.manage") && (
+                  <button onClick={() => sendPortalLink(r.party, r.party_name)} disabled={sendingLinkFor === r.party} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs" style={{ border: `1px solid ${C.stamp}`, color: C.stamp, fontFamily: F.body, fontWeight: 600, opacity: sendingLinkFor === r.party ? 0.6 : 1 }}>
+                    <ShieldCheck size={12} /> {sendingLinkFor === r.party ? "Sending…" : "Send portal link"}
+                  </button>
+                )}
               </div>
+
+              {can("portal.manage") && accessLogs[r.party] && (
+                <p className="mt-2 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>
+                  Last portal access: {new Date(accessLogs[r.party].created_at).toLocaleString()} · IP {accessLogs[r.party].ip_address || "unknown"}
+                </p>
+              )}
 
               {r.issues.length > 0 && (
                 <div className="mt-3 space-y-2">

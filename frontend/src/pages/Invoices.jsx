@@ -39,7 +39,7 @@ function NewInvoiceModal({ parties, products, stockPoints, onClose, onCreate }) 
 
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(4,9,18,0.7)" }}>
-      <div className="w-full max-w-lg p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}>
+      <div className="w-full max-w-lg p-6" data-panel style={{ backgroundColor: C.slip, border: `2px solid ${C.ruleStrong || C.rule}`, boxShadow: "0 10px 30px rgba(0,0,0,0.5)" }}>
         <div className="flex items-center justify-between"><span className="text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.14em", color: C.inkSoft }}>New invoice</span><button onClick={onClose}><X size={16} style={{ color: C.inkSoft }} /></button></div>
 
         <div className="mt-4 space-y-3">
@@ -122,7 +122,7 @@ function WarrantyCard({ invoice, warranty, onGranted }) {
   if (!warranty) {
     if (invoice.status !== "Paid") return null;
     return (
-      <div className="mt-4 p-3" data-panel style={{ border: `1px dashed ${C.rule}` }}>
+      <div className="mt-4 p-3" data-panel style={{ border: `2px dashed ${C.ruleStrong || C.rule}` }}>
         <Eyebrow>Warranty</Eyebrow>
         <p className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>No warranty raised for this invoice yet.</p>
         {can("warranty.manage") && (
@@ -143,7 +143,7 @@ function WarrantyCard({ invoice, warranty, onGranted }) {
   }
 
   return (
-    <div className="mt-4 p-3" data-panel style={{ border: `1px solid ${C.green}`, backgroundColor: `${C.green}0A` }}>
+    <div className="mt-4 p-3" data-panel style={{ border: `2px solid ${C.green}`, backgroundColor: `${C.green}14`, boxShadow: "0 6px 18px rgba(0,0,0,0.35)" }}>
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1.5 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.08em", color: C.inkSoft }}>
           <ShieldCheck size={13} style={{ color: C.green }} /> Warranty terms & conditions
@@ -172,7 +172,7 @@ function InvoiceDetail({ invoice, onClose, onSettle }) {
 
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(4,9,18,0.7)" }} onClick={onClose}>
-      <div className="max-h-[88vh] w-full max-w-lg overflow-y-auto p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }} onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[88vh] w-full max-w-lg overflow-y-auto p-6" data-panel style={{ backgroundColor: C.slip, border: `2px solid ${C.ruleStrong || C.rule}`, boxShadow: "0 10px 30px rgba(0,0,0,0.5)" }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between">
           <div>
             <p style={{ fontFamily: F.display, fontWeight: 700, fontSize: 18, color: C.ink }}>{invoice.code}</p>
@@ -190,7 +190,7 @@ function InvoiceDetail({ invoice, onClose, onSettle }) {
           ))}
         </div>
 
-        <div className="mt-3 flex items-center justify-between px-3 py-2" data-panel style={{ border: `1px solid ${C.rule}` }}>
+        <div className="mt-3 flex items-center justify-between px-3 py-2" data-panel style={{ border: `2px solid ${C.rule}` }}>
           <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Total</span>
           <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{money(invoice.total)}</span>
         </div>
