@@ -120,11 +120,27 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
 }
 
+# The frontend (staff app + token-based customer portal) is served from one
+# Vite origin -- keep this, PUBLIC_FRONTEND_URL and CSRF_TRUSTED_ORIGINS in
+# sync if that ever changes.
 CORS_ALLOWED_ORIGINS = env_list(
     "DJANGO_CORS_ALLOWED_ORIGINS",
     default="http://localhost:5174,http://127.0.0.1:5174",
-)
+) or ["http://localhost:5174", "http://127.0.0.1:5174"]
 CORS_ALLOW_CREDENTIALS = True
+CSRF_TRUSTED_ORIGINS = env_list(
+    "DJANGO_CSRF_TRUSTED_ORIGINS",
+    default="http://localhost:5174,http://127.0.0.1:5174",
+) or ["http://localhost:5174", "http://127.0.0.1:5174"]
+
+# Django's own session cookie is used by the admin site (and by
+# SessionAuthentication as a DRF fallback) -- hardened regardless, since the
+# customer portal itself is stateless (django.core.signing tokens, no
+# server-side session; see portal/auth.py).
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_AGE = int(os.environ.get("DJANGO_SESSION_COOKIE_AGE", 28800))
+CSRF_COOKIE_SAMESITE = "Lax"
 
 # Set PUBLIC_FRONTEND_URL to the HTTPS customer-facing frontend origin in production.
 PUBLIC_FRONTEND_URL = os.environ.get("PUBLIC_FRONTEND_URL", "http://localhost:5174")

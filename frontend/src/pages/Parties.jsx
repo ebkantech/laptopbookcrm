@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Mail, Phone, Repeat2, Search, X } from "lucide-react";
+import { Copy, KeyRound, Mail, Phone, Repeat2, Search, ShieldCheck, X } from "lucide-react";
 import { C, F, fmt, money } from "../lib/theme";
 import { api } from "../lib/api";
 import { Pill, Spinner, ErrorNote } from "../components/Atoms";
@@ -10,8 +10,29 @@ const STATUS_COLOR = { Paid: C.green, "Payment link sent": C.amber, Overdue: C.c
 
 function PartyDetail({ partyId, onClose }) {
   const [party, setParty] = useState(null);
+  const [portal, setPortal] = useState(null);
+  const [portalLink, setPortalLink] = useState("");
+  const [portalError, setPortalError] = useState("");
+  const [portalBusy, setPortalBusy] = useState(false);
 
-  useEffect(() => { api.get(`/parties/${partyId}/`).then(setParty); }, [partyId]);
+  useEffect(() => {
+    api.get(`/parties/${partyId}/`).then(setParty);
+    api.get(`/parties/${partyId}/portal-account/`).then(setPortal).catch((error) => setPortalError(error.message));
+  }, [partyId]);
+
+  async function generatePortalLink(kind) {
+    setPortalBusy(true); setPortalError(""); setPortalLink("");
+    try {
+      const path = kind === "invite" ? "portal-invite" : "portal-reset-link";
+      const data = await api.post(`/parties/${partyId}/${path}/`, {});
+      setPortalLink(data.setup_url || data.reset_url);
+      setPortal(await api.get(`/parties/${partyId}/portal-account/`));
+    } catch (error) {
+      setPortalError(error.message);
+    } finally {
+      setPortalBusy(false);
+    }
+  }
   if (!party) return null;
 
   return (
@@ -30,6 +51,28 @@ function PartyDetail({ partyId, onClose }) {
           {party.email && <a href={`mailto:${party.email}`} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs" style={{ border: `1px solid ${C.rule}`, fontFamily: F.body, color: C.ink }}><Mail size={12} />{party.email}</a>}
           {party.gstin && <span className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{party.gstin}</span>}
         </div>
+
+        <section className="mt-6 rounded-lg p-4" style={{ backgroundColor: C.slip2, border: `1px solid ${C.rule}` }}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck size={15} style={{ color: C.stamp }} />Customer portal access</p>
+              <p className="mt-1 text-xs" style={{ color: C.inkSoft }}>
+                {portal?.enabled ? `${portal.status} - registered phone ${portal.phone}` : "No portal account created yet."}
+              </p>
+            </div>
+            <button disabled={portalBusy || !portal} onClick={() => generatePortalLink(portal?.status === "active" ? "reset" : "invite")} className="flex items-center gap-1.5 rounded-md px-3 py-2 text-xs text-white disabled:opacity-50" style={{ background: C.stamp }}>
+              <KeyRound size={13} />{portalBusy ? "Generating..." : portal?.status === "active" ? "Generate reset link" : "Generate setup link"}
+            </button>
+          </div>
+          {portalError && <p className="mt-3 text-xs" style={{ color: C.carbon }}>{portalError}</p>}
+          {portalLink && <div className="mt-3">
+            <p className="text-xs" style={{ color: C.inkSoft }}>Send this one-time 24-hour link to the customer:</p>
+            <div className="mt-1 flex gap-2">
+              <input readOnly value={portalLink} className="min-w-0 flex-1 rounded-md px-2 py-2 text-xs" style={{ border: `1px solid ${C.rule}`, background: C.slip }} />
+              <button onClick={() => navigator.clipboard.writeText(portalLink)} className="rounded-md p-2" title="Copy link" style={{ border: `1px solid ${C.rule}` }}><Copy size={14} /></button>
+            </div>
+          </div>}
+        </section>
 
         <p className="mt-6 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.14em", color: C.inkSoft }}>WhatsApp & email</p>
         <div className="mt-3">

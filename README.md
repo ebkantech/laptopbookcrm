@@ -133,6 +133,7 @@ backend/
   accounting/            CashEntry, BankAccount, BankEntry
   broadcast/              Campaign, WhatsAppOrder
   dashboard/              aggregated summary endpoint
+  customer_portal/        customer identity, sessions, lifecycle, dashboard APIs
 
 frontend/
   src/lib/               theme tokens, api client (JWT + auto-refresh)
@@ -182,3 +183,34 @@ cd ../frontend
 npm ci
 npm run build
 ```
+
+## 8. Customer self-service portal
+
+The customer portal is deliberately separate from staff JWT authentication.
+Staff open a Party, generate a one-time setup link, and send it through any
+channel. The customer confirms the Party's registered phone number and creates
+a password. Future visits use `/customer/login` with phone + password; an OTP
+provider is not required.
+
+Security and lifecycle rules:
+
+- Setup and password-reset links are valid for 24 hours, single-use, and only a
+  SHA-256 hash is stored in the database.
+- Customer browsers use an HttpOnly Django session plus CSRF protection. Staff
+  APIs reject customer accounts even if someone tries the staff login endpoint.
+- Every dashboard queryset is filtered server-side through
+  `CustomerMembership`; a customer cannot select another Party ID.
+- Failed login attempts are audited and an account is temporarily locked after
+  five failures. Sessions expire after 30 minutes idle or eight hours absolute.
+- Access is active while a rental/repair is active. Once all work is complete,
+  the dashboard remains read-only for 30 days, then login is denied until the
+  internal team starts a new service or explicitly handles access.
+- Pending single approvals and combined bulk approvals can be decided inside
+  the portal. Bulk repair child approvals cannot be approved separately.
+
+Local URL: `http://localhost:5173/customer/login`
+
+For production, point `PUBLIC_FRONTEND_URL` at a branded HTTPS origin such as
+`https://portal.vantagecomputers.com`, add that origin to
+`DJANGO_CORS_ALLOWED_ORIGINS` and `DJANGO_CSRF_TRUSTED_ORIGINS`, and configure
+DNS/TLS at the selected host. See `backend/.env.example` for all portal settings.

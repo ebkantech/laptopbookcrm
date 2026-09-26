@@ -3,6 +3,15 @@ from rest_framework.permissions import BasePermission
 SAFE_ACTIONS = {"list", "retrieve"}
 
 
+class IsStaffAccount(BasePermission):
+    """Keep portal customer identities out of internal CRM endpoints."""
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        return request.user.is_superuser or not hasattr(request.user, "customer_profile")
+
+
 class HasPerm(BasePermission):
     """
     DRF permission class driven by the same object-based permission
@@ -14,6 +23,8 @@ class HasPerm(BasePermission):
 
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
+            return False
+        if hasattr(request.user, "customer_profile"):
             return False
         if request.user.is_superuser:
             return True
