@@ -1,4 +1,6 @@
-const BASE_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000/api";
+// Local Vite proxies /api to Django. Production can override this with the
+// same-origin /api path or its configured API origin.
+const BASE_URL = import.meta.env.VITE_API_URL || "/api";
 
 let accessToken = localStorage.getItem("cb_access") || null;
 let refreshToken = localStorage.getItem("cb_refresh") || null;

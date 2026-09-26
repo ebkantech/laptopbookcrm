@@ -4,7 +4,7 @@ from rest_framework import permissions, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from accounts.permissions import HasPerm
+from accounts.permissions import HasPerm, IsStaffAccount
 from .models import Campaign, WhatsAppOrder
 from .serializers import CampaignSerializer, WhatsAppOrderSerializer
 
@@ -25,7 +25,7 @@ class CampaignViewSet(viewsets.ModelViewSet):
 class WhatsAppOrderViewSet(viewsets.ModelViewSet):
     queryset = WhatsAppOrder.objects.select_related("party").all()
     serializer_class = WhatsAppOrderSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsStaffAccount]
 
     @action(detail=True, methods=["post"])
     def quote(self, request, pk=None):
