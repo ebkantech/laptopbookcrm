@@ -46,6 +46,39 @@ class PortalInvite(models.Model):
         return f"Invite for {self.party.name} ({'used' if self.consumed_at else 'active' if self.is_valid else 'expired'})"
 
 
+class WhatsAppDeliveryLog(models.Model):
+    """
+    Task 3's delivery-status half: a real WhatsApp Business API provider
+    posts back sent/delivered/read/failed against a message it sent
+    (see notify.send_whatsapp) via a webhook -- this row is what that
+    webhook writes to, and what a Party detail screen would read to show
+    "did they actually get this" instead of just "we attempted to send
+    it". provider_message_id is whatever id the provider returned when
+    the message was sent (send_whatsapp's provider_id) -- the webhook
+    payload references it, that's how a status update finds its row.
+
+    Not wired to a live provider yet (Task 2's provider decision is still
+    open), so today this only fills in when something POSTs to
+    portal/whatsapp-webhook/ -- nothing does that automatically until a
+    real provider is chosen.
+    """
+    SENT, DELIVERED, READ, FAILED = "sent", "delivered", "read", "failed"
+    STATUS_CHOICES = [(SENT, "Sent"), (DELIVERED, "Delivered"), (READ, "Read"), (FAILED, "Failed")]
+
+    party = models.ForeignKey(Party, on_delete=models.CASCADE, related_name="whatsapp_delivery_logs")
+    provider_message_id = models.CharField(max_length=100, blank=True)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=SENT)
+    detail = models.CharField(max_length=300, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+
+    def __str__(self):
+        return f"{self.party.name} -- {self.status}"
+
+
 class Feedback(models.Model):
     """General feedback left by a customer through their portal -- not tied to any specific invoice/rental/repair."""
     party = models.ForeignKey(Party, on_delete=models.CASCADE, related_name="feedback")

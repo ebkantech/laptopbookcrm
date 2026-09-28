@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Copy, KeyRound, Mail, Phone, Repeat2, Search, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Copy, KeyRound, Mail, Phone, RefreshCw, Repeat2, ShieldCheck, X } from "lucide-react";
 import { C, F, fmt, money } from "../lib/theme";
 import { api } from "../lib/api";
-import { Pill, Spinner, ErrorNote } from "../components/Atoms";
+import { Pill, PillButton, SearchInput, Spinner, ErrorNote } from "../components/Atoms";
+import PageHeader from "../components/PageHeader";
 import { PartyThread } from "../components/PartyThread";
 
 const STATUS_COLOR = { Paid: C.green, "Payment link sent": C.amber, Overdue: C.carbon };
@@ -14,11 +15,22 @@ function PartyDetail({ partyId, onClose }) {
   const [portalLink, setPortalLink] = useState("");
   const [portalError, setPortalError] = useState("");
   const [portalBusy, setPortalBusy] = useState(false);
+  const [rechecking, setRechecking] = useState(false);
 
   useEffect(() => {
     api.get(`/parties/${partyId}/`).then(setParty);
     api.get(`/parties/${partyId}/portal-account/`).then(setPortal).catch((error) => setPortalError(error.message));
   }, [partyId]);
+
+  async function recheckWhatsapp() {
+    setRechecking(true);
+    try {
+      const result = await api.post(`/parties/${partyId}/recheck-whatsapp/`, {});
+      setParty((p) => ({ ...p, whatsapp_verified: result.whatsapp_verified, whatsapp_checked_at: result.whatsapp_checked_at }));
+    } finally {
+      setRechecking(false);
+    }
+  }
 
   async function generatePortalLink(kind) {
     setPortalBusy(true); setPortalError(""); setPortalLink("");
@@ -46,10 +58,20 @@ function PartyDetail({ partyId, onClose }) {
           <button onClick={onClose}><X size={18} style={{ color: C.inkSoft }} /></button>
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-4 flex flex-wrap items-center gap-2">
           <a href={`tel:${party.phone}`} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs" style={{ border: `1px solid ${C.rule}`, fontFamily: F.body, color: C.ink }}><Phone size={12} />{party.phone}</a>
           {party.email && <a href={`mailto:${party.email}`} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs" style={{ border: `1px solid ${C.rule}`, fontFamily: F.body, color: C.ink }}><Mail size={12} />{party.email}</a>}
           {party.gstin && <span className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{party.gstin}</span>}
+          {party.whatsapp_verified === true && <Pill color={C.green}><CheckCircle2 size={11} />WhatsApp verified</Pill>}
+          {party.whatsapp_verified === false && (
+            <>
+              <Pill color={C.carbon}><AlertTriangle size={11} />No WhatsApp on this number</Pill>
+              <PillButton icon={RefreshCw} disabled={rechecking} onClick={recheckWhatsapp}>{rechecking ? "Checking…" : "Re-check"}</PillButton>
+            </>
+          )}
+          {party.whatsapp_verified == null && (
+            <PillButton icon={RefreshCw} disabled={rechecking} onClick={recheckWhatsapp}>{rechecking ? "Checking…" : "Check WhatsApp"}</PillButton>
+          )}
         </div>
 
         <section className="mt-6 rounded-lg p-4" style={{ backgroundColor: C.slip2, border: `1px solid ${C.rule}` }}>
@@ -60,16 +82,16 @@ function PartyDetail({ partyId, onClose }) {
                 {portal?.enabled ? `${portal.status} - registered phone ${portal.phone}` : "No portal account created yet."}
               </p>
             </div>
-            <button disabled={portalBusy || !portal} onClick={() => generatePortalLink(portal?.status === "active" ? "reset" : "invite")} className="flex items-center gap-1.5 rounded-md px-3 py-2 text-xs text-white disabled:opacity-50" style={{ background: C.stamp }}>
-              <KeyRound size={13} />{portalBusy ? "Generating..." : portal?.status === "active" ? "Generate reset link" : "Generate setup link"}
-            </button>
+            <PillButton icon={KeyRound} primary disabled={portalBusy || !portal} onClick={() => generatePortalLink(portal?.status === "active" ? "reset" : "invite")}>
+              {portalBusy ? "Generating..." : portal?.status === "active" ? "Generate reset link" : "Generate setup link"}
+            </PillButton>
           </div>
           {portalError && <p className="mt-3 text-xs" style={{ color: C.carbon }}>{portalError}</p>}
           {portalLink && <div className="mt-3">
             <p className="text-xs" style={{ color: C.inkSoft }}>Send this one-time 24-hour link to the customer:</p>
             <div className="mt-1 flex gap-2">
               <input readOnly value={portalLink} className="min-w-0 flex-1 rounded-md px-2 py-2 text-xs" style={{ border: `1px solid ${C.rule}`, background: C.slip }} />
-              <button onClick={() => navigator.clipboard.writeText(portalLink)} className="rounded-md p-2" title="Copy link" style={{ border: `1px solid ${C.rule}` }}><Copy size={14} /></button>
+              <PillButton icon={Copy} onClick={() => navigator.clipboard.writeText(portalLink)} className="!px-2.5" />
             </div>
           </div>}
         </section>
@@ -122,26 +144,37 @@ export default function Parties() {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex items-center gap-3 px-5 py-4 sm:px-8" style={{ borderBottom: `1px solid ${C.rule}` }}>
-        <div className="flex min-w-0 flex-1 items-center gap-2" style={{ borderBottom: `1px solid ${C.rule}` }}>
-          <Search size={15} style={{ color: C.inkSoft }} />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find a customer, dealer, or rental account"
-            className="w-full bg-transparent py-1.5 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink }} />
-        </div>
+      <div className="px-5 pt-6 sm:px-8">
+        <PageHeader title="Parties" subtitle="Customers, dealers, and rental accounts" />
+      </div>
+      <header className="flex items-center gap-3 px-5 py-4 sm:px-8">
+        <SearchInput value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find a customer, dealer, or rental account" />
       </header>
-      <div className="flex-1 overflow-y-auto">
-        {parties.map((p) => (
-          <button key={p.id} onClick={() => setSelected(p.id)} data-row className="flex w-full items-center justify-between px-5 py-3.5 text-left sm:px-8" style={{ borderBottom: `1px solid ${C.rule}` }}>
-            <div>
-              <p className="text-sm" style={{ fontFamily: F.display, fontWeight: 600, color: C.ink }}>{p.name}</p>
-              <p className="text-xs capitalize" style={{ fontFamily: F.mono, color: C.inkSoft }}>{p.type} · {p.customer_classification} · {p.phone}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{money(p.total_spent)}</p>
-              <p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{p.invoice_count} invoice{p.invoice_count !== 1 ? "s" : ""}</p>
-            </div>
-          </button>
-        ))}
+      <div className="flex-1 overflow-y-auto px-5 py-4 sm:px-8">
+        <div className="flex flex-col gap-2.5">
+          {parties.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => setSelected(p.id)}
+              data-listcard
+              data-selected={selected === p.id}
+              className="flex w-full items-center justify-between px-5 py-3.5 text-left"
+            >
+              <div>
+                <p className="flex items-center gap-1.5 text-sm" style={{ fontFamily: F.display, fontWeight: 600, color: C.ink }}>
+                  {p.name}
+                  {p.whatsapp_verified === false && <AlertTriangle size={12} style={{ color: C.carbon }} />}
+                </p>
+                <p className="text-xs capitalize" style={{ fontFamily: F.mono, color: C.inkSoft }}>{p.type} · {p.customer_classification} · {p.phone}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{money(p.total_spent)}</p>
+                <p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{p.invoice_count} invoice{p.invoice_count !== 1 ? "s" : ""}</p>
+              </div>
+            </button>
+          ))}
+          {!parties.length && <p className="px-3 py-10 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>No parties match that search.</p>}
+        </div>
       </div>
       {selected && <PartyDetail partyId={selected} onClose={() => setSelected(null)} />}
     </div>

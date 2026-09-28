@@ -26,6 +26,21 @@ class Party(models.Model):
         choices=CUSTOMER_CLASSIFICATION_CHOICES,
         default=INDIVIDUAL,
     )
+    # Task 3 (WhatsApp number verification pipeline): null = never checked
+    # yet (e.g. a party created before this field existed, or the check
+    # itself failed/skipped); True/False is a real answer from the
+    # check-whatsapp-number call. Re-checked automatically whenever the
+    # phone number changes -- see PartyViewSet.perform_create/_update.
+    whatsapp_verified = models.BooleanField(null=True, blank=True, default=None)
+    whatsapp_checked_at = models.DateTimeField(null=True, blank=True)
+
+    # Task 6 security checklist ("portal tokens can't be replayed after
+    # access is revoked"): portal tokens are stateless signed tokens with
+    # no server-side session to delete, so revocation works by comparing
+    # a token's issue time against this timestamp instead -- see
+    # portal.auth.resolve_portal_token. Staff sets this via the
+    # "Revoke portal access" action; it does not expire on its own.
+    portal_access_revoked_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["name"]

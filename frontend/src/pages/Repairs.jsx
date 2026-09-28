@@ -6,7 +6,8 @@ import {
 import { C, F, money } from "../lib/theme";
 import { api } from "../lib/api";
 import { useSession } from "../context/SessionContext";
-import { Locked, Pill, Spinner, ErrorNote, Eyebrow } from "../components/Atoms";
+import { Locked, Pill, PillButton, Spinner, ErrorNote, Eyebrow, TabBar } from "../components/Atoms";
+import PageHeader from "../components/PageHeader";
 import EstimateApprovalPanel from "../components/repairs/EstimateApprovalPanel";
 
 const STAGES = ["Received", "Diagnosing", "In progress", "Ready for pickup", "Delivered"];
@@ -690,26 +691,16 @@ export default function Repairs() {
 
   return (
     <div className="flex-1 overflow-y-auto px-5 py-6 sm:px-8">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p style={{ fontFamily: F.display, fontWeight: 700, fontSize: 20, color: C.ink }}>Repairs & service</p>
-          <p className="mt-1 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>Ticket to bill, with parts availability checked against shared stock</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex" style={{ border: `1px solid ${C.rule}` }}>
-            <button onClick={() => setView("list")} className="flex items-center gap-1.5 px-2.5 py-2 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, color: view === "list" ? C.onAccent : C.inkSoft, backgroundColor: view === "list" ? C.stamp : "transparent" }}>
-              <List size={13} /> List
-            </button>
-            <button onClick={() => setView("board")} className="flex items-center gap-1.5 px-2.5 py-2 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, color: view === "board" ? C.onAccent : C.inkSoft, backgroundColor: view === "board" ? C.stamp : "transparent" }}>
-              <LayoutGrid size={13} /> Board
-            </button>
-          </div>
-          {can("repairs.manage") && (
-            <button onClick={() => setAdding(true)} className="flex items-center gap-1.5 px-3 py-2 text-xs uppercase" style={{ backgroundColor: C.stamp, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em" }}>
-              <Plus size={14} /> New ticket
-            </button>
-          )}
-        </div>
+      <PageHeader title="Repairs & service" subtitle="Ticket to bill, with parts availability checked against shared stock" />
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <TabBar
+          tabs={[{ id: "list", label: "List", icon: List }, { id: "board", label: "Board", icon: LayoutGrid }]}
+          value={view}
+          onChange={setView}
+        />
+        {can("repairs.manage") && (
+          <PillButton icon={Plus} primary onClick={() => setAdding(true)}>New ticket</PillButton>
+        )}
       </div>
 
       {flash && (
@@ -721,12 +712,12 @@ export default function Repairs() {
 
       {view === "list" ? (
         <>
-          <div className="mt-5 flex gap-4 overflow-x-auto" style={{ borderBottom: `1px solid ${C.rule}` }}>
-            {["all", ...STAGES].map((s) => (
-              <button key={s} onClick={() => setFilter(s)} className="shrink-0 pb-2 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.08em", color: filter === s ? C.ink : C.inkSoft, borderBottom: `2px solid ${filter === s ? C.orange : "transparent"}` }}>
-                {s === "all" ? "All" : s}
-              </button>
-            ))}
+          <div className="mt-5 overflow-x-auto">
+            <TabBar
+              tabs={["all", ...STAGES].map((s) => ({ id: s, label: s === "all" ? "All" : s }))}
+              value={filter}
+              onChange={setFilter}
+            />
           </div>
 
           <div className="mt-3 space-y-2">

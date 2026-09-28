@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Feedback, PortalAccessLog, PortalInvite
+from .models import Feedback, PortalAccessLog, PortalInvite, WhatsAppDeliveryLog
 
 
 @admin.register(PortalInvite)
@@ -19,3 +19,10 @@ class FeedbackAdmin(admin.ModelAdmin):
 class PortalAccessLogAdmin(admin.ModelAdmin):
     list_display = ["party", "ip_address", "created_at", "latitude", "longitude"]
     readonly_fields = ["party", "ip_address", "user_agent", "latitude", "longitude", "location_accuracy_m", "created_at"]
+
+
+@admin.register(WhatsAppDeliveryLog)
+class WhatsAppDeliveryLogAdmin(admin.ModelAdmin):
+    list_display = ["party", "status", "provider_message_id", "created_at", "updated_at"]
+    list_filter = ["status"]
+    readonly_fields = ["party", "provider_message_id", "created_at"]

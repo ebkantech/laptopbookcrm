@@ -6,7 +6,8 @@ import {
 import { C, F, fmt, money } from "../lib/theme";
 import { api } from "../lib/api";
 import { useSession } from "../context/SessionContext";
-import { Eyebrow, Pill, Spinner, ErrorNote } from "../components/Atoms";
+import { Eyebrow, Pill, PillButton, Spinner, ErrorNote } from "../components/Atoms";
+import PageHeader from "../components/PageHeader";
 import { PartyChatModal } from "../components/PartyThread";
 import RentalAgreementModal from "../components/rentals/RentalAgreementModal";
 
@@ -139,6 +140,7 @@ export default function Rentals() {
   const [chatWith, setChatWith] = useState(null);
   const [creating, setCreating] = useState(false);
   const [approvalLink, setApprovalLink] = useState("");
+  const [approvalWhatsappUrl, setApprovalWhatsappUrl] = useState("");
   const [actionError, setActionError] = useState("");
   const [rentalAction, setRentalAction] = useState(null);
   const [flash, setFlash] = useState("");
@@ -186,6 +188,7 @@ export default function Rentals() {
     try {
       const result = await api.post(`/rentals/${rentalId}/approval-link/`);
       setApprovalLink(result.approval_url);
+      setApprovalWhatsappUrl(result.whatsapp_url || "");
     } catch (requestError) {
       setActionError(requestError.body?.detail || requestError.message);
     }
@@ -206,12 +209,15 @@ export default function Rentals() {
 
   return (
     <div className="flex-1 overflow-y-auto px-5 py-6 sm:px-8">
-      <div className="flex flex-wrap items-start justify-between gap-3"><p style={{ fontFamily: F.display, fontWeight: 600, fontSize: 20, color: C.ink }}>Rental accounts</p>{can("rentals.manage") && <button onClick={() => setCreating(true)} className="flex items-center gap-1.5 px-3 py-2 text-xs" style={{ backgroundColor: C.carbon, color: C.onAccent }}><Plus size={13} /> New rental agreement</button>}</div>
-      <p className="mt-1 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>Churn risk, next payment due, and client-raised issues — highest risk first</p>
+      <PageHeader
+        title="Rental accounts"
+        subtitle="Churn risk, next payment due, and client-raised issues — highest risk first"
+        actions={can("rentals.manage") && <PillButton icon={Plus} primary onClick={() => setCreating(true)}>New rental agreement</PillButton>}
+      />
 
       <ErrorNote message={actionError} />
       {flash && <div className="mt-4 flex items-center gap-2 p-3" style={{ border: `1px solid ${C.green}`, backgroundColor: `${C.green}10` }}><ShieldCheck size={14} style={{ color: C.green }} /><span className="text-xs" style={{ fontFamily: F.body, color: C.ink }}>{flash}</span></div>}
-      {approvalLink &&<div className="mt-4 flex flex-wrap items-center gap-2 p-3" style={{ border: `1px solid ${C.green}`, backgroundColor: `${C.green}10` }}><Link2 size={14} style={{ color: C.green }} /><input readOnly value={approvalLink} className="min-w-0 flex-1 bg-transparent text-xs" style={{ fontFamily: F.mono, color: C.ink }} /><button onClick={() => navigator.clipboard?.writeText(approvalLink)} className="flex items-center gap-1 px-2 py-1 text-xs" style={{ border: `1px solid ${C.rule}` }}><Copy size={11} /> Copy</button><button onClick={() => setApprovalLink("")}><X size={14} /></button></div>}
+      {approvalLink &&<div className="mt-4 flex flex-wrap items-center gap-2 p-3" style={{ border: `1px solid ${C.green}`, backgroundColor: `${C.green}10` }}><Link2 size={14} style={{ color: C.green }} /><input readOnly value={approvalLink} className="min-w-0 flex-1 bg-transparent text-xs" style={{ fontFamily: F.mono, color: C.ink }} /><button onClick={() => navigator.clipboard?.writeText(approvalLink)} className="flex items-center gap-1 px-2 py-1 text-xs" style={{ border: `1px solid ${C.rule}` }}><Copy size={11} /> Copy</button>{approvalWhatsappUrl && <a href={approvalWhatsappUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 px-2 py-1 text-xs" style={{ border: `1px solid ${C.green}`, color: C.green }}><MessageCircle size={11} /> Send via WhatsApp</a>}<button onClick={() => { setApprovalLink(""); setApprovalWhatsappUrl(""); }}><X size={14} /></button></div>}
 
       <div className="mt-6 space-y-3">
         {rentals.map((r) => {

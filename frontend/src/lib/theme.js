@@ -1,38 +1,49 @@
 /*
- * VantageCRM 26X -- "Night Grid" theme. Built for a rental fleet &
- * delivery operation: live tracking, drop-off timers, real-time
- * inventory velocity. An oil-slick charcoal-navy canvas (never a dull
- * neutral grey), cards stepped up cleanly for map overlays and
- * customer profiles, and ONE hyper-vibrant electric-cyan hero accent
- * (`stamp`/`orange`, kept as the same hex so every existing consumer
- * of either token stays in sync) reserved for live tracking, the map,
- * and primary dispatch actions. The four inventory-flow statuses are
- * distinct, glowing colors rather than dulled tints -- this dashboard
- * is read in a hurry, often in the field, so status needs to
- * register at a glance: mint for ready, orange for out, coral-red for
- * overdue, lavender for booked/reserved.
+ * VantageCRM 26X -- "Vantage Daybook" theme. Redesigned from the earlier
+ * dark "Night Grid" look to a warm, paper-toned working surface, after a
+ * reference screenshot (a housing-society management app called "Kosh"):
+ * a warm cream content area, white cards with soft shadows instead of
+ * neon glows, a deep forest-charcoal sidebar with a sage-green active-item
+ * pill, and a single warm-orange hero accent for primary actions. Every
+ * page in the app reads these same tokens, so this file is the one place
+ * that reskins the whole thing -- individual pages should keep consuming
+ * `C`/`F` rather than hardcoding a hex value.
+ *
+ * `frontend/src/lib/pilotTheme.js` re-exports this file: it was the
+ * scratch file used to design this palette against a single pilot page
+ * before rolling it out here. Kept as a re-export (not deleted) so any
+ * file still importing from it keeps working without a further change.
  */
 export const APP_NAME = "VantageCRM";
 export const APP_VERSION = "26X";
 export const APP_FULL_NAME = `${APP_NAME} ${APP_VERSION}`;
 
 export const C = {
-  ink: "#F1F4FA",        // primary text -- crisp light silver-white, for legibility under field conditions
-  inkSoft: "#7C8CA6",    // secondary text / metadata -- muted smoky steel-blue
-  paper: "#0B0F1A",      // app background -- deep oil-slick charcoal-navy, never a dull neutral grey
-  slip: "#141A29",       // card / panel surface -- one clean step up from paper
-  slip2: "#1B2436",      // nested / inset surface -- a further step up again
-  deep: "#0A0E1C",       // sidebar & top-bar surface -- its own quiet, slightly richer dark
-  rule: "#232D40",       // hairlines & borders -- smoky steel-blue, clean and unobtrusive
-  ruleStrong: "#324058", // heavier border for emphasis panels / headers
-  stamp: "#00E5FF",      // THE hero accent -- hyper-vibrant electric cyan: live tracking, the map, primary dispatch buttons
-  carbon: "#FF3B5C",     // Overdue / Payment failed -- sharp neon coral-red
-  green: "#00FFA3",      // Available / Ready for pickup -- vivid glowing mint
-  amber: "#FF7A1A",      // Out with customer -- sleek electric orange
-  blue: "#B39DFF",       // Booked future / Reserved -- soft icy lavender
-  orange: "#00E5FF",     // kept as an alias of `stamp` so every existing "brand accent" usage (tab indicators, CTA fills, StatCard stripes) picks up the same electric cyan rather than a second competing color
-  onAccent: "#04141A",   // text placed on top of a solid cyan/mint fill
-  onAccentLight: "#F1F4FA", // text placed on top of a solid dark surface
+  ink: "#23281F",          // primary text -- near-black warm charcoal, for legibility on cream/white
+  inkSoft: "#83806C",      // secondary text / metadata -- muted warm taupe
+  paper: "#F3EEE2",        // app background -- warm cream, never a stark white or dark navy
+  slip: "#FFFFFF",         // card / panel surface -- clean white, one step up from paper
+  slip2: "#F7F3EA",        // nested / inset surface -- a soft warm off-white
+  deep: "#16211C",         // sidebar & top-bar surface -- deep forest-charcoal
+  rule: "#E7E0CF",         // hairlines & borders -- warm sand, clean and unobtrusive
+  ruleStrong: "#D8CFB8",   // heavier border for emphasis panels / headers
+  stamp: "#E17A2D",        // THE hero accent -- warm orange: primary CTAs, active tab indicators
+  carbon: "#C0473A",       // Overdue / Payment failed -- muted brick red
+  green: "#2F6B4A",        // Available / Ready for pickup / approved -- sage green
+  amber: "#C98A22",        // Out with customer / warning -- warm ochre
+  blue: "#4C6FA0",         // Booked future / Reserved -- muted slate blue
+  orange: "#E17A2D",       // kept as an alias of `stamp` so every existing "brand accent" usage (tab indicators, CTA fills, StatCard stripes) picks up the same warm orange rather than a second competing color
+  onAccent: "#FFFFFF",     // text placed on top of a solid orange/green fill
+  onAccentLight: "#23281F", // text placed on top of a light surface where onAccent (white) would be illegible
+
+  // Sidebar-only tokens -- the sidebar is its own dark surface sitting
+  // next to an otherwise light app, so it needs its own text/accent
+  // scale rather than reusing ink/inkSoft (tuned for light backgrounds).
+  sidebarActive: "#2F6B4A",      // active nav item's filled pill
+  sidebarActiveText: "#FFFFFF",
+  sidebarText: "#C9D3C7",        // default (inactive) nav label color
+  sidebarTextDim: "#7C8C81",     // section headings, muted rows
+  sidebarHover: "#22302A",       // hover backing for an inactive row
 };
 
 export const F = {
@@ -41,19 +52,19 @@ export const F = {
   mono: "'IBM Plex Mono', ui-monospace, monospace",
 };
 
-// Reusable "heavy" surface styles for the key screens -- a clean
-// border plus a soft, glowing shadow (never a hard offset block --
-// this theme reads as live-tracking-software, not a printed sticker).
+// Reusable "heavy" surface styles for the key screens -- a clean border
+// plus a soft, understated shadow (this theme reads as a paper ledger,
+// not a live-tracking dashboard -- no glowing neon shadows).
 export const heavyPanel = {
-  border: `1px solid ${C.ruleStrong}`,
+  border: `1px solid ${C.rule}`,
   backgroundColor: C.slip,
-  boxShadow: "0 8px 28px rgba(0,0,0,0.55)",
+  boxShadow: "0 1px 2px rgba(35,40,31,0.04), 0 10px 24px rgba(35,40,31,0.06)",
 };
 
 export const heavyPanelAccent = (color = C.orange) => ({
-  border: `1px solid ${color}`,
+  border: `1px solid ${color}55`,
   backgroundColor: C.slip,
-  boxShadow: `0 0 0 1px ${color}33, 0 8px 28px rgba(0,0,0,0.55)`,
+  boxShadow: "0 1px 2px rgba(35,40,31,0.04), 0 10px 24px rgba(35,40,31,0.06)",
 });
 
 export const money = (n) =>

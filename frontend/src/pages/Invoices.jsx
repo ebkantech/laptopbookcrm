@@ -3,7 +3,8 @@ import { Check, Link2, Mail, Plus, Repeat2, ShieldCheck, X } from "lucide-react"
 import { C, F, fmt, money } from "../lib/theme";
 import { api } from "../lib/api";
 import { useSession } from "../context/SessionContext";
-import { Eyebrow, ErrorNote, Pill, Spinner } from "../components/Atoms";
+import { Eyebrow, ErrorNote, Pill, PillButton, SearchInput, Spinner, TabBar } from "../components/Atoms";
+import PageHeader from "../components/PageHeader";
 
 const STATUS_COLOR = { Paid: "#36D399", "Payment link sent": "#F5A623", Overdue: "#FB5B5B" };
 const WARRANTY_STATUS_COLOR = { Active: "#36D399", "Expiring soon": "#F5A623", Expired: "#FB5B5B" };
@@ -219,6 +220,7 @@ export default function Invoices() {
   const [error, setError] = useState("");
   const [source, setSource] = useState("sales"); // "sales" | "repairs"
   const [statusFilter, setStatusFilter] = useState("all");
+  const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const [openInvoice, setOpenInvoice] = useState(null);
 
@@ -251,43 +253,56 @@ export default function Invoices() {
 
   const totalRepairRevenue = repairInvoices.filter((r) => r.status === "Paid").reduce((s, r) => s + r.amount, 0);
 
+  // Client-side only -- both lists are already fully loaded for this
+  // view (status filtering for sales still goes through the API), so
+  // filtering by code/party here needs no extra round trip.
+  const q = query.trim().toLowerCase();
+  const visibleInvoices = q ? invoices.filter((inv) => inv.code.toLowerCase().includes(q) || inv.party_name.toLowerCase().includes(q)) : invoices;
+  const visibleRepairInvoices = q ? repairInvoices.filter((r) => r.code.toLowerCase().includes(q) || r.party_name.toLowerCase().includes(q)) : repairInvoices;
+
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-8" style={{ borderBottom: `1px solid ${C.rule}` }}>
+      <div className="px-5 pt-6 sm:px-8">
+        <PageHeader title="Sales & Invoices" subtitle="Sales and repair billing, in one place" />
+      </div>
+      <header className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-8">
         <div className="flex flex-col gap-2">
-          <div className="flex" style={{ border: `1px solid ${C.rule}` }}>
-            <button onClick={() => setSource("sales")} className="px-3 py-1.5 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, color: source === "sales" ? C.onAccent : C.inkSoft, backgroundColor: source === "sales" ? C.stamp : "transparent" }}>Sales ({invoices.length})</button>
-            <button onClick={() => setSource("repairs")} className="px-3 py-1.5 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, color: source === "repairs" ? C.onAccent : C.inkSoft, backgroundColor: source === "repairs" ? C.amber : "transparent" }}>Repairs ({repairInvoices.length})</button>
-          </div>
+          <TabBar
+            tabs={[{ id: "sales", label: `Sales (${invoices.length})` }, { id: "repairs", label: `Repairs (${repairInvoices.length})` }]}
+            value={source}
+            onChange={setSource}
+          />
           {source === "sales" && (
-            <div className="flex gap-4 overflow-x-auto">
-              {["all", "Paid", "Payment link sent", "Overdue"].map((s) => (
-                <button key={s} onClick={() => setStatusFilter(s)} className="shrink-0 pb-1 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.08em", color: statusFilter === s ? C.ink : C.inkSoft, borderBottom: `2px solid ${statusFilter === s ? C.orange : "transparent"}` }}>
-                  {s === "all" ? "All invoices" : s}
-                </button>
-              ))}
+            <div className="overflow-x-auto">
+              <TabBar
+                tabs={["all", "Paid", "Payment link sent", "Overdue"].map((s) => ({ id: s, label: s === "all" ? "All invoices" : s }))}
+                value={statusFilter}
+                onChange={setStatusFilter}
+              />
             </div>
           )}
         </div>
         {source === "sales" && can("invoices.create") && (
-          <button onClick={() => setAdding(true)} className="flex items-center gap-1.5 px-3 py-2 text-xs uppercase" style={{ backgroundColor: C.stamp, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em" }}>
-            <Plus size={14} /> New invoice
-          </button>
+          <PillButton icon={Plus} primary onClick={() => setAdding(true)}>New invoice</PillButton>
         )}
       </header>
 
+      <div className="flex flex-wrap items-center gap-3 px-5 pb-4 sm:px-8">
+        <SearchInput value={query} onChange={(e) => setQuery(e.target.value)} placeholder={source === "sales" ? "Search by invoice code or customer" : "Search by bill code or customer"} />
+      </div>
+
       {source === "repairs" && (
-        <div className="mx-5 mt-3 flex items-center justify-between px-3 py-2 sm:mx-8" style={{ backgroundColor: C.slip2 }}>
+        <div className="mx-5 mb-3 flex items-center justify-between px-3 py-2 sm:mx-8" style={{ backgroundColor: C.slip2 }}>
           <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Repair revenue, settled</span>
           <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{money(totalRepairRevenue)}</span>
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto px-5 pb-4 sm:px-8">
         {source === "sales" ? (
-          <>
-            {invoices.map((inv) => (
-              <div key={inv.id} data-row onClick={() => setOpenInvoice(inv)} className="flex flex-wrap items-center gap-3 px-5 py-3.5 sm:px-8 cursor-pointer" style={{ borderBottom: `1px solid ${C.rule}` }}>
+          <div className="flex flex-col gap-2.5">
+            {visibleInvoices.map((inv) => (
+              <div key={inv.id} data-listcard onClick={() => setOpenInvoice(inv)} className="flex flex-wrap items-center gap-3 px-5 py-3.5 cursor-pointer">
                 <div className="min-w-[140px] flex-1">
                   <div className="flex items-center gap-2">
                     <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 600, color: C.ink }}>{inv.code}</span>
@@ -305,12 +320,16 @@ export default function Invoices() {
                 )}
               </div>
             ))}
-            {!invoices.length && <p className="px-8 py-10 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>No invoices in this view.</p>}
-          </>
+            {!visibleInvoices.length && (
+              <p className="px-3 py-10 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>
+                {invoices.length ? "No invoices match that search." : "No invoices in this view."}
+              </p>
+            )}
+          </div>
         ) : (
-          <>
-            {repairInvoices.map((r) => (
-              <div key={r.id} data-row className="flex flex-wrap items-center gap-3 px-5 py-3.5 sm:px-8" style={{ borderBottom: `1px solid ${C.rule}` }}>
+          <div className="flex flex-col gap-2.5">
+            {visibleRepairInvoices.map((r) => (
+              <div key={r.id} data-listcard className="flex flex-wrap items-center gap-3 px-5 py-3.5">
                 <div className="min-w-[140px] flex-1">
                   <div className="flex items-center gap-2">
                     <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 600, color: C.ink }}>{r.code}</span>
@@ -323,8 +342,12 @@ export default function Invoices() {
                 <Pill color={STATUS_COLOR[r.status] || C.green}>{r.status}</Pill>
               </div>
             ))}
-            {!repairInvoices.length && <p className="px-8 py-10 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>No repair bills yet -- these appear automatically when a repair ticket is settled.</p>}
-          </>
+            {!visibleRepairInvoices.length && (
+              <p className="px-3 py-10 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>
+                {repairInvoices.length ? "No repair bills match that search." : "No repair bills yet -- these appear automatically when a repair ticket is settled."}
+              </p>
+            )}
+          </div>
         )}
       </div>
 

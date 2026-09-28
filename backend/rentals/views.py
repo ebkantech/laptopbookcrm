@@ -31,6 +31,16 @@ from .services import (
 )
 
 
+def _client_ip(request):
+    # reverse-proxy-aware -- matches the same helper in parties/views.py
+    # and portal/views.py, so a deployment behind Nginx doesn't just
+    # record the proxy's own IP for every customer decision
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR")
+
+
 def _audit_value(value):
     if hasattr(value, "all") and hasattr(value, "values_list"):
         return list(value.values_list("pk", flat=True))
@@ -138,8 +148,13 @@ class RentalViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="approval-link")
     def approval_link(self, request, pk=None):
-        _, approval_url = issue_approval_link(self.get_object(), request.user)
-        return Response({"approval_url": approval_url, "expires_in_hours": 24})
+        approval, approval_url, whatsapp_url = issue_approval_link(self.get_object(), request.user)
+        return Response({
+            "approval_url": approval_url,
+            "whatsapp_url": whatsapp_url,
+            "expires_at": approval.expires_at,
+            "expires_in_hours": 24,
+        })
 
     @action(detail=True, methods=["post"], url_path="approve-on-behalf")
     def approve_on_behalf(self, request, pk=None):
@@ -215,6 +230,8 @@ class RentalApprovalPublicView(APIView):
             payload.validated_data["decision"],
             payload.validated_data.get("consent", False),
             payload.validated_data.get("reason", ""),
+            ip_address=_client_ip(request),
+            user_agent=request.META.get("HTTP_USER_AGENT", "")[:300],
         )
         return self._private_response(PublicRentalApprovalSerializer(approval).data)
 

@@ -37,9 +37,9 @@ class RentalAssetAdmin(admin.ModelAdmin):
 
 @admin.register(RentalApproval)
 class RentalApprovalAdmin(admin.ModelAdmin):
-    list_display = ["rental", "version", "status", "source", "expires_at", "decided_at"]
+    list_display = ["rental", "version", "status", "source", "expires_at", "decided_at", "decided_ip"]
     list_filter = ["status", "source"]
-    readonly_fields = ["snapshot", "token_hash", "created_at", "expires_at", "decided_at"]
+    readonly_fields = ["snapshot", "token_hash", "created_at", "expires_at", "decided_at", "decided_ip", "decided_user_agent"]
 
 
 @admin.register(RentalEvent)

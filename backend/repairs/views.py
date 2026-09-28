@@ -13,6 +13,7 @@ from rest_framework.views import APIView
 
 from accounts.permissions import HasPerm
 from catalog.models import Service
+from crmbook_backend.notify import notify_staff, send_email, send_whatsapp
 from .models import Notification, RepairInvoice, RepairOrder, RepairReopen, RepairReopenItem, RepairTicket, RepairTicketEvent
 from .serializers import (
     CreateRepairOrderSerializer,
@@ -52,6 +53,16 @@ def _audit_value(value):
     if hasattr(value, "pk"):
         return value.pk
     return value
+
+
+def _notify_party(party, subject, text):
+    """
+    Fires the actual WhatsApp + email send for a ticket-related update,
+    on top of the Notification row each call site already creates as
+    the durable record. See crmbook_backend/notify.py.
+    """
+    send_whatsapp(party.phone, text)
+    send_email(party.email, subject, text)
 
 
 class RepairTicketViewSet(viewsets.ModelViewSet):
@@ -118,13 +129,19 @@ class RepairTicketViewSet(viewsets.ModelViewSet):
         ticket.code = f"RPR-{1044 + ticket.pk}"
         ticket.save(update_fields=["code"])
         device = f"{ticket.brand} {ticket.model_name}"
-        Notification.objects.create(
-            ticket=ticket, channel=Notification.WHATSAPP,
-            text=f"Ticket {ticket.code} created for your {device}. We'll keep you posted.",
-        )
-        Notification.objects.create(
-            ticket=ticket, channel=Notification.EMAIL,
-            text=f"Repair ticket {ticket.code} acknowledged -- {device}, drop-off at {ticket.stock_point.name}.",
+        wa_text = f"Ticket {ticket.code} created for your {device}. We'll keep you posted."
+        email_text = f"Repair ticket {ticket.code} acknowledged -- {device}, drop-off at {ticket.stock_point.name}."
+        Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=wa_text)
+        Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=email_text)
+        send_whatsapp(ticket.party.phone, wa_text)
+        send_email(ticket.party.email, f"Repair ticket {ticket.code} acknowledged", email_text)
+        # Task 2: internal staff alert, separate from the customer sends
+        # above -- who actually gets pinged is configured on Settings >
+        # Staff alerts, not hardcoded here.
+        notify_staff(
+            "repair_ticket_created",
+            f"New repair ticket {ticket.code}",
+            f"{ticket.party.name} dropped off a {device} for repair -- ticket {ticket.code} at {ticket.stock_point.name}.",
         )
 
     def _fresh(self, ticket):
@@ -185,6 +202,7 @@ class RepairTicketViewSet(viewsets.ModelViewSet):
         )
         Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=text)
         Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=text)
+        _notify_party(ticket.party, f"Update on {ticket.code}", text)
         return Response(RepairTicketSerializer(self._fresh(ticket)).data)
 
     @action(detail=True, methods=["post"], url_path="set-stage")
@@ -229,6 +247,7 @@ class RepairTicketViewSet(viewsets.ModelViewSet):
             )
             Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=text)
             Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=text)
+            _notify_party(ticket.party, f"Update on {ticket.code}", text)
         # backward move -- an internal correction, no customer notification
         # (see design note: Notification is customer-facing contact history)
 
@@ -272,6 +291,15 @@ class RepairTicketViewSet(viewsets.ModelViewSet):
         ticket.save(update_fields=["status"])
         Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=wa_text)
         Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=email_text)
+        send_whatsapp(ticket.party.phone, wa_text)
+        send_email(ticket.party.email, f"Invoice {invoice.code} settled", email_text)
+        # Task 2 wiring: "any payment done" -- who actually gets pinged is
+        # configured on Settings > Staff alerts, not hardcoded here.
+        notify_staff(
+            "payment_received",
+            f"Repair invoice {invoice.code} settled",
+            f"Repair invoice {invoice.code} for {ticket.party.name} was marked paid -- ₹{invoice.amount}.",
+        )
         return Response(RepairTicketSerializer(self._fresh(ticket)).data)
 
     @action(detail=True, methods=["post"])
@@ -336,6 +364,7 @@ class RepairTicketViewSet(viewsets.ModelViewSet):
             note = f"Your {ticket.brand} {ticket.model_name} is back in for further service on {ticket.code}."
         Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=note)
         Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=note)
+        _notify_party(ticket.party, f"{ticket.code} reopened for follow-up", note)
 
         return Response(RepairTicketSerializer(self._fresh(ticket)).data, status=201)
 
@@ -426,16 +455,12 @@ class RepairOrderViewSet(viewsets.ReadOnlyModelViewSet):
             ticket.save(update_fields=["code"])
             ticket.services.set(services)
             device_label = f"{ticket.brand} {ticket.model_name}"
-            Notification.objects.create(
-                ticket=ticket,
-                channel=Notification.WHATSAPP,
-                text=f"Ticket {ticket.code} created for your {device_label} under order {order.code}.",
-            )
-            Notification.objects.create(
-                ticket=ticket,
-                channel=Notification.EMAIL,
-                text=f"Repair ticket {ticket.code} acknowledged under {order.code} -- {device_label}.",
-            )
+            wa_text = f"Ticket {ticket.code} created for your {device_label} under order {order.code}."
+            email_text = f"Repair ticket {ticket.code} acknowledged under {order.code} -- {device_label}."
+            Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=wa_text)
+            Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=email_text)
+            send_whatsapp(ticket.party.phone, wa_text)
+            send_email(ticket.party.email, f"Repair ticket {ticket.code} acknowledged", email_text)
         fresh = self.get_queryset().get(pk=order.pk)
         return Response(RepairOrderSerializer(fresh).data, status=status.HTTP_201_CREATED)
 

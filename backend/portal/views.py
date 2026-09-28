@@ -5,13 +5,15 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import HasPerm
+from accounts.throttling import OTPVerifyThrottle
+from crmbook_backend.notify import notify_staff, send_email, send_whatsapp
 from parties.models import Message, Party
 from rentals.models import Rental
 from repairs.models import RepairInvoice, RepairTicket
 from sales.models import Invoice
 from warranty.models import Warranty
 from .auth import IsPortalCustomer, PortalTokenAuthentication, issue_portal_token
-from .models import Feedback, PortalAccessLog, PortalInvite
+from .models import Feedback, PortalAccessLog, PortalInvite, WhatsAppDeliveryLog
 from .serializers import (
     FeedbackSerializer, PortalAccessLogSerializer, PortalInvoiceSerializer, PortalInviteSerializer, PortalPartySerializer,
     PortalRentalSerializer, PortalRepairInvoiceSerializer, PortalRepairTicketSerializer, PortalWarrantySerializer,
@@ -53,14 +55,25 @@ class PortalInviteViewSet(viewsets.ModelViewSet):
 
         invite = PortalInvite.objects.create(party=party, issued_by=request.user)
         link = f"{settings.PUBLIC_FRONTEND_URL}/portal/{invite.token}"
-        Message.objects.create(
-            party=party, channel=Message.WHATSAPP, direction=Message.OUT,
-            body=f"Access your Vantage Computers portal here: {link}\nThis link expires in 30 minutes.",
-        )
-        Message.objects.create(
-            party=party, channel=Message.EMAIL, direction=Message.OUT,
-            body=f"Your one-time verification code is {invite.otp_code}. It expires in 30 minutes and can only be used once.",
-        )
+
+        wa_body = f"Access your Vantage Computers portal here: {link}\nThis link expires in 30 minutes."
+        Message.objects.create(party=party, channel=Message.WHATSAPP, direction=Message.OUT, body=wa_body)
+        # Task 3: don't attempt a WhatsApp send to a number we've already
+        # confirmed doesn't have WhatsApp -- email+OTP below is not
+        # optional and covers this customer regardless. An unchecked
+        # number (whatsapp_verified is None) still gets tried, since we
+        # don't yet know either way.
+        if party.whatsapp_verified is not False:
+            wa_result = send_whatsapp(party.phone, wa_body)
+            if wa_result.get("provider_id"):
+                WhatsAppDeliveryLog.objects.create(
+                    party=party, provider_message_id=wa_result["provider_id"],
+                )
+
+        email_body = f"Your one-time verification code is {invite.otp_code}. It expires in 30 minutes and can only be used once."
+        Message.objects.create(party=party, channel=Message.EMAIL, direction=Message.OUT, body=email_body)
+        send_email(party.email, "Your Vantage Computers portal verification code", email_body)
+
         return Response(PortalInviteSerializer(invite).data, status=201)
 
 
@@ -69,7 +82,17 @@ class PortalInviteStatusView(APIView):
     Public (no auth) -- the customer hasn't logged in yet at this
     point. Lets the frontend show "enter the code sent to ****1234"
     and tell a genuinely expired/used link apart from a wrong OTP.
+
+    authentication_classes is explicitly emptied (not just left to
+    AllowAny) because DRF's default SessionAuthentication would
+    otherwise still run and enforce CSRF on this endpoint -- and since
+    the staff app and this portal share an origin/cookie-jar in
+    single-server mode, a staff member who's also signed into the
+    admin in the same browser would get a 403 here for a missing CSRF
+    token, on a page their portal customer was never meant to need one
+    for.
     """
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def get(self, request, token):
@@ -82,8 +105,18 @@ class PortalInviteStatusView(APIView):
 
 
 class PortalVerifyView(APIView):
-    """Public -- the actual login step. Token from the link + OTP from the phone, both required."""
+    """
+    Public -- the actual login step. Token from the link + OTP from the
+    phone, both required.
+
+    authentication_classes = [] for the same reason as
+    PortalInviteStatusView above: this is a POST, so without it a
+    staff member's leftover session cookie would trip DRF's CSRF
+    check on this pre-login endpoint.
+    """
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [OTPVerifyThrottle]
 
     def post(self, request):
         token = request.data.get("token")
@@ -150,6 +183,42 @@ class PortalAccessLogListView(APIView):
         return Response(PortalAccessLogSerializer(qs, many=True).data)
 
 
+class WhatsAppDeliveryWebhookView(APIView):
+    """
+    Task 3's delivery-status half: a real WhatsApp Business API provider
+    POSTs here when a message's status changes (sent -> delivered ->
+    read, or failed). Not called by anything automatically today -- no
+    provider is wired yet (Task 2's still-open decision) -- this exists
+    so turning one on later is "point its webhook URL here", not "build
+    this endpoint too".
+
+    The caller is an external provider, not a logged-in customer or
+    staff member, so this is authenticated by a shared secret rather
+    than IsPortalCustomer/staff JWT. WHATSAPP_WEBHOOK_SECRET must be set
+    in the environment before this accepts anything -- unset (the
+    default) means every request is refused, which is the safe default.
+    """
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        expected = settings.WHATSAPP_WEBHOOK_SECRET
+        provided = request.headers.get("X-Webhook-Secret") or request.data.get("secret")
+        if not expected or provided != expected:
+            return Response({"detail": "Invalid or missing webhook secret."}, status=403)
+
+        provider_message_id = request.data.get("provider_message_id")
+        status_value = request.data.get("status")
+        valid_statuses = dict(WhatsAppDeliveryLog.STATUS_CHOICES)
+        if not provider_message_id or status_value not in valid_statuses:
+            return Response({"detail": "provider_message_id and a valid status are required."}, status=400)
+
+        updated = WhatsAppDeliveryLog.objects.filter(provider_message_id=provider_message_id).update(
+            status=status_value, detail=request.data.get("detail", ""),
+        )
+        return Response({"updated": updated})
+
+
 class PortalMeView(APIView):
     authentication_classes = [PortalTokenAuthentication]
     permission_classes = [IsPortalCustomer]
@@ -209,5 +278,15 @@ class PortalFeedbackView(APIView):
     def post(self, request):
         serializer = FeedbackSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(party=request.party)
+        feedback = serializer.save(party=request.party)
+        # Task 2: a low rating is the one feedback outcome worth an
+        # internal alert -- who actually gets it is configured on
+        # Settings > Staff alerts, not hardcoded here.
+        if feedback.rating <= 2:
+            notify_staff(
+                "low_negative_feedback",
+                f"Low rating from {request.party.name} ({feedback.rating}/5)",
+                f"{request.party.name} left {feedback.rating}/5 feedback on their portal"
+                + (f": “{feedback.comment}”" if feedback.comment else " (no comment left)."),
+            )
         return Response(serializer.data, status=201)

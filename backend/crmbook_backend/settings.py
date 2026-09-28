@@ -78,6 +78,7 @@ INSTALLED_APPS = [
     'dashboard',
     'warranty',
     'portal',
+    'reports',
 ]
 
 AUTH_USER_MODEL = 'accounts.User'
@@ -105,6 +106,9 @@ REST_FRAMEWORK = {
         'login': os.environ.get('LOGIN_THROTTLE_RATE', '5/min'),
         'repair_approval': os.environ.get('REPAIR_APPROVAL_THROTTLE_RATE', '60/hour'),
         'rental_approval': os.environ.get('RENTAL_APPROVAL_THROTTLE_RATE', '60/hour'),
+        # Task 6 security checklist: brute-force protection on the portal
+        # OTP verify step -- see accounts.throttling.OTPVerifyThrottle.
+        'otp_verify': os.environ.get('OTP_VERIFY_THROTTLE_RATE', '5/min'),
     },
 }
 
@@ -144,6 +148,14 @@ CSRF_COOKIE_SAMESITE = "Lax"
 
 # Set PUBLIC_FRONTEND_URL to the HTTPS customer-facing frontend origin in production.
 PUBLIC_FRONTEND_URL = os.environ.get("PUBLIC_FRONTEND_URL", "http://localhost:5174")
+
+# Task 3: shared secret a WhatsApp Business API provider's delivery-status
+# webhook must present (see portal/whatsapp-webhook/) before its
+# sent/delivered/read/failed callbacks are trusted. None until a provider
+# is actually picked (Task 2) and this is set in the environment -- the
+# webhook refuses everything until then, which is the safe default, not
+# a bug to "fix" by hardcoding a value here.
+WHATSAPP_WEBHOOK_SECRET = os.environ.get("WHATSAPP_WEBHOOK_SECRET")
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -246,6 +258,7 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 EMAIL_BACKEND = os.environ.get(
     "DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
 )
+DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "no-reply@vantagecomputers.example")
 
 # ---------------------------------------------------------------- #
 # Security headers -- only meaningfully active when DEBUG=False and

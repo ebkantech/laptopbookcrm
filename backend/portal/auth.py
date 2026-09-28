@@ -1,5 +1,6 @@
 from django.core import signing
 from django.core.signing import BadSignature, SignatureExpired
+from django.utils import timezone
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.permissions import BasePermission
 
@@ -10,7 +11,11 @@ MAX_AGE_SECONDS = 60 * 60 * 24 * 7  # a portal session is good for 7 days after 
 
 
 def issue_portal_token(party: Party) -> str:
-    return signing.dumps({"party_id": party.id}, salt=SALT)
+    # issued_at is carried in the payload (not just relied on via
+    # signing's own timestamp, which loads() doesn't expose) so
+    # resolve_portal_token can tell a token issued before a revocation
+    # apart from one issued after -- see Party.portal_access_revoked_at.
+    return signing.dumps({"party_id": party.id, "issued_at": timezone.now().timestamp()}, salt=SALT)
 
 
 def resolve_portal_token(token: str) -> Party | None:
@@ -18,7 +23,14 @@ def resolve_portal_token(token: str) -> Party | None:
         data = signing.loads(token, salt=SALT, max_age=MAX_AGE_SECONDS)
     except (BadSignature, SignatureExpired):
         return None
-    return Party.objects.filter(pk=data.get("party_id")).first()
+    party = Party.objects.filter(pk=data.get("party_id")).first()
+    if not party:
+        return None
+    issued_at = data.get("issued_at")
+    if party.portal_access_revoked_at and issued_at is not None:
+        if issued_at <= party.portal_access_revoked_at.timestamp():
+            return None  # token predates the revocation -- treat exactly like an invalid token
+    return party
 
 
 class PortalTokenAuthentication(BaseAuthentication):

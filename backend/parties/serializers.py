@@ -37,7 +37,8 @@ class PartySerializer(serializers.ModelSerializer):
         model = Party
         fields = [
             "id", "name", "type", "customer_classification", "phone", "email", "gstin", "city", "joined",
-            "total_spent", "invoice_count",
+            "total_spent", "invoice_count", "whatsapp_verified", "whatsapp_checked_at",
+            "portal_access_revoked_at",
         ]
 
     def get_total_spent(self, obj):

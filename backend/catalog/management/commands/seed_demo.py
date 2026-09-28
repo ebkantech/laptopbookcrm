@@ -4,7 +4,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
-from accounts.models import Permission, Role, User
+from accounts.models import NotificationRule, Permission, Role, User
 from accounting.models import BankAccount, BankEntry, CashEntry
 from broadcast.models import Campaign, WhatsAppOrder
 from catalog.models import Part, PartStock, Product, Service, Stock, StockPoint, Variant
@@ -29,33 +29,70 @@ PERMS = {
     "rentals.approve": "Approve rental agreements on behalf of customers",
     "repairs.view": "View repair tickets",
     "repairs.manage": "Create tickets, update stages, and settle repair bills",
+    "repairs.approve": "Approve repair estimates on behalf of customers",
     "broadcast.send": "Send WhatsApp / email campaigns",
     "warranty.manage": "Register and edit customer warranties",
     "portal.manage": "Send customer portal access links",
     "roles.manage": "Change roles and permissions",
     "reports.export": "Export accounting reports",
+    "parties.view": "View the customer directory and details",
+    "parties.manage": "Create/edit customer records, message customers, and manage portal access",
+    "orders.manage": "View and respond to inbound WhatsApp orders",
 }
 
 ROLES = {
-    "owner": ("Owner", list(PERMS.keys())),
-    "accountant": ("Accountant", [
+    "owner": ("Owner / Super Admin", list(PERMS.keys())),
+    "accountant": ("Accounts", [
         "cashbook.view", "cashbook.edit", "bankbook.view", "bankbook.edit",
-        "bankbook.reconcile", "invoices.view", "invoices.settle", "repairs.view", "reports.export",
+        "bankbook.reconcile", "invoices.view", "invoices.settle", "reports.export",
+        "parties.view",
     ]),
-    "manager": ("Store Manager", [
-        "cashbook.view", "cashbook.edit", "bankbook.view", "invoices.view", "invoices.create",
-        "invoices.settle", "inventory.edit", "rentals.view", "rentals.manage", "repairs.view", "repairs.manage",
-        "broadcast.send", "warranty.manage", "portal.manage",
+    "manager": ("Admin", [
+        "cashbook.view", "cashbook.edit", "bankbook.view", "bankbook.edit", "bankbook.reconcile",
+        "invoices.view", "invoices.create", "invoices.settle", "inventory.edit",
+        "rentals.view", "rentals.manage", "rentals.approve",
+        "repairs.view", "repairs.manage", "repairs.approve",
+        "broadcast.send", "warranty.manage", "portal.manage", "roles.manage", "reports.export",
+        "parties.view", "parties.manage", "orders.manage",
     ]),
-    "sales": ("Sales Executive", ["invoices.view", "invoices.create", "repairs.view", "repairs.manage", "broadcast.send", "warranty.manage"]),
-    "auditor": ("Auditor \u2014 read only", ["cashbook.view", "bankbook.view", "invoices.view", "repairs.view", "reports.export"]),
+    "sales": ("Sales Staff", [
+        "invoices.view", "invoices.create", "invoices.settle",
+        "rentals.view", "rentals.manage",
+        "parties.view", "parties.manage",
+        "orders.manage",
+    ]),
+    "repair_staff": ("Repair Staff", [
+        "repairs.view", "repairs.manage", "warranty.manage", "parties.view",
+    ]),
+    "auditor": ("Auditor \u2014 read only", [
+        "cashbook.view", "bankbook.view", "invoices.view",
+        "rentals.view", "repairs.view", "reports.export", "parties.view",
+    ]),
 }
+
+# Task 2: sensible defaults for the Settings > Staff alerts screen --
+# who gets pinged (by email, for now) when one of these fires. Editable
+# afterwards through that screen; this is just a starting point so the
+# feature isn't empty on a fresh seed.
+NOTIFICATION_RULES = [
+    ("repair_ticket_created", "repair_staff", True, False),
+    ("repair_ticket_created", "manager", True, False),
+    ("low_negative_feedback", "manager", True, False),
+    ("low_negative_feedback", "owner", True, False),
+    ("rental_approved", "manager", True, False),
+    ("rental_approved", "sales", True, False),
+    ("repair_approved", "manager", True, False),
+    ("repair_approved", "repair_staff", True, False),
+    ("payment_received", "accountant", True, False),
+    ("payment_received", "manager", True, False),
+]
 
 USERS = [
     ("aman.kapoor", "Aman", "Kapoor", "owner"),
     ("ritu.sharma", "Ritu", "Sharma", "accountant"),
     ("vikram.sethi", "Vikram", "Sethi", "manager"),
     ("naina.joshi", "Naina", "Joshi", "sales"),
+    ("suresh.rana", "Suresh", "Rana", "repair_staff"),
     ("deepa.iyer", "Deepa", "Iyer", "auditor"),
 ]
 
@@ -146,6 +183,13 @@ class Command(BaseCommand):
             role, _ = Role.objects.update_or_create(slug=slug, defaults={"label": label})
             role.permissions.set([perms[c] for c in perm_codes])
             roles[slug] = role
+
+        self.stdout.write("Seeding default staff alert rules...")
+        for event_key, role_slug, via_email, via_whatsapp in NOTIFICATION_RULES:
+            NotificationRule.objects.update_or_create(
+                event_key=event_key, role=roles[role_slug],
+                defaults={"via_email": via_email, "via_whatsapp": via_whatsapp},
+            )
 
         self.stdout.write("Seeding staff users (password: crmbook123)...")
         for username, first, last, role_slug in USERS:
