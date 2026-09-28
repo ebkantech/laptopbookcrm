@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from accounts.permissions import HasPerm
+from crmbook_backend.notify import send_email
 from parties.models import Message, Party
 from repairs.models import RepairTicket
 from sales.models import Invoice
@@ -40,8 +41,9 @@ class WarrantyViewSet(viewsets.ModelViewSet):
         warranty = serializer.save()
         # "mailed to the customer" -- logged as an outbound email on the
         # party's own thread, same as every other notification in the
-        # app (repairs, broadcast). No live SMTP provider is wired up
-        # yet; swap this for a real send when one is.
+        # app (repairs, broadcast). See crmbook_backend/notify.py for
+        # the actual send (console/test backend today, real SMTP once
+        # DJANGO_EMAIL_BACKEND is pointed at one).
         subject_line = f"Your warranty on {warranty.item_label}"
         body = (
             f"{subject_line}\n\n"
@@ -50,6 +52,7 @@ class WarrantyViewSet(viewsets.ModelViewSet):
             f"{warranty.terms_text}"
         )
         Message.objects.create(party=warranty.party, channel=Message.EMAIL, direction=Message.OUT, body=body)
+        send_email(warranty.party.email, subject_line, body)
 
     @action(detail=False, methods=["get"], url_path="eligible-items")
     def eligible_items(self, request):

@@ -1,6 +1,21 @@
 from rest_framework.permissions import BasePermission
 
+from .models import PermissionDeniedLog
+
 SAFE_ACTIONS = {"list", "retrieve"}
+
+
+def _log_denial(request, codename):
+    # Task 6: record who was blocked, from where, and by which check --
+    # never blocks the response on a logging failure (a broken audit
+    # log must not turn into every denied request also 500ing).
+    try:
+        PermissionDeniedLog.objects.create(
+            user=request.user, path=request.path[:300],
+            method=request.method, required_perm=codename or "",
+        )
+    except Exception:
+        pass
 
 
 class IsStaffAccount(BasePermission):
@@ -34,9 +49,15 @@ class HasPerm(BasePermission):
             codename = per_action.get(view.action)
             if codename is None:
                 return True
-            return request.user.has_perm_code(codename)
+            allowed = request.user.has_perm_code(codename)
+            if not allowed:
+                _log_denial(request, codename)
+            return allowed
 
         codename = getattr(view, "required_perm", None)
         if codename is None:
             return True
-        return request.user.has_perm_code(codename)
+        allowed = request.user.has_perm_code(codename)
+        if not allowed:
+            _log_denial(request, codename)
+        return allowed

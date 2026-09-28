@@ -3,7 +3,8 @@ import { ArrowDownCircle, ArrowUpCircle, Landmark, Plus, Wallet, X } from "lucid
 import { C, F, fmt, money } from "../lib/theme";
 import { api } from "../lib/api";
 import { useSession } from "../context/SessionContext";
-import { Eyebrow, Locked, Pill, Spinner, ErrorNote, StatCard } from "../components/Atoms";
+import { Eyebrow, Locked, Pill, PillButton, Spinner, ErrorNote, StatCard, TabBar } from "../components/Atoms";
+import PageHeader from "../components/PageHeader";
 
 function NewCashEntry({ onClose, onAdd }) {
   const [particulars, setParticulars] = useState("");
@@ -64,7 +65,7 @@ function CashBook() {
       </div>
       <div className="mt-4 flex items-center justify-between">
         <Eyebrow>Cash book entries</Eyebrow>
-        {can("cashbook.edit") && <button onClick={() => setAdding(true)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase" style={{ backgroundColor: C.stamp, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.08em" }}><Plus size={13} /> Add entry</button>}
+        {can("cashbook.edit") && <PillButton icon={Plus} primary onClick={() => setAdding(true)}>Add entry</PillButton>}
       </div>
       <div className="mt-3 overflow-x-auto" data-panel style={{ border: `1px solid ${C.rule}` }}>
         <table className="w-full table table-borderless table-sm mb-0" style={{ borderCollapse: "collapse" }}>
@@ -151,14 +152,9 @@ export default function Accounting() {
   ];
   return (
     <div className="flex-1 overflow-y-auto px-5 py-6 sm:px-8">
-      <p style={{ fontFamily: F.display, fontWeight: 700, fontSize: 20, color: C.ink }}>Accounting</p>
-      <p className="mt-1 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>Cash and bank working flow, gated by role</p>
-      <div className="mt-5 flex gap-4" style={{ borderBottom: `1px solid ${C.rule}` }}>
-        {tabs.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)} className="flex items-center gap-1.5 pb-2 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.08em", color: tab === t.id ? C.ink : C.inkSoft, borderBottom: `2px solid ${tab === t.id ? C.orange : "transparent"}` }}>
-            <t.icon size={13} /> {t.label}
-          </button>
-        ))}
+      <PageHeader title="Accounting" subtitle="Cash and bank working flow, gated by role" />
+      <div className="mt-5">
+        <TabBar tabs={tabs} value={tab} onChange={setTab} />
       </div>
       <div className="mt-5">
         {tab === "cash" && <CashBook />}

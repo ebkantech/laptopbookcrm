@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     PortalAccessLogListView, PortalFeedbackView, PortalInviteViewSet, PortalInviteStatusView, PortalInvoicesView,
     PortalLocationView, PortalMeView, PortalRentalsView, PortalRepairsView, PortalVerifyView, PortalWarrantiesView,
+    WhatsAppDeliveryWebhookView,
 )
 
 router = DefaultRouter()
@@ -20,4 +21,5 @@ urlpatterns = router.urls + [
     path("portal/warranties/", PortalWarrantiesView.as_view(), name="portal-warranties"),
     path("portal/feedback/", PortalFeedbackView.as_view(), name="portal-feedback"),
     path("portal-access-logs/", PortalAccessLogListView.as_view(), name="portal-access-logs"),
+    path("portal/whatsapp-webhook/", WhatsAppDeliveryWebhookView.as_view(), name="portal-whatsapp-webhook"),
 ]

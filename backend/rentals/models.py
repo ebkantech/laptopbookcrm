@@ -190,6 +190,13 @@ class RentalApproval(models.Model):
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     expires_at = models.DateTimeField(null=True, blank=True)
     decided_at = models.DateTimeField(null=True, blank=True)
+    # Evidentiary trail for the customer's own decision -- who clicked
+    # Approve/Reject, from where, on what device. Only ever set by
+    # customer_decide() (the public secure-link flow); an admin override
+    # via approve_on_behalf() has decided_by instead, which is the more
+    # relevant record for that path.
+    decided_ip = models.GenericIPAddressField(null=True, blank=True)
+    decided_user_agent = models.CharField(max_length=300, blank=True)
 
     class Meta:
         ordering = ["-version"]

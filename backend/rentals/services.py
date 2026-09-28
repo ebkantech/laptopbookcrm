@@ -1,6 +1,8 @@
 import hashlib
+import re
 import secrets
 from datetime import timedelta
+from urllib.parse import quote
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -8,6 +10,7 @@ from django.db.models import Max
 from django.utils import timezone
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 
+from crmbook_backend.notify import notify_staff
 from .models import Rental, RentalApproval, RentalAsset, RentalEvent
 
 
@@ -32,6 +35,21 @@ def approval_token_hash(raw_token):
 
 def build_approval_url(raw_token):
     return f"{settings.PUBLIC_FRONTEND_URL.rstrip('/')}/rental-approval/{raw_token}"
+
+
+def _normalise_whatsapp_number(phone):
+    digits = re.sub(r"\D", "", phone or "")
+    if len(digits) == 10:
+        digits = f"91{digits}"
+    elif len(digits) == 11 and digits.startswith("0"):
+        digits = f"91{digits[1:]}"
+    return digits if 8 <= len(digits) <= 15 else ""
+
+
+def build_whatsapp_url(phone, message):
+    number = _normalise_whatsapp_number(phone)
+    target = f"https://wa.me/{number}" if number else "https://wa.me/"
+    return f"{target}?text={quote(message, safe='')}"
 
 
 def _record_event(rental, event_type, actor=None, approval=None, metadata=None):
@@ -106,8 +124,11 @@ def issue_approval_link(rental, user):
     )
     rental.status = Rental.PENDING_APPROVAL
     rental.save(update_fields=["status"])
-    _record_event(rental, RentalEvent.APPROVAL_LINK_CREATED, actor=user, approval=approval, metadata={"version": version, "expires_at": approval.expires_at.isoformat()})
-    return approval, build_approval_url(raw_token)
+    approval_url = build_approval_url(raw_token)
+    agreement_label = rental.agreement_code or f"RENTAL-{rental.pk}"
+    message = f"Hello {rental.party.name}, please review your rental agreement {agreement_label}. This secure link is valid for 24 hours: {approval_url}"
+    _record_event(rental, RentalEvent.APPROVAL_LINK_CREATED, actor=user, approval=approval, metadata={"version": version, "expires_at": approval.expires_at.isoformat(), "channel": "whatsapp"})
+    return approval, approval_url, build_whatsapp_url(rental.party.phone, message)
 
 
 def get_public_approval(raw_token, for_update=False):
@@ -130,7 +151,7 @@ def get_public_approval(raw_token, for_update=False):
     return approval
 
 
-def customer_decide(raw_token, decision, consent=False, reason=""):
+def customer_decide(raw_token, decision, consent=False, reason="", ip_address=None, user_agent=""):
     if decision not in ("approve", "reject"):
         raise ValidationError({"decision": "Choose either approve or reject."})
     if decision == "approve" and consent is not True:
@@ -152,6 +173,8 @@ def customer_decide(raw_token, decision, consent=False, reason=""):
                 source=RentalApproval.CUSTOMER,
                 reason=(reason or "").strip(),
                 decided_at=timezone.now(),
+                decided_ip=ip_address,
+                decided_user_agent=(user_agent or "")[:300],
             )
             if updated != 1:
                 raise RentalApprovalConflict()
@@ -161,6 +184,14 @@ def customer_decide(raw_token, decision, consent=False, reason=""):
             asset_status = RentalAsset.RENTED if desired_status == RentalApproval.APPROVED else RentalAsset.AVAILABLE
             RentalAsset.objects.filter(rental_lines__rental=approval.rental).update(status=asset_status)
             _record_event(approval.rental, RentalEvent.APPROVAL_DECIDED, approval=approval, metadata={"decision": desired_status, "source": RentalApproval.CUSTOMER})
+            if desired_status == RentalApproval.APPROVED:
+                rental = approval.rental
+                label = rental.agreement_code or f"RENTAL-{rental.pk}"
+                notify_staff(
+                    "rental_approved",
+                    f"Rental agreement approved -- {label}",
+                    f"{rental.party.name} approved rental agreement {label} ({rental.product_label}, ₹{rental.total_monthly_fee}/month).",
+                )
             return approval
     except IntegrityError as exc:
         raise RentalApprovalConflict() from exc

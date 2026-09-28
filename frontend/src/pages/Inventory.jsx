@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import {
-  AlertTriangle, Check, Loader2, Plus, Printer, ScanBarcode, Search, X,
+  AlertTriangle, Check, Loader2, Plus, Printer, ScanBarcode, X,
 } from "lucide-react";
 import { C, F, money } from "../lib/theme";
 import { api } from "../lib/api";
 import { useSession } from "../context/SessionContext";
-import { Eyebrow, ErrorNote, Pill, Spinner } from "../components/Atoms";
+import { Eyebrow, ErrorNote, Pill, PillButton, SearchInput, Spinner } from "../components/Atoms";
+import PageHeader from "../components/PageHeader";
 
 const STOCK_LABELS = { kb: "Karol Bagh", np: "Nehru Place", ln: "Lajpat Nagar", amazon: "Amazon", flipkart: "Flipkart", site: "Website", wa: "WhatsApp" };
 
@@ -34,7 +35,7 @@ function ScanModal({ onClose, onFound }) {
   };
 
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(4,9,18,0.7)" }}>
+    <div className="fixed inset-0 z-30 flex items-center justify-center p-4" style={{ backgroundColor: "#040912b3" }}>
       <div className="w-full max-w-sm p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}>
         <div className="flex items-center justify-between">
           <Eyebrow>Barcode scanner</Eyebrow>
@@ -144,7 +145,7 @@ function AddStockModal({ stockPoints, onClose, onAdded }) {
             {!allProducts ? <Spinner label="Loading catalogue…" /> : (
               <>
                 <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Product
-                  <select value={productId} onChange={(e) => { setProductId(e.target.value); setVariantId(""); }} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}>
+                  <select value={productId} onChange={(e) => { setProductId(e.target.value); setVariantId(""); }} className="mt-1 w-full py-2 text-sm outline-none" style={{ fontFamily: F.body, background:C.slip, color: C.ink, border: `1px solid ${C.rule}` }}>
                     <option value="">Select a product…</option>
                     {allProducts.map((p) => <option key={p.id} value={p.id}>{p.display_name} · {p.product_code}</option>)}
                   </select>
@@ -173,7 +174,7 @@ function AddStockModal({ stockPoints, onClose, onAdded }) {
                 <input value={processor} onChange={(e) => setProcessor(e.target.value)} placeholder="Optional" className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
               </label>
               <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Condition
-                <select value={condition} onChange={(e) => setCondition(e.target.value)} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}>
+                <select value={condition} onChange={(e) => setCondition(e.target.value)} className="mt-1 w-full py-2 text-sm outline-none" style={{ fontFamily: F.body, background: C.slip, color: C.ink, border: `1px solid ${C.rule}` }}>
                   <option>New</option><option>Refurbished</option>
                 </select>
               </label>
@@ -198,7 +199,7 @@ function AddStockModal({ stockPoints, onClose, onAdded }) {
 
         <div className="mt-4 grid grid-cols-2 gap-3">
           <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Shop / channel
-            <select value={stockPointId} onChange={(e) => setStockPointId(e.target.value)} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}>
+            <select value={stockPointId} onChange={(e) => setStockPointId(e.target.value)} className="mt-1 w-full py-2 text-sm outline-none" style={{ fontFamily: F.body, background: C.slip, color: C.ink, border: `1px solid ${C.rule}` }}>
               {stockPoints.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </label>
@@ -299,19 +300,14 @@ export default function Inventory() {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-wrap items-center gap-3 px-5 py-4 sm:px-8" style={{ borderBottom: `1px solid ${C.rule}` }}>
-        <div className="flex min-w-0 flex-1 items-center gap-2" style={{ borderBottom: `1px solid ${C.rule}` }}>
-          <Search size={15} style={{ color: C.inkSoft }} />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by product, brand, product ID, or variant code"
-            className="w-full bg-transparent py-1.5 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink }} />
-        </div>
-        <button onClick={() => setScanning(true)} className="flex items-center gap-1.5 px-3 py-2 text-xs uppercase" style={{ border: `1px solid ${C.stamp}`, color: C.stamp, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.08em" }}>
-          <ScanBarcode size={14} /> Scan
-        </button>
+      <div className="px-5 pt-6 sm:px-8">
+        <PageHeader title="Inventory" subtitle="Stock levels and product records across every shop and online channel" />
+      </div>
+      <header className="flex flex-wrap items-center gap-3 px-5 py-4 sm:px-8">
+        <SearchInput value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by product, brand, product ID, or variant code" />
+        <PillButton icon={ScanBarcode} onClick={() => setScanning(true)}>Scan</PillButton>
         {can("inventory.edit") && (
-          <button onClick={() => setAdding(true)} className="flex items-center gap-1.5 px-3 py-2 text-xs uppercase" style={{ backgroundColor: C.stamp, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.08em" }}>
-            <Plus size={14} /> Add stock
-          </button>
+          <PillButton icon={Plus} primary onClick={() => setAdding(true)}>Add stock</PillButton>
         )}
       </header>
 
@@ -322,28 +318,35 @@ export default function Inventory() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="hidden grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-3 px-8 py-2 text-xs uppercase md:grid" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.08em", color: C.inkSoft, borderBottom: `1px solid ${C.rule}` }}>
+      <div className="flex-1 overflow-y-auto px-5 py-4 sm:px-8">
+        <div className="hidden grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-3 px-5 pb-2 text-xs uppercase md:grid" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.08em", color: C.inkSoft }}>
           <span>Product</span><span>ID / HSN</span><span>Processor</span><span>Sell price</span><span>Shared stock</span>
         </div>
-        {products.map((p) => {
-          const totalStock = p.variants.reduce((a, v) => a + v.total_stock, 0);
-          const lowest = p.variants.some((v) => v.total_stock <= 4);
-          return (
-            <button key={p.id} onClick={() => setOpenProduct(p)} data-row className="block w-full px-5 py-3 text-left sm:px-8 md:grid md:grid-cols-[2fr_1fr_1fr_1fr_1fr] md:items-center md:gap-3"
-              style={{ borderBottom: `1px solid ${C.rule}`, backgroundColor: openProduct?.id === p.id ? C.slip2 : "transparent" }}>
-              <div className="min-w-0">
-                <p className="truncate text-sm" style={{ fontFamily: F.display, fontWeight: 600, color: C.ink }}>{p.display_name}</p>
-                <p className="text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{p.condition} · {p.variants.length} variant{p.variants.length > 1 ? "s" : ""}</p>
-              </div>
-              <span className="text-xs" style={{ fontFamily: F.mono, color: C.ink }}>{p.product_code}<br /><span style={{ color: p.hsn ? C.inkSoft : C.amber }}>{p.hsn ? `HSN ${p.hsn}` : "generated — no HSN"}</span></span>
-              <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{p.processor || "—"}</span>
-              <span className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{money(p.variants[0]?.sell_price)}</span>
-              <span><Pill color={lowest ? C.carbon : C.green}>{totalStock} units</Pill></span>
-            </button>
-          );
-        })}
-        {!products.length && <p className="px-8 py-10 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>No products match that search.</p>}
+        <div className="flex flex-col gap-2.5">
+          {products.map((p) => {
+            const totalStock = p.variants.reduce((a, v) => a + v.total_stock, 0);
+            const lowest = p.variants.some((v) => v.total_stock <= 4);
+            return (
+              <button
+                key={p.id}
+                onClick={() => setOpenProduct(p)}
+                data-listcard
+                data-selected={openProduct?.id === p.id}
+                className="block w-full px-5 py-3.5 text-left md:grid md:grid-cols-[2fr_1fr_1fr_1fr_1fr] md:items-center md:gap-3"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm" style={{ fontFamily: F.display, fontWeight: 600, color: C.ink }}>{p.display_name}</p>
+                  <p className="text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{p.condition} · {p.variants.length} variant{p.variants.length > 1 ? "s" : ""}</p>
+                </div>
+                <span className="text-xs" style={{ fontFamily: F.mono, color: C.ink }}>{p.product_code}<br /><span style={{ color: p.hsn ? C.inkSoft : C.amber }}>{p.hsn ? `HSN ${p.hsn}` : "generated — no HSN"}</span></span>
+                <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{p.processor || "—"}</span>
+                <span className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{money(p.variants[0]?.sell_price)}</span>
+                <span><Pill color={lowest ? C.carbon : C.green}>{totalStock} units</Pill></span>
+              </button>
+            );
+          })}
+          {!products.length && <p className="px-3 py-10 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>No products match that search.</p>}
+        </div>
       </div>
 
       {openProduct && (

@@ -10,6 +10,7 @@ from django.db.models import Max
 from django.utils import timezone
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 
+from crmbook_backend.notify import notify_staff
 from .models import (
     DEFAULT_APPROVAL_TERMS,
     Notification,
@@ -225,6 +226,13 @@ def customer_decide(raw_token, decision, consent=False, reason=""):
             approval.status, approval.source, approval.reason, approval.decided_at = desired_status, RepairApproval.CUSTOMER, (reason or "").strip(), now
             _record_event(estimate.ticket, RepairTicketEvent.APPROVAL_DECIDED, estimate=estimate, metadata={"decision": desired_status, "source": RepairApproval.CUSTOMER})
             Notification.objects.create(ticket=estimate.ticket, channel=Notification.WHATSAPP, text=f"Customer {desired_status} final estimate v{estimate.version} for {estimate.ticket.code}.")
+            if desired_status == RepairApproval.APPROVED:
+                ticket = estimate.ticket
+                notify_staff(
+                    "repair_approved",
+                    f"Repair estimate approved -- {ticket.code}",
+                    f"{ticket.party.name} approved the final estimate for {ticket.code} ({ticket.brand} {ticket.model_name}, ₹{estimate.total_amount}).",
+                )
             return approval
     except IntegrityError as exc:
         raise ApprovalConflict() from exc
@@ -442,9 +450,18 @@ def customer_decide_order(raw_token, decision, consent=False, reason=""):
                 if approval.status == desired_status:
                     return approval
                 raise ApprovalConflict("A different final decision has already been recorded.")
-            return _record_order_decision(
+            decided = _record_order_decision(
                 approval, RepairOrderApproval.CUSTOMER, decision, reason=reason
             )
+            if decision == "approve":
+                order = decided.order
+                device_count = len(decided.snapshot.get("devices", []))
+                notify_staff(
+                    "repair_approved",
+                    f"Repair order approved -- {order.code}",
+                    f"{order.party.name} approved repair order {order.code} ({device_count} device{'s' if device_count != 1 else ''}, ₹{decided.snapshot.get('grand_total', 0)}).",
+                )
+            return decided
     except IntegrityError as exc:
         raise ApprovalConflict() from exc
 

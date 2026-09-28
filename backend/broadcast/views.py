@@ -4,7 +4,7 @@ from rest_framework import permissions, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from accounts.permissions import HasPerm, IsStaffAccount
+from accounts.permissions import HasPerm
 from .models import Campaign, WhatsAppOrder
 from .serializers import CampaignSerializer, WhatsAppOrderSerializer
 
@@ -25,7 +25,13 @@ class CampaignViewSet(viewsets.ModelViewSet):
 class WhatsAppOrderViewSet(viewsets.ModelViewSet):
     queryset = WhatsAppOrder.objects.select_related("party").all()
     serializer_class = WhatsAppOrderSerializer
-    permission_classes = [permissions.IsAuthenticated, IsStaffAccount]
+    permission_classes = [permissions.IsAuthenticated, HasPerm]
+    required_perms = {
+        "list": "orders.manage", "retrieve": "orders.manage",
+        "create": "orders.manage", "update": "orders.manage",
+        "partial_update": "orders.manage", "destroy": "orders.manage",
+        "quote": "orders.manage",
+    }
 
     @action(detail=True, methods=["post"])
     def quote(self, request, pk=None):

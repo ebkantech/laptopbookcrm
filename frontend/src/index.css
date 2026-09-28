@@ -2,27 +2,27 @@
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
-body { background: #0B0F1A; } /* VantageCRM 26X -- Night Grid theme, keep in sync with lib/theme.js C.paper */
+body { background: #F3EEE2; } /* VantageCRM 26X -- Vantage Daybook theme, keep in sync with lib/theme.js C.paper */
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
 
 .cb-shell { background: transparent; }
-/* Night Grid: clean, moderately rounded surfaces -- a live-tracking
-   dashboard reads as software, not a printed sticker sheet. */
+/* Vantage Daybook: clean, moderately rounded surfaces -- a paper-ledger
+   feel, not a printed sticker sheet or a live-tracking console. */
 .cb-shell button, .cb-shell input, .cb-shell select, .cb-shell textarea,
 .cb-shell [data-panel], .cb-shell [data-pill], .cb-shell [data-row] { border-radius: 8px; }
 .cb-shell [data-pill] { border-radius: 999px; }
 .cb-shell [data-donut] { border-radius: 999px; }
-.cb-shell ::placeholder { color: #4A5A72; }
-.cb-shell select { color-scheme: dark; }
+.cb-shell ::placeholder { color: #A6A28C; }
+.cb-shell select { color-scheme: light; }
 
 /* Clean 1px hairline borders everywhere -- no heavy black brutalist
    strokes in this theme, definition comes from the surface step
    (paper -> slip -> slip2) plus these quiet dividers. */
-.cb-shell [data-panel] { border: 1px solid #232D40; }
-.cb-shell input, .cb-shell select, .cb-shell textarea { border: 1px solid #232D40; }
+.cb-shell [data-panel] { border: 1px solid #E7E0CF; }
+.cb-shell input, .cb-shell select, .cb-shell textarea { border: 1px solid #E7E0CF; }
 
 /* Tabular numbers wherever a value lines up in a column -- fares,
    deposits, timers. Apply data-num to the cell. */
@@ -38,31 +38,31 @@ body { background: #0B0F1A; } /* VantageCRM 26X -- Night Grid theme, keep in syn
   inset: 0;
   z-index: -1;
   overflow: hidden;
-  background: linear-gradient(180deg, #0A0E1C 0%, #0B0F1A 100%);
+  background: linear-gradient(180deg, #F6F2E8 0%, #F3EEE2 100%);
 }
 .cb-blob {
   position: absolute;
   border-radius: 999px;
   filter: blur(100px);
-  opacity: 0.16;
+  opacity: 0.10;
   will-change: transform;
 }
 .cb-blob-1 {
   width: 46vw; height: 46vw; min-width: 420px; min-height: 420px;
   top: -12%; left: -8%;
-  background: radial-gradient(circle, #00E5FF 0%, transparent 70%);
+  background: radial-gradient(circle, #E17A2D 0%, transparent 70%);
   animation: cb-drift-1 26s ease-in-out infinite;
 }
 .cb-blob-2 {
   width: 40vw; height: 40vw; min-width: 380px; min-height: 380px;
   bottom: -14%; right: -6%;
-  background: radial-gradient(circle, #00FFA3 0%, transparent 70%);
+  background: radial-gradient(circle, #2F6B4A 0%, transparent 70%);
   animation: cb-drift-2 32s ease-in-out infinite;
 }
 .cb-blob-3 {
   width: 34vw; height: 34vw; min-width: 320px; min-height: 320px;
   top: 30%; left: 55%;
-  background: radial-gradient(circle, #B39DFF 0%, transparent 70%);
+  background: radial-gradient(circle, #4C6FA0 0%, transparent 70%);
   animation: cb-drift-3 38s ease-in-out infinite;
 }
 @keyframes cb-drift-1 {
@@ -82,25 +82,70 @@ body { background: #0B0F1A; } /* VantageCRM 26X -- Night Grid theme, keep in syn
 }
 
 .cb-shell [data-panel] {
-  box-shadow: 0 1px 2px rgba(0,0,0,0.4), 0 12px 28px -14px rgba(0,0,0,0.65);
+  box-shadow: 0 1px 2px rgba(35,40,31,0.04), 0 10px 24px -12px rgba(35,40,31,0.12);
   transition: box-shadow 200ms ease, transform 200ms ease, border-color 200ms ease;
 }
 .cb-shell button { transition: filter 150ms ease, transform 150ms ease, box-shadow 150ms ease, opacity 150ms ease; }
-.cb-shell button:hover:not(:disabled) { filter: brightness(1.12); }
+.cb-shell button:hover:not(:disabled) { filter: brightness(0.97); }
 .cb-shell button:active:not(:disabled) { transform: translateY(1px); }
 .cb-shell a { text-decoration: none; }
 
-/* Focus: a clean cyan glow ring -- visible for keyboard nav, never a
+/* Focus: a clean warm-orange ring -- visible for keyboard nav, never a
    hard offset block. */
 .cb-shell input:focus, .cb-shell select:focus, .cb-shell textarea:focus,
 .cb-shell button:focus-visible, .cb-shell a[data-nav]:focus-visible {
-  outline: none; border-color: #00E5FF !important; box-shadow: 0 0 0 3px rgba(0,229,255,0.25);
+  outline: none; border-color: #E17A2D !important; box-shadow: 0 0 0 3px rgba(225,122,45,0.22);
 }
 
-.cb-shell [data-row]:hover { background-color: rgba(0,229,255,0.05); }
-/* Selected-row convention: a persistent cyan left rail, readable at a
-   glance in a live dispatch list. */
-.cb-shell [data-row][data-selected="true"] { border-left: 3px solid #00E5FF; }
+.cb-shell [data-row]:hover { background-color: rgba(47,107,74,0.06); }
+/* Selected-row convention: a persistent sage-green left rail, readable
+   at a glance in a dense list. */
+.cb-shell [data-row][data-selected="true"] { border-left: 3px solid #2F6B4A; }
+
+/* ------------------------------------------------------------------ *
+ * List cards -- Inventory, Parties, and Sales & Invoices render each
+ * list row as its own elevated rounded card (instead of a flat
+ * hairline-divided row) after the "Kosh" reference cards: white
+ * surface, generous radius, a soft resting shadow that lifts on
+ * hover/focus. Apply data-listcard to the row container; components
+ * still set their own padding/layout via className.
+ * ------------------------------------------------------------------ */
+.cb-shell [data-listcard] {
+  border-radius: 18px !important;
+  border: 1px solid #E7E0CF;
+  background: #FFFFFF;
+  box-shadow: 0 1px 2px rgba(35,40,31,0.04), 0 8px 20px -10px rgba(35,40,31,0.10);
+  transition: box-shadow 200ms ease, transform 200ms ease, border-color 200ms ease;
+}
+.cb-shell [data-listcard]:hover {
+  box-shadow: 0 4px 10px rgba(35,40,31,0.06), 0 16px 32px -12px rgba(35,40,31,0.16);
+  transform: translateY(-1px);
+  border-color: #D8CFB8;
+}
+.cb-shell [data-listcard][data-selected="true"] {
+  border-color: #2F6B4A;
+  box-shadow: 0 0 0 2px rgba(47,107,74,0.20), 0 8px 20px -10px rgba(35,40,31,0.10);
+}
+
+/* ------------------------------------------------------------------ *
+ * Search box -- a pill-shaped surface of its own (not just a bottom
+ * hairline), with a soft resting shadow and a warm-orange focus ring
+ * on the whole pill (not just the bare input) when a keyboard user
+ * tabs in or clicks anywhere in it. Apply data-searchbox to the
+ * wrapping div; the inner <input> stays borderless (see
+ * components/Atoms.jsx: SearchInput).
+ * ------------------------------------------------------------------ */
+.cb-shell [data-searchbox] {
+  border-radius: 999px !important;
+  border: 1px solid #E7E0CF;
+  background: #FFFFFF;
+  box-shadow: 0 1px 2px rgba(35,40,31,0.04), 0 6px 16px -8px rgba(35,40,31,0.08);
+  transition: box-shadow 200ms ease, border-color 200ms ease;
+}
+.cb-shell [data-searchbox]:focus-within {
+  border-color: #E17A2D;
+  box-shadow: 0 0 0 3px rgba(225,122,45,0.18), 0 6px 16px -8px rgba(35,40,31,0.08);
+}
 
 /* ------------------------------------------------------------------ *
  * Print scope -- when the label printer's "Print sticker" button
