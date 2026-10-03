@@ -143,6 +143,11 @@ class RentalAsset(models.Model):
     model_name = models.CharField(max_length=80)
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=AVAILABLE)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Set when the unit was taken out of sale stock in Inventory to be
+    # rented (RentalAssetViewSet.from_inventory) -- which product variant
+    # it is and which shop's shelf it left.
+    variant = models.ForeignKey("catalog.Variant", on_delete=models.SET_NULL, null=True, blank=True, related_name="rental_assets")
+    source_stock_point = models.ForeignKey("catalog.StockPoint", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     class Meta:
         ordering = ["asset_tag"]
