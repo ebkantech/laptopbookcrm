@@ -510,14 +510,22 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
           </>
         ) : (
           <>
-            {can("repairs.manage") && nextStage && (
+            {ticket.pending_invoice && (
+              <>
+                <RepairInvoiceRow label={`${ticket.pending_invoice.code} · ${money(ticket.pending_invoice.amount)}`} invoice={ticket.pending_invoice} />
+                <p className="mt-2 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
+                  Waiting for payment — record it or send a UPI link in Sales &amp; Invoices. The ticket is marked Delivered automatically once it's paid.
+                </p>
+              </>
+            )}
+            {can("repairs.manage") && nextStage && nextStage !== "Delivered" && !ticket.pending_invoice && (
               <button onClick={advance} className="mt-4 flex w-full items-center justify-center gap-1.5 py-2.5 text-xs uppercase" style={{ backgroundColor: C.stamp, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em" }}>
                 <Truck size={13} /> Move to "{nextStage}" & notify customer
               </button>
             )}
-            {ticket.status === "Ready for pickup" && can("repairs.manage") && (
+            {ticket.status === "Ready for pickup" && can("repairs.manage") && !ticket.pending_invoice && (
               <button onClick={settle} className="mt-2 flex w-full items-center justify-center gap-1.5 py-2.5 text-xs uppercase" style={{ backgroundColor: C.green, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em" }}>
-                <IndianRupee size={13} /> Mark delivered — raise invoice
+                <IndianRupee size={13} /> Raise invoice — delivered once paid
               </button>
             )}
           </>
@@ -588,12 +596,16 @@ function KanbanBoard({ tickets, canManage, onOpen, onMoved, onError }) {
         onError("Only tickets that are Ready for pickup can be dropped into Delivered -- it raises the invoice.");
         return;
       }
+      // Not optimistic: raising the invoice doesn't deliver the ticket --
+      // it stays Ready for pickup until the invoice is paid.
       const previous = ticket;
-      onMoved({ ...ticket, status: "Delivered" }); // optimistic
       setBusyId(ticket.id);
       try {
         const updated = await api.post(`/tickets/${ticket.id}/settle/`);
         onMoved(updated);
+        if (updated.pending_invoice) {
+          onError(`Invoice ${updated.pending_invoice.code} raised. ${ticket.code} moves to Delivered once it's paid in Sales & Invoices.`);
+        }
       } catch (e) {
         onMoved(previous); // roll back
         onError(e.body?.detail || e.message);
