@@ -46,7 +46,11 @@ def create_invoice(*, lines, **fields):
 
 def on_invoice_paid(invoice):
     """Called once an invoice has just been marked paid, by any route."""
+    from accounting.posting import post_invoice_payment
+
     from .models import Invoice
+
+    post_invoice_payment(invoice)
 
     if invoice.source == Invoice.REPAIR and invoice.repair_ticket_id:
         from repairs.billing import on_repair_invoice_paid

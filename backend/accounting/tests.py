@@ -55,3 +55,86 @@ class BankBookTests(TestCase):
 
         editor = client_for(make_user("bank-editor", ["bankbook.view", "bankbook.edit"]))
         self.assertEqual(editor.post(url).status_code, 403)
+
+
+class InvoicePaymentPostingTests(TestCase):
+    """Invoice payments post themselves into the cash / bank book."""
+
+    def setUp(self):
+        from catalog.models import Product, Stock, StockPoint, Variant
+        from parties.models import Party
+        from sales.models import Invoice, InvoiceItem
+
+        self.Invoice = Invoice
+        self.cashier_user = make_user("cashier", ["invoices.view", "invoices.settle", "cashbook.view", "cashbook.edit", "bankbook.view", "bankbook.edit"])
+        self.cashier = client_for(self.cashier_user)
+        shop = StockPoint.objects.create(slug="shop", name="Shop", kind=StockPoint.SHOP)
+        party = Party.objects.create(name="Payer", type=Party.RETAIL, phone="9876543210", joined=date.today())
+        variant = Variant.objects.create(
+            product=Product.objects.create(model_name="Laptop", product_code="P-1"), code="V-1", spec="x", mrp=1, sell_price=1, cost=1,
+        )
+        Stock.objects.create(variant=variant, stock_point=shop, quantity=5)
+
+        def invoice(code, amount):
+            inv = Invoice.objects.create(code=code, party=party, stock_point=shop, date=date.today())
+            InvoiceItem.objects.create(invoice=inv, variant=variant, qty=1, price=amount)
+            return inv
+        self.make_invoice = invoice
+
+    def settle(self, inv, **payment):
+        return self.cashier.post(f"/api/invoices/{inv.id}/settle/", payment, format="json")
+
+    def test_cash_payment_lands_in_the_cash_book(self):
+        inv = self.make_invoice("INV-C1", 25000)
+        self.assertEqual(self.settle(inv, pay_method="Cash").status_code, 200)
+        entry = CashEntry.objects.get(invoice=inv)
+        self.assertEqual((entry.type, entry.amount, entry.by), (CashEntry.IN, 25000, self.cashier_user))
+        self.assertIn("INV-C1", entry.particulars)
+        self.assertFalse(BankEntry.objects.exists())
+        listed = results(self.cashier.get("/api/cash-entries/"))[0]
+        self.assertEqual(listed["invoice_code"], "INV-C1")
+
+    def test_upi_payment_lands_in_the_default_bank_account_with_reference(self):
+        BankAccount.objects.create(name="Old account")
+        main = BankAccount.objects.create(name="HDFC Current", is_default=True)
+        inv = self.make_invoice("INV-U1", 40000)
+        self.settle(inv, pay_method="UPI", payment_reference="UTR 4123")
+        entry = BankEntry.objects.get(invoice=inv)
+        self.assertEqual((entry.account, entry.amount, entry.reference, entry.reconciled), (main, 40000, "UTR 4123", False))
+        self.assertFalse(CashEntry.objects.exists())
+
+    def test_bank_account_is_created_if_none_exists(self):
+        inv = self.make_invoice("INV-B1", 1000)
+        self.settle(inv, pay_method="Bank transfer", payment_reference="NEFT 99")
+        account = BankAccount.objects.get()
+        self.assertTrue(account.is_default)
+        self.assertEqual(account.entries.get().invoice, inv)
+
+    def test_posted_entries_cannot_be_edited_or_deleted(self):
+        inv = self.make_invoice("INV-L1", 500)
+        self.settle(inv, pay_method="Cash")
+        entry = CashEntry.objects.get(invoice=inv)
+        self.assertEqual(self.cashier.patch(f"/api/cash-entries/{entry.id}/", {"amount": 1}, format="json").status_code, 400)
+        self.assertEqual(self.cashier.delete(f"/api/cash-entries/{entry.id}/").status_code, 400)
+        entry.refresh_from_db()
+        self.assertEqual(entry.amount, 500)
+
+    def test_backfill_command_posts_old_payments_once(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        inv = self.make_invoice("INV-OLD", 700)
+        self.Invoice.objects.filter(pk=inv.pk).update(status=self.Invoice.PAID, pay_method="UPI", paid_on=date.today())
+        call_command("post_invoice_payments", "--dry-run", stdout=StringIO())
+        self.assertFalse(BankEntry.objects.exists())
+        call_command("post_invoice_payments", stdout=StringIO())
+        call_command("post_invoice_payments", stdout=StringIO())
+        self.assertEqual(BankEntry.objects.filter(invoice=inv).count(), 1)
+
+    def test_only_one_default_account(self):
+        a = self.cashier.post("/api/bank-accounts/", {"name": "HDFC", "opening": 100000}, format="json").json()
+        self.assertTrue(a["is_default"])  # first account becomes the default
+        b = self.cashier.post("/api/bank-accounts/", {"name": "ICICI", "is_default": True}, format="json").json()
+        self.assertEqual(BankAccount.objects.get(is_default=True).id, b["id"])
+        self.assertEqual(self.cashier.patch(f"/api/bank-accounts/{a['id']}/", {"opening": 250000}, format="json").status_code, 200)

@@ -5,17 +5,21 @@ from .models import BankAccount, BankEntry, CashEntry
 
 class CashEntrySerializer(serializers.ModelSerializer):
     by_name = serializers.CharField(source="by.get_full_name", read_only=True)
+    invoice_code = serializers.CharField(source="invoice.code", read_only=True, default=None)
 
     class Meta:
         model = CashEntry
-        fields = ["id", "date", "particulars", "type", "amount", "by", "by_name"]
-        read_only_fields = ["by"]
+        fields = ["id", "date", "particulars", "type", "amount", "by", "by_name", "invoice", "invoice_code"]
+        read_only_fields = ["by", "invoice"]
 
 
 class BankEntrySerializer(serializers.ModelSerializer):
+    invoice_code = serializers.CharField(source="invoice.code", read_only=True, default=None)
+
     class Meta:
         model = BankEntry
-        fields = ["id", "account", "date", "particulars", "type", "amount", "reconciled"]
+        fields = ["id", "account", "date", "particulars", "type", "amount", "reconciled", "reference", "invoice", "invoice_code"]
+        read_only_fields = ["invoice", "reconciled"]
 
 
 class BankAccountSerializer(serializers.ModelSerializer):
@@ -24,7 +28,7 @@ class BankAccountSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = BankAccount
-        fields = ["id", "name", "opening", "entries", "balance"]
+        fields = ["id", "name", "opening", "is_default", "entries", "balance"]
 
     def get_balance(self, obj):
         total = obj.opening
