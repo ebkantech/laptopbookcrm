@@ -59,6 +59,10 @@ class Stock(models.Model):
     variant = models.ForeignKey(Variant, on_delete=models.CASCADE, related_name="stock")
     stock_point = models.ForeignKey(StockPoint, on_delete=models.CASCADE, related_name="stock")
     quantity = models.PositiveIntegerField(default=0)
+    # Where inside this shop/warehouse the units physically sit, so staff
+    # can find them -- free text since every shop labels its racks
+    # differently, e.g. "Rack A / Shelf 3" or "Back store, bin 12".
+    location = models.CharField(max_length=80, blank=True)
 
     class Meta:
         unique_together = [("variant", "stock_point")]

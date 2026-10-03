@@ -11,10 +11,12 @@ class StockPointSerializer(serializers.ModelSerializer):
 
 class StockSerializer(serializers.ModelSerializer):
     stock_point = serializers.SlugRelatedField(slug_field="slug", read_only=True)
+    stock_point_name = serializers.CharField(source="stock_point.name", read_only=True)
+    stock_point_kind = serializers.CharField(source="stock_point.kind", read_only=True)
 
     class Meta:
         model = Stock
-        fields = ["stock_point", "quantity"]
+        fields = ["id", "stock_point", "stock_point_name", "stock_point_kind", "quantity", "location"]
 
 
 class VariantSerializer(serializers.ModelSerializer):

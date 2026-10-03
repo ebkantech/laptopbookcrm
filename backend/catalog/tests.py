@@ -75,3 +75,41 @@ class CatalogTests(TestCase):
         self.assertEqual(add.status_code, 403)
         create = self.any_staff.post("/api/products/", {"model_name": "X", "product_code": "VC-LAP-9999"}, format="json")
         self.assertEqual(create.status_code, 403)
+
+
+class StockLocationTests(TestCase):
+    def setUp(self):
+        self.shop = StockPoint.objects.create(slug="test-shop", name="Test Shop", kind=StockPoint.SHOP)
+        product = Product.objects.create(brand="Asus", model_name="VivoBook 15", product_code="VC-LAP-0001")
+        self.variant = Variant.objects.create(
+            product=product, code="VC-SKU-0001", spec="i5 / 8GB", mrp=45000, sell_price=40000, cost=32000
+        )
+        self.stock = Stock.objects.create(variant=self.variant, stock_point=self.shop, quantity=2, location="Rack A / Shelf 1")
+        self.stock_manager = client_for(make_user("stock-manager", ["inventory.edit"]))
+        self.any_staff = client_for(make_user("any-staff"))
+
+    def test_product_listing_shows_shop_name_and_location(self):
+        stock = results(self.any_staff.get("/api/products/"))[0]["variants"][0]["stock"][0]
+        self.assertEqual(
+            (stock["stock_point_name"], stock["quantity"], stock["location"]),
+            ("Test Shop", 2, "Rack A / Shelf 1"),
+        )
+
+    def test_add_stock_can_set_location_and_blank_keeps_existing(self):
+        url = "/api/inventory/add-stock/"
+        base = {"stock_point": self.shop.id, "product": self.variant.product_id, "variant": self.variant.id, "quantity": 1}
+        self.assertEqual(self.stock_manager.post(url, base, format="json").json()["location"], "Rack A / Shelf 1")
+        moved = self.stock_manager.post(url, {**base, "location": "Back store, bin 4"}, format="json").json()
+        self.assertEqual((moved["location"], moved["new_quantity"]), ("Back store, bin 4", 4))
+
+    def test_edit_location(self):
+        url = f"/api/inventory/stock/{self.stock.id}/location/"
+        response = self.stock_manager.patch(url, {"location": "  Rack C / Shelf 2 "}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.stock.refresh_from_db()
+        self.assertEqual((self.stock.location, self.stock.quantity), ("Rack C / Shelf 2", 2))
+
+        self.assertEqual(self.stock_manager.patch(url, {"location": ""}, format="json").status_code, 200)
+        self.assertEqual(self.stock_manager.patch(url, {}, format="json").status_code, 400)
+        self.assertEqual(self.stock_manager.patch(url, {"location": "x" * 81}, format="json").status_code, 400)
+        self.assertEqual(self.any_staff.patch(url, {"location": "Rack Z"}, format="json").status_code, 403)

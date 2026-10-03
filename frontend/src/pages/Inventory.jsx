@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  AlertTriangle, Check, Loader2, Plus, Printer, ScanBarcode, X,
+  AlertTriangle, Check, Loader2, MapPin, Pencil, Plus, Printer, ScanBarcode, X,
 } from "lucide-react";
 import { C, F, money } from "../lib/theme";
 import { api } from "../lib/api";
@@ -9,6 +9,109 @@ import { Eyebrow, ErrorNote, Pill, PillButton, SearchInput, Spinner } from "../c
 import PageHeader from "../components/PageHeader";
 
 const STOCK_LABELS = { kb: "Karol Bagh", np: "Nehru Place", ln: "Lajpat Nagar", amazon: "Amazon", flipkart: "Flipkart", site: "Website", wa: "WhatsApp" };
+const stockLabel = (s) => s.stock_point_name || STOCK_LABELS[s.stock_point] || s.stock_point;
+
+/* Per shop/channel, across all of a product's variants: units held and
+ * the distinct in-shop places (rack/shelf) they sit in. Only places
+ * that actually hold stock are listed. */
+function stockByLocation(product) {
+  const byPoint = new Map();
+  for (const v of product.variants) {
+    for (const s of v.stock) {
+      if (s.quantity <= 0) continue;
+      const row = byPoint.get(s.stock_point) || { label: stockLabel(s), quantity: 0, places: new Set() };
+      row.quantity += s.quantity;
+      if (s.location) row.places.add(s.location);
+      byPoint.set(s.stock_point, row);
+    }
+  }
+  // Shops with a recorded place first (that's what someone looking for
+  // the item needs), then by how many units each holds.
+  return [...byPoint.values()].sort((a, b) => (b.places.size > 0) - (a.places.size > 0) || b.quantity - a.quantity);
+}
+
+function StockLocationCell({ product }) {
+  const rows = stockByLocation(product);
+  if (!rows.length) return <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Out of stock</span>;
+  const shown = rows.slice(0, 2);
+  const describe = (r) => `${r.label} (${r.quantity})${r.places.size ? ` — ${[...r.places].join(", ")}` : ""}`;
+  return (
+    <span className="block min-w-0 space-y-1" title={rows.map(describe).join("\n")}>
+      {shown.map((r) => (
+        <span key={r.label} className="flex min-w-0 items-start gap-1 text-xs" style={{ fontFamily: F.body }}>
+          <MapPin size={11} className="mt-0.5" style={{ color: r.places.size ? C.stamp : C.inkSoft, flexShrink: 0 }} />
+          <span className="min-w-0">
+            <span className="block truncate" style={{ color: C.ink }}>
+              {r.label} <span style={{ fontFamily: F.mono, color: C.inkSoft }}>({r.quantity})</span>
+            </span>
+            <span className="block truncate" style={{ color: r.places.size ? C.ink : C.inkSoft, fontWeight: r.places.size ? 600 : 400 }}>
+              {r.places.size ? [...r.places].join(", ") : "No location set"}
+            </span>
+          </span>
+        </span>
+      ))}
+      {rows.length > shown.length && (
+        <span className="block text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>+{rows.length - shown.length} more</span>
+      )}
+    </span>
+  );
+}
+
+/* One shop's stock of one variant in the detail panel: quantity plus
+ * where it sits, editable in place for inventory.edit holders. */
+function StockTile({ stock, canEdit, onSaved }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(stock.location || "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const save = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const updated = await api.patch(`/inventory/stock/${stock.id}/location/`, { location: value.trim() });
+      onSaved(updated);
+      setEditing(false);
+    } catch (e) {
+      setError(e.body?.detail || e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="px-2 py-1.5" style={{ backgroundColor: C.slip2 }}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{stockLabel(stock)}</span>
+        <span className="text-xs" style={{ fontFamily: F.mono, fontWeight: 600, color: stock.quantity <= 1 ? C.carbon : C.ink }}>{stock.quantity}</span>
+      </div>
+      {editing ? (
+        <div className="mt-1 flex items-center gap-1">
+          <input
+            autoFocus value={value} maxLength={80} placeholder="Rack A / Shelf 3"
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(false); }}
+            className="min-w-0 flex-1 bg-transparent px-1.5 py-0.5 text-xs outline-none"
+            style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}
+          />
+          <button onClick={save} disabled={busy} title="Save location"><Check size={13} style={{ color: C.green }} /></button>
+          <button onClick={() => { setEditing(false); setValue(stock.location || ""); }} title="Cancel"><X size={13} style={{ color: C.inkSoft }} /></button>
+        </div>
+      ) : (
+        <div className="mt-0.5 flex items-center gap-1">
+          <MapPin size={10} style={{ color: C.inkSoft, flexShrink: 0 }} />
+          <span className="truncate text-xs" style={{ fontFamily: F.body, color: stock.location ? C.ink : C.inkSoft }}>
+            {stock.location || "No location set"}
+          </span>
+          {canEdit && (
+            <button onClick={() => setEditing(true)} className="ml-auto" title="Edit location"><Pencil size={11} style={{ color: C.inkSoft }} /></button>
+          )}
+        </div>
+      )}
+      {error && <p className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.carbon }}>{error}</p>}
+    </div>
+  );
+}
 
 /* ------------------------------------------------------------------ *
  *  Barcode scan -- a real Bluetooth/USB scanner behaves like a
@@ -84,6 +187,7 @@ function AddStockModal({ stockPoints, onClose, onAdded }) {
 
   const [stockPointId, setStockPointId] = useState(stockPoints[0]?.id || "");
   const [quantity, setQuantity] = useState("");
+  const [location, setLocation] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -101,7 +205,7 @@ function AddStockModal({ stockPoints, onClose, onAdded }) {
     if (!qty || qty <= 0) return setError("Enter a quantity greater than 0.");
     if (!stockPointId) return setError("Pick a shop or channel.");
 
-    let payload = { stock_point: stockPointId, quantity: qty };
+    let payload = { stock_point: stockPointId, quantity: qty, location: location.trim() };
     if (mode === "existing") {
       if (!productId || !variantId) return setError("Pick a product and variant.");
       payload = { ...payload, product: +productId, variant: +variantId };
@@ -207,6 +311,9 @@ function AddStockModal({ stockPoints, onClose, onAdded }) {
             <input value={quantity} onChange={(e) => setQuantity(e.target.value.replace(/\D/g, ""))} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.mono, color: C.ink, border: `1px solid ${C.rule}` }} />
           </label>
         </div>
+        <label className="mt-3 block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Placed at (rack / shelf, optional)
+          <input value={location} maxLength={80} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Rack A / Shelf 3 — leave blank to keep the current spot" className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
+        </label>
 
         <ErrorNote message={error} />
         <button onClick={submit} disabled={busy} className="mt-4 flex w-full items-center justify-center gap-1.5 py-2.5 text-xs uppercase" style={{ backgroundColor: C.green, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em", opacity: busy ? 0.7 : 1 }}>
@@ -294,8 +401,19 @@ export default function Inventory() {
     const bits = [];
     if (result.generated_product_code) bits.push(`product code ${result.product.product_code} auto-generated`);
     if (result.generated_variant_code) bits.push(`variant code ${result.variant.code} auto-generated`);
-    setFlash(`Added ${result.new_quantity >= 0 ? "" : ""}stock at ${result.stock_point}.${bits.length ? " " + bits.join(", ") + "." : ""}`);
+    setFlash(`Added stock at ${result.stock_point}${result.location ? ` (${result.location})` : ""}.${bits.length ? " " + bits.join(", ") + "." : ""}`);
     setTimeout(() => setFlash(""), 6000);
+  };
+
+  // Patch one stock row in both the open detail panel and the list,
+  // so the new location shows everywhere without refetching.
+  const onLocationSaved = (updated) => {
+    const patch = (p) => ({
+      ...p,
+      variants: p.variants.map((v) => ({ ...v, stock: v.stock.map((s) => (s.id === updated.id ? updated : s)) })),
+    });
+    setOpenProduct((p) => (p ? patch(p) : p));
+    setProducts((list) => list.map((p) => (p.id === openProduct?.id ? patch(p) : p)));
   };
 
   return (
@@ -319,8 +437,8 @@ export default function Inventory() {
       )}
 
       <div className="flex-1 overflow-y-auto px-5 py-4 sm:px-8">
-        <div className="hidden grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-3 px-5 pb-2 text-xs uppercase md:grid" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.08em", color: C.inkSoft }}>
-          <span>Product</span><span>ID / HSN</span><span>Processor</span><span>Sell price</span><span>Shared stock</span>
+        <div className="hidden grid-cols-[2fr_1fr_1fr_1fr_1fr_1.8fr] gap-3 px-5 pb-2 text-xs uppercase md:grid" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.08em", color: C.inkSoft }}>
+          <span>Product</span><span>ID / HSN</span><span>Processor</span><span>Sell price</span><span>Shared stock</span><span>Stock location</span>
         </div>
         <div className="flex flex-col gap-2.5">
           {products.map((p) => {
@@ -332,7 +450,7 @@ export default function Inventory() {
                 onClick={() => setOpenProduct(p)}
                 data-listcard
                 data-selected={openProduct?.id === p.id}
-                className="block w-full px-5 py-3.5 text-left md:grid md:grid-cols-[2fr_1fr_1fr_1fr_1fr] md:items-center md:gap-3"
+                className="block w-full px-5 py-3.5 text-left md:grid md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1.8fr] md:items-center md:gap-3"
               >
                 <div className="min-w-0">
                   <p className="truncate text-sm" style={{ fontFamily: F.display, fontWeight: 600, color: C.ink }}>{p.display_name}</p>
@@ -342,6 +460,7 @@ export default function Inventory() {
                 <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{p.processor || "—"}</span>
                 <span className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{money(p.variants[0]?.sell_price)}</span>
                 <span><Pill color={lowest ? C.carbon : C.green}>{totalStock} units</Pill></span>
+                <span className="mt-2 block min-w-0 md:mt-0"><StockLocationCell product={p} /></span>
               </button>
             );
           })}
@@ -375,12 +494,9 @@ export default function Inventory() {
                       </button>
                     </div>
                   </div>
-                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
                     {v.stock.map((s) => (
-                      <div key={s.stock_point} className="flex items-center justify-between px-2 py-1.5" style={{ backgroundColor: C.slip2 }}>
-                        <span className="text-xs truncate" style={{ fontFamily: F.body, color: C.inkSoft }}>{STOCK_LABELS[s.stock_point] || s.stock_point}</span>
-                        <span className="text-xs" style={{ fontFamily: F.mono, fontWeight: 600, color: s.quantity <= 1 ? C.carbon : C.ink }}>{s.quantity}</span>
-                      </div>
+                      <StockTile key={s.id ?? s.stock_point} stock={s} canEdit={can("inventory.edit")} onSaved={onLocationSaved} />
                     ))}
                   </div>
                 </div>
