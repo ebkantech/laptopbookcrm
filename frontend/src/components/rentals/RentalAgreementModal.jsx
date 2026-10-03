@@ -19,6 +19,7 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
   const [showAssetForm, setShowAssetForm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [existing, setExisting] = useState(null); // an already-registered asset matching the draft
 
   const availableAssets = useMemo(() => assets.filter((asset) => asset.status === "available"), [assets]);
   const selectedCount = lines.filter((line) => line.asset_id).length;
@@ -27,9 +28,36 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
     setLines((current) => current.map((line, position) => position === index ? { ...line, [key]: value } : line));
   };
 
+  const selectAsset = (asset) => {
+    setAssets((current) => (current.some((a) => a.id === asset.id) ? current : [...current, asset]));
+    setLines((current) => {
+      if (current.some((line) => line.asset_id === String(asset.id))) return current;
+      const emptyIndex = current.findIndex((line) => !line.asset_id);
+      if (emptyIndex < 0) return [...current, { asset_id: String(asset.id), monthly_fee: "" }];
+      return current.map((line, index) => index === emptyIndex ? { ...line, asset_id: String(asset.id) } : line);
+    });
+    setAssetDraft(emptyAsset);
+    setShowAssetForm(false);
+    setExisting(null);
+    setError("");
+  };
+
+  const describeExisting = (asset) => (asset.status === "available"
+    ? `${asset.asset_tag} (${asset.brand} ${asset.model_name}, S/N ${asset.serial_number}) is already registered and available.`
+    : `${asset.asset_tag} (${asset.brand} ${asset.model_name}, S/N ${asset.serial_number}) is already registered and currently ${asset.status} -- it can't go on a new agreement until it's returned.`);
+
   const addAsset = async () => {
-    if (Object.values(assetDraft).some((value) => !value.trim())) {
-      setError("Asset tag, serial number, brand and model are required.");
+    setExisting(null);
+    if (["serial_number", "brand", "model_name"].some((key) => !assetDraft[key].trim())) {
+      setError("Serial number, brand and model are required. Leave the asset tag blank to generate one.");
+      return;
+    }
+    // catch an already-registered device before asking the server
+    const same = (a, b) => a && b && a.trim().toLowerCase() === b.trim().toLowerCase();
+    const match = assets.find((a) => same(a.serial_number, assetDraft.serial_number) || same(a.asset_tag, assetDraft.asset_tag));
+    if (match) {
+      setExisting(match);
+      setError(describeExisting(match));
       return;
     }
     setBusy(true);
@@ -45,7 +73,14 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
       setAssetDraft(emptyAsset);
       setShowAssetForm(false);
     } catch (requestError) {
-      setError(requestError.body ? JSON.stringify(requestError.body) : requestError.message);
+      const body = requestError.body || {};
+      if (body.existing_asset) {
+        const asset = { ...body.existing_asset, id: Number(body.existing_asset.id) };
+        setExisting(asset);
+        setError(describeExisting(asset));
+      } else {
+        setError(Object.values(body).flat().join(" ") || requestError.message);
+      }
     } finally {
       setBusy(false);
     }
@@ -70,7 +105,7 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
       });
       onCreated(created);
     } catch (requestError) {
-      setError(requestError.body ? JSON.stringify(requestError.body) : requestError.message);
+      setError(Object.values(requestError.body || {}).flat().join(" ") || requestError.message);
     } finally {
       setBusy(false);
     }
@@ -87,8 +122,11 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
         </div>
         <div className="mt-5 flex items-center justify-between"><Eyebrow>Devices · {selectedCount >= 2 ? "Bulk" : "Single"}</Eyebrow><button type="button" onClick={() => setShowAssetForm((value) => !value)} className="flex items-center gap-1 text-xs" style={{ color: C.orange }}><Plus size={12} /> Register new asset</button></div>
         {showAssetForm && <div className="mt-2 grid gap-2 p-3 sm:grid-cols-2" style={{ backgroundColor: C.slip2 }}>
-          {[["asset_tag", "Asset tag"], ["serial_number", "Serial number"], ["brand", "Brand"], ["model_name", "Model"]].map(([key, label]) => <input key={key} value={assetDraft[key]} onChange={(event) => setAssetDraft((draft) => ({ ...draft, [key]: event.target.value }))} placeholder={label} className="bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} />)}
+          {[["asset_tag", "Asset tag (blank = auto)"], ["serial_number", "Serial number"], ["brand", "Brand"], ["model_name", "Model"]].map(([key, label]) => <input key={key} value={assetDraft[key]} onChange={(event) => setAssetDraft((draft) => ({ ...draft, [key]: event.target.value }))} placeholder={label} className="bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} />)}
           <button type="button" disabled={busy} onClick={addAsset} className="p-2 text-xs sm:col-span-2" style={{ backgroundColor: C.carbon, color: C.onAccent }}>Save asset and select it</button>
+          {existing && existing.status === "available" && (
+            <button type="button" onClick={() => selectAsset(existing)} className="p-2 text-xs sm:col-span-2" style={{ border: `1px solid ${C.green}`, color: C.green, fontWeight: 600 }}>Use {existing.asset_tag} on this agreement</button>
+          )}
         </div>}
         <div className="mt-2 space-y-2">{lines.map((line, index) => <div key={index} className="grid grid-cols-[1fr_130px_32px] gap-2"><select value={line.asset_id} onChange={(event) => updateLine(index, "asset_id", event.target.value)} className="bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }}><option value="">Choose available asset</option>{availableAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.asset_tag} · {asset.brand} {asset.model_name} · {asset.serial_number}</option>)}</select><input type="number" min="0" value={line.monthly_fee} onChange={(event) => updateLine(index, "monthly_fee", event.target.value)} placeholder="₹ / month" className="bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} /><button type="button" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, position) => position !== index))}><Trash2 size={15} /></button></div>)}</div>
         <button type="button" onClick={() => setLines((current) => [...current, { asset_id: "", monthly_fee: "" }])} className="mt-2 flex items-center gap-1 text-xs" style={{ color: C.orange }}><Plus size={12} /> Add another device</button>

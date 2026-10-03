@@ -138,3 +138,36 @@ class DeviceHandoverTests(TestCase):
         self.assertEqual(self.upload("front").status_code, 400)
         photo = self.line.photos.first()
         self.assertEqual(self.manager.delete(f"/api/rental-photos/{photo.id}/").status_code, 400)
+
+
+class RentalAssetRegistrationTests(TestCase):
+    def setUp(self):
+        self.manager = client_for(make_user("asset-manager", ["rentals.view", "rentals.manage"]))
+        self.existing = RentalAsset.objects.create(asset_tag="AST-0007", serial_number="5CD123ABC", brand="HP", model_name="EliteBook 840")
+
+    def register(self, **data):
+        return self.manager.post("/api/rental-assets/", {"brand": "Dell", "model_name": "Latitude", **data}, format="json")
+
+    def test_blank_tag_is_generated(self):
+        response = self.register(serial_number="NEW-SERIAL-1")
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["asset_tag"], "AST-0008")
+
+    def test_duplicate_tag_or_serial_explains_and_returns_the_existing_asset(self):
+        dup_tag = self.register(asset_tag="ast-0007", serial_number="OTHER")
+        self.assertEqual(dup_tag.status_code, 400)
+        body = dup_tag.json()
+        self.assertIn("pick it from the device list", body["asset_tag"][0])
+        self.assertEqual(int(body["existing_asset"]["id"]), self.existing.id)  # DRF stringifies error values
+
+        dup_serial = self.register(serial_number="5cd123abc")
+        self.assertEqual(dup_serial.status_code, 400)
+        self.assertIn("already registered", dup_serial.json()["serial_number"][0])
+
+    def test_duplicate_of_rented_asset_names_the_agreement(self):
+        party = Party.objects.create(name="X", type=Party.RENTAL, phone="9876543210", joined=date.today())
+        rental = Rental.objects.create(party=party, agreement_code="RNT-000042", product_label="x", monthly_fee=1, start=date.today(), tenure_months=1, last_payment=date.today())
+        RentalLine.objects.create(rental=rental, asset=self.existing, monthly_fee=1)
+        RentalAsset.objects.filter(pk=self.existing.pk).update(status=RentalAsset.RENTED)
+        response = self.register(asset_tag="AST-0007", serial_number="OTHER")
+        self.assertIn("rented on agreement RNT-000042", response.json()["asset_tag"][0])
