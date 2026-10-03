@@ -151,6 +151,17 @@ body { background: #F3EEE2; } /* VantageCRM 26X -- Vantage Daybook theme, keep i
  * Print scope -- when the label printer's "Print sticker" button
  * fires window.print(), only the label itself should reach paper.
  * ------------------------------------------------------------------ */
+/* Printable sales invoice (components/invoices/PrintableInvoice.jsx). */
+#print-invoice-root { display: none; }
+@media print {
+  @page { size: A4; margin: 12mm; }
+  html:has(#print-invoice-root), body:has(#print-invoice-root) { background: #fff !important; }
+  body:has(#print-invoice-root) > *:not(#print-invoice-root) { display: none !important; }
+  #print-invoice-root { display: block; }
+  #print-invoice-root, #print-invoice-root * { visibility: visible !important; }
+  #print-invoice-root > div { padding: 0 !important; }
+}
+
 @media print {
   body * { visibility: hidden; }
   #print-label-area, #print-label-area * { visibility: visible; }

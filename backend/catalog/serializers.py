@@ -6,7 +6,7 @@ from .models import Part, PartStock, Product, Service, Stock, StockPoint, Varian
 class StockPointSerializer(serializers.ModelSerializer):
     class Meta:
         model = StockPoint
-        fields = ["id", "slug", "name", "kind"]
+        fields = ["id", "slug", "name", "kind", "address", "phone", "gstin"]
 
 
 class StockSerializer(serializers.ModelSerializer):

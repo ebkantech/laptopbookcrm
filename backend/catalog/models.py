@@ -9,6 +9,12 @@ class StockPoint(models.Model):
     slug = models.SlugField(max_length=32, unique=True)
     name = models.CharField(max_length=80)
     kind = models.CharField(max_length=10, choices=KIND_CHOICES)
+    # Printed as the "sold from" block on invoices raised at this
+    # shop/channel. GSTIN only when this branch is registered separately;
+    # blank falls back to the business-wide BUSINESS_GSTIN setting.
+    address = models.TextField(blank=True)
+    phone = models.CharField(max_length=20, blank=True)
+    gstin = models.CharField(max_length=20, blank=True)
 
     class Meta:
         ordering = ["name"]

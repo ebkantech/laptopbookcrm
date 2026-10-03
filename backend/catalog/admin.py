@@ -16,7 +16,8 @@ class StockInline(admin.TabularInline):
 
 @admin.register(StockPoint)
 class StockPointAdmin(admin.ModelAdmin):
-    list_display = ["name", "kind", "slug"]
+    list_display = ["name", "kind", "slug", "phone"]
+    fields = ["name", "slug", "kind", "address", "phone", "gstin"]
 
 
 @admin.register(Product)
