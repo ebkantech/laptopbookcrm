@@ -70,8 +70,22 @@ class RentalViewSet(viewsets.ModelViewSet):
         return super().get_queryset().order_by("-start")
 
     def list(self, request, *args, **kwargs):
-        # highest churn risk first -- computed in Python since it isn't a stored column
-        qs = sorted(self.filter_queryset(self.get_queryset()), key=lambda r: r.churn_score, reverse=True)
+        # Agreements still needing action (draft / awaiting the customer /
+        # rejected) first, newest first -- a just-created agreement has the
+        # lowest churn score and used to sink to the bottom of the list,
+        # looking as if it had vanished. Then live rentals by churn risk
+        # (computed in Python, not a stored column); closed/cancelled last.
+        needs_action = (Rental.DRAFT, Rental.PENDING_APPROVAL, Rental.REJECTED)
+        finished = (Rental.CLOSED, Rental.CANCELLED)
+
+        def order(r):
+            if r.status in needs_action:
+                return (0, -r.pk)
+            if r.status in finished:
+                return (2, -r.pk)
+            return (1, -r.churn_score)
+
+        qs = sorted(self.filter_queryset(self.get_queryset()), key=order)
         page = self.paginate_queryset(qs)
         serializer = self.get_serializer(page if page is not None else qs, many=True)
         if page is not None:
