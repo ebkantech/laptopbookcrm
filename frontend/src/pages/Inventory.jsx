@@ -193,7 +193,7 @@ function AddStockModal({ stockPoints, onClose, onAdded }) {
 
   useEffect(() => {
     if (mode === "existing" && !allProducts) {
-      api.get("/products/").then((d) => setAllProducts(d.results ?? d));
+      api.getAll("/products/").then(setAllProducts).catch((e) => setError(e.message));
     }
   }, [mode, allProducts]);
 
@@ -207,11 +207,15 @@ function AddStockModal({ stockPoints, onClose, onAdded }) {
 
     let payload = { stock_point: stockPointId, quantity: qty, location: location.trim() };
     if (mode === "existing") {
-      if (!productId || !variantId) return setError("Pick a product and variant.");
-      payload = { ...payload, product: +productId, variant: +variantId };
+      if (!productId) return setError("Pick a product.");
+      if (product?.variants.length > 1 && !variantId) return setError("This product has several variants — pick one.");
+      payload = { ...payload, product: +productId };
+      if (variantId) payload.variant = +variantId;
+      // No variants yet: the server files the stock under a default
+      // "Standard" variant, priced with whatever was entered here.
+      if (!product?.variants.length && sellPrice) payload = { ...payload, sell_price: +sellPrice, mrp: mrp ? +mrp : undefined };
     } else {
       if (!modelName.trim()) return setError("Model name is required.");
-      if (!spec.trim()) return setError("Variant spec (e.g. '8GB / 256GB SSD') is required.");
       if (!sellPrice || +sellPrice <= 0) return setError("Enter a selling price.");
       payload = {
         ...payload, brand: brand.trim(), model_name: modelName.trim(), processor: processor.trim(),
@@ -249,18 +253,33 @@ function AddStockModal({ stockPoints, onClose, onAdded }) {
             {!allProducts ? <Spinner label="Loading catalogue…" /> : (
               <>
                 <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Product
-                  <select value={productId} onChange={(e) => { setProductId(e.target.value); setVariantId(""); }} className="mt-1 w-full py-2 text-sm outline-none" style={{ fontFamily: F.body, background:C.slip, color: C.ink, border: `1px solid ${C.rule}` }}>
+                  <select value={productId} onChange={(e) => { const p = allProducts.find((x) => x.id === +e.target.value); setProductId(e.target.value); setVariantId(p?.variants.length === 1 ? String(p.variants[0].id) : ""); }} className="mt-1 w-full py-2 text-sm outline-none" style={{ fontFamily: F.body, background:C.slip, color: C.ink, border: `1px solid ${C.rule}` }}>
                     <option value="">Select a product…</option>
                     {allProducts.map((p) => <option key={p.id} value={p.id}>{p.display_name} · {p.product_code}</option>)}
                   </select>
                 </label>
-                {product && (
-                  <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Variant
-                    <select value={variantId} onChange={(e) => setVariantId(e.target.value)} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}>
-                      <option value="">Select a variant…</option>
+                {product && product.variants.length > 0 && (
+                  <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Variant{product.variants.length === 1 ? " (only one)" : ""}
+                    <select value={variantId} onChange={(e) => setVariantId(e.target.value)} className="mt-1 w-full py-2 text-sm outline-none" style={{ fontFamily: F.body, background: C.slip, color: C.ink, border: `1px solid ${C.rule}` }}>
+                      {product.variants.length > 1 && <option value="">Select a variant…</option>}
                       {product.variants.map((v) => <option key={v.id} value={v.id}>{v.spec} · {v.code} · {v.total_stock} in stock</option>)}
                     </select>
                   </label>
+                )}
+                {product && product.variants.length === 0 && (
+                  <div className="space-y-3">
+                    <p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
+                      This product has no variants — the stock will be added to the product directly.
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Sell price (₹, optional)
+                        <input value={sellPrice} onChange={(e) => setSellPrice(e.target.value.replace(/\D/g, ""))} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.mono, color: C.ink, border: `1px solid ${C.rule}` }} />
+                      </label>
+                      <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>MRP (₹, optional)
+                        <input value={mrp} onChange={(e) => setMrp(e.target.value.replace(/\D/g, ""))} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.mono, color: C.ink, border: `1px solid ${C.rule}` }} />
+                      </label>
+                    </div>
+                  </div>
                 )}
               </>
             )}
@@ -288,8 +307,8 @@ function AddStockModal({ stockPoints, onClose, onAdded }) {
               </label>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <label className="block text-xs sm:col-span-1" style={{ fontFamily: F.body, color: C.inkSoft }}>Variant / spec
-                <input value={spec} onChange={(e) => setSpec(e.target.value)} placeholder="8GB / 256GB SSD" className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
+              <label className="block text-xs sm:col-span-1" style={{ fontFamily: F.body, color: C.inkSoft }}>Variant / spec (optional)
+                <input value={spec} onChange={(e) => setSpec(e.target.value)} placeholder="e.g. 8GB / 256GB SSD" className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
               </label>
               <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Sell price (₹)
                 <input value={sellPrice} onChange={(e) => setSellPrice(e.target.value.replace(/\D/g, ""))} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.mono, color: C.ink, border: `1px solid ${C.rule}` }} />
@@ -371,8 +390,8 @@ export default function Inventory() {
   const [flash, setFlash] = useState("");
 
   const load = (q) => {
-    api.get(`/products/${q ? `?q=${encodeURIComponent(q)}` : ""}`)
-      .then((data) => setProducts(data.results ?? data))
+    api.getAll(`/products/${q ? `?q=${encodeURIComponent(q)}` : ""}`)
+      .then(setProducts)
       .catch((e) => setError(e.message));
   };
 
@@ -454,11 +473,11 @@ export default function Inventory() {
               >
                 <div className="min-w-0">
                   <p className="truncate text-sm" style={{ fontFamily: F.display, fontWeight: 600, color: C.ink }}>{p.display_name}</p>
-                  <p className="text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{p.condition} · {p.variants.length} variant{p.variants.length > 1 ? "s" : ""}</p>
+                  <p className="text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{p.condition} · {p.variants.length ? `${p.variants.length} variant${p.variants.length > 1 ? "s" : ""}` : "no variants"}</p>
                 </div>
                 <span className="text-xs" style={{ fontFamily: F.mono, color: C.ink }}>{p.product_code}<br /><span style={{ color: p.hsn ? C.inkSoft : C.amber }}>{p.hsn ? `HSN ${p.hsn}` : "generated — no HSN"}</span></span>
                 <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{p.processor || "—"}</span>
-                <span className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{money(p.variants[0]?.sell_price)}</span>
+                <span className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{p.variants.length ? money(p.variants[0].sell_price) : "—"}</span>
                 <span><Pill color={lowest ? C.carbon : C.green}>{totalStock} units</Pill></span>
                 <span className="mt-2 block min-w-0 md:mt-0"><StockLocationCell product={p} /></span>
               </button>
@@ -480,6 +499,11 @@ export default function Inventory() {
             </div>
 
             <div className="mt-6 space-y-4">
+              {!openProduct.variants.length && (
+                <p className="text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>
+                  No stock recorded yet. Use Add stock → Restock existing item to add units — no variant needed.
+                </p>
+              )}
               {openProduct.variants.map((v) => (
                 <div key={v.code} data-panel style={{ border: `1px solid ${C.rule}` }} className="p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
