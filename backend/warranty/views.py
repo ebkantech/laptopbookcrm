@@ -73,10 +73,10 @@ class WarrantyViewSet(viewsets.ModelViewSet):
         covered_ticket_ids = set(Warranty.objects.filter(section=Warranty.REPAIR, repair_ticket__party=party).values_list("repair_ticket_id", flat=True))
 
         invoices = []
-        for inv in Invoice.objects.filter(party=party, status=Invoice.PAID).prefetch_related("items__variant__product"):
+        for inv in Invoice.objects.filter(party=party, status=Invoice.PAID, source=Invoice.SALE).prefetch_related("items__variant__product"):
             if inv.id in covered_invoice_ids:
                 continue
-            names = ", ".join(i.variant.product.display_name for i in inv.items.all())
+            names = ", ".join(i.label for i in inv.items.all())
             invoices.append({"id": inv.id, "code": inv.code, "label": f"{inv.code} \u2014 {names}", "date": inv.date})
 
         tickets = []

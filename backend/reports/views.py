@@ -32,7 +32,8 @@ REPORT_MONTHS = 12
 class FinancialSummaryReportView(APIView):
     """
     Task 7: "Financial summary (revenue, outstanding, by month)" --
-    sourced from sales.Invoice and rentals.Rental per the doc.
+    sourced from sales.Invoice and rentals.Rental per the doc. Revenue and
+    outstanding cover every invoice in the ledger: sales, repairs and rent.
     """
     permission_classes = [permissions.IsAuthenticated, HasPerm]
     required_perm = "reports.export"
@@ -78,7 +79,7 @@ class SalesSummaryReportView(APIView):
         range_start = date(months[0][0], months[0][1], 1)
 
         all_invoices = list(
-            Invoice.objects.filter(date__gte=range_start)
+            Invoice.objects.filter(source=Invoice.SALE, date__gte=range_start)
             .select_related("stock_point").prefetch_related("items")
         )
 
@@ -177,7 +178,7 @@ class RepairTurnaroundReportView(APIView):
     Turnaround is measured as (original settlement invoice's date -
     ticket.received): RepairTicket has no separate "delivered_at"
     timestamp of its own, but ticket.status is set to DELIVERED at the
-    exact same moment the original RepairInvoice is created in the
+    exact same moment the original repair invoice is raised in the
     settle() action (see repairs/views.py), so that invoice's date is
     an accurate stand-in -- only counts tickets that have actually been
     settled, not ones just moved to the Delivered stage some other way

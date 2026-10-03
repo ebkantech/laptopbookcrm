@@ -37,6 +37,8 @@ class RentalSerializer(serializers.ModelSerializer):
     total_monthly_fee = serializers.IntegerField(read_only=True)
     lines = serializers.SerializerMethodField()
     approval_status = serializers.SerializerMethodField()
+    rent_invoices = serializers.SerializerMethodField()
+    next_billing_period = serializers.SerializerMethodField()
 
     class Meta:
         model = Rental
@@ -46,8 +48,26 @@ class RentalSerializer(serializers.ModelSerializer):
             "agreement_code", "status", "terms", "rental_type", "total_monthly_fee", "lines", "approval_status",
             "next_payment_date", "next_payment_overdue",
             "churn_score", "churn_band", "issues", "open_issue_count",
+            "rent_invoices", "next_billing_period",
         ]
-        read_only_fields = ["agreement_code", "status"]
+        # Payment counters only move when a rent invoice is paid in Sales &
+        # Invoices (rentals.billing.on_rent_invoice_paid) -- never by hand.
+        read_only_fields = ["agreement_code", "status", "months_paid", "late_count", "last_payment"]
+
+    def get_rent_invoices(self, obj):
+        return [
+            {
+                "id": inv.id, "code": inv.code, "date": inv.date, "status": inv.status, "total": inv.total,
+                "period_start": inv.period_start, "period_end": inv.period_end, "paid_on": inv.paid_on,
+            }
+            for inv in obj.invoices.all()
+        ]
+
+    def get_next_billing_period(self, obj):
+        from .billing import next_billing_period
+
+        period = next_billing_period(obj)
+        return {"start": period[0], "end": period[1]} if period else None
 
     def get_open_issue_count(self, obj):
         return sum(1 for i in obj.issues.all() if i.status != RentalIssue.RESOLVED)

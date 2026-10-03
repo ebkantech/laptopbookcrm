@@ -6,13 +6,40 @@ from parties.models import Party
 
 
 class Invoice(models.Model):
+    """
+    Every invoice the business raises -- product sales, repair jobs and
+    rental rent -- lives here, numbered from one INV-#### sequence
+    (sales.services.next_invoice_code). The repair and rental modules run
+    their own processes and *raise* invoices here; payment is recorded
+    only against these rows (settle / UPI link), and
+    sales.services.on_invoice_paid tells the originating module.
+    """
+    SALE, REPAIR, RENTAL = "sale", "repair", "rental"
+    SOURCE_CHOICES = [(SALE, "Sale"), (REPAIR, "Repair"), (RENTAL, "Rental")]
+
     PAID, LINK_SENT, OVERDUE = "Paid", "Payment link sent", "Overdue"
     STATUS_CHOICES = [(PAID, "Paid"), (LINK_SENT, "Payment link sent"), (OVERDUE, "Overdue")]
 
     RECURRING_CHOICES = [("weekly", "Weekly"), ("monthly", "Monthly"), ("6-month", "Every 6 months")]
 
     code = models.CharField(max_length=20, unique=True)
+    source = models.CharField(max_length=10, choices=SOURCE_CHOICES, default=SALE, db_index=True)
     party = models.ForeignKey(Party, on_delete=models.PROTECT, related_name="invoices")
+    # What the invoice was raised for (exactly one, matching `source`,
+    # or none for a plain sale).
+    repair_ticket = models.ForeignKey(
+        "repairs.RepairTicket", on_delete=models.PROTECT, null=True, blank=True, related_name="invoices",
+    )
+    repair_reopen = models.OneToOneField(
+        "repairs.RepairReopen", on_delete=models.PROTECT, null=True, blank=True, related_name="invoice",
+        help_text="Set for the bill of a reopened (follow-up) repair visit.",
+    )
+    rental = models.ForeignKey(
+        "rentals.Rental", on_delete=models.PROTECT, null=True, blank=True, related_name="invoices",
+    )
+    # Rental rent invoices: the month being billed.
+    period_start = models.DateField(null=True, blank=True)
+    period_end = models.DateField(null=True, blank=True)
     stock_point = models.ForeignKey(StockPoint, on_delete=models.PROTECT, related_name="invoices")
     date = models.DateField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=LINK_SENT)
@@ -42,9 +69,20 @@ class Invoice(models.Model):
 
 class InvoiceItem(models.Model):
     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name="items")
-    variant = models.ForeignKey(Variant, on_delete=models.PROTECT, related_name="invoice_items")
+    # Sale lines point at the stock variant sold; repair/rental lines are
+    # services or rent and carry a description instead.
+    variant = models.ForeignKey(Variant, on_delete=models.PROTECT, related_name="invoice_items", null=True, blank=True)
+    description = models.CharField(max_length=160, blank=True)
     qty = models.PositiveIntegerField(default=1)
-    price = models.PositiveIntegerField(help_text="Snapshot of sell price at the time of sale.")
+    # Signed so a repair bill can carry a "Less: advance received" line;
+    # sale lines are validated non-negative in the serializer.
+    price = models.IntegerField(help_text="Snapshot of the unit price at the time of invoicing.")
+
+    @property
+    def label(self):
+        if self.description:
+            return self.description
+        return f"{self.variant.product.display_name} ({self.variant.spec})" if self.variant_id else ""
 
 
 PAYMENT_METHODS = ["Cash", "UPI", "Bank transfer", "Card", "Cheque", "Other"]

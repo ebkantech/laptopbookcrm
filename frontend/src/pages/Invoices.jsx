@@ -244,6 +244,7 @@ function InvoiceDetail({ invoice, onClose, onSettle, onChanged }) {
           <div>
             <p style={{ fontFamily: F.display, fontWeight: 700, fontSize: 18, color: C.ink }}>{invoice.code}</p>
             <p className="mt-1 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{invoice.party_name} · {fmt(invoice.date)} · {invoice.stock_point_name}</p>
+            {invoice.reference && <p className="mt-0.5 text-xs" style={{ fontFamily: F.body, color: C.ink }}>{invoice.source_label}: {invoice.reference}</p>}
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => setPrinting(true)} className="flex items-center gap-1 px-2 py-1 text-xs" style={{ border: `1px solid ${C.rule}`, fontFamily: F.body, fontWeight: 600, color: C.ink }}>
@@ -282,44 +283,46 @@ function InvoiceDetail({ invoice, onClose, onSettle, onChanged }) {
         ) : can("invoices.settle") && <RecordPayment invoice={invoice} onSettle={onSettle} />}
         <UpiPaymentLink invoice={invoice} onChanged={onChanged} />
 
-        {warranty === undefined ? <div className="mt-4"><Spinner /></div> : <WarrantyCard invoice={invoice} warranty={warranty} onGranted={setWarranty} />}
+        {invoice.source === "sale" && (warranty === undefined ? <div className="mt-4"><Spinner /></div> : <WarrantyCard invoice={invoice} warranty={warranty} onGranted={setWarranty} />)}
       </div>
       {printing && <PrintableInvoice invoiceId={invoice.id} onClose={() => setPrinting(false)} />}
     </div>
   );
 }
 
+const SOURCE_TABS = [
+  { id: "all", label: "All" },
+  { id: "sale", label: "Sales" },
+  { id: "repair", label: "Repairs" },
+  { id: "rental", label: "Rentals" },
+];
+const SOURCE_COLOR = { sale: C.stamp, repair: C.amber, rental: C.blue };
+
+/*
+ * Every invoice the business raises -- product sales, repair jobs and
+ * rental rent -- is listed and paid here. Repairs and Rentals raise
+ * their invoices from their own screens; payment is only ever taken
+ * on this screen.
+ */
 export default function Invoices() {
   const { can } = useSession();
   const [invoices, setInvoices] = useState(null);
-  // Repair bills need repairs.view (Sales Staff don't hold it) -- those
-  // roles just don't get the Repairs tab instead of the page failing.
-  const canRepairs = can("repairs.view");
-  const [repairInvoices, setRepairInvoices] = useState(canRepairs ? null : []);
   const [products, setProducts] = useState([]);
   const [stockPoints, setStockPoints] = useState([]);
   const [error, setError] = useState("");
-  const [source, setSource] = useState("sales"); // "sales" | "repairs"
+  const [source, setSource] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const [openInvoice, setOpenInvoice] = useState(null);
 
-  const loadInvoices = (status) => api.get(`/invoices/${status !== "all" ? `?status=${encodeURIComponent(status)}` : ""}`).then((d) => setInvoices(d.results ?? d)).catch((e) => setError(e.message));
-
   useEffect(() => {
-    loadInvoices("all");
+    api.getAll("/invoices/").then(setInvoices).catch((e) => setError(e.message));
     // Only products that have something sellable: stock and prices live
     // on variants, so a product with none yet can't go on an invoice.
     api.getAll("/products/").then((all) => setProducts(all.filter((p) => p.variants.length)));
     api.get("/stock-points/").then((d) => setStockPoints(d.results ?? d));
   }, []);
-
-  useEffect(() => {
-    if (canRepairs) api.get("/repair-invoices/").then((d) => setRepairInvoices(d.results ?? d)).catch((e) => setError(e.message));
-  }, [canRepairs]);
-
-  useEffect(() => { loadInvoices(statusFilter); }, [statusFilter]);
 
   const create = async (payload) => {
     const inv = await api.post("/invoices/", payload);
@@ -337,109 +340,78 @@ export default function Invoices() {
   };
 
   if (error) return <div className="flex-1 px-8 py-10"><ErrorNote message={error} /></div>;
-  if (!invoices || !repairInvoices) return <Spinner label="Loading invoices…" />;
+  if (!invoices) return <Spinner label="Loading invoices…" />;
 
-  const totalRepairRevenue = repairInvoices.filter((r) => r.status === "Paid").reduce((s, r) => s + r.amount, 0);
-
-  // Client-side only -- both lists are already fully loaded for this
-  // view (status filtering for sales still goes through the API), so
-  // filtering by code/party here needs no extra round trip.
+  // All filtering is client-side -- the full ledger is already loaded.
   const q = query.trim().toLowerCase();
-  const visibleInvoices = q ? invoices.filter((inv) => inv.code.toLowerCase().includes(q) || inv.party_name.toLowerCase().includes(q)) : invoices;
-  const visibleRepairInvoices = q ? repairInvoices.filter((r) => r.code.toLowerCase().includes(q) || r.party_name.toLowerCase().includes(q)) : repairInvoices;
+  const bySource = source === "all" ? invoices : invoices.filter((inv) => inv.source === source);
+  const byStatus = statusFilter === "all" ? bySource : bySource.filter((inv) => inv.status === statusFilter);
+  const visibleInvoices = q
+    ? byStatus.filter((inv) => inv.code.toLowerCase().includes(q) || inv.party_name.toLowerCase().includes(q) || (inv.reference || "").toLowerCase().includes(q))
+    : byStatus;
+  const awaiting = bySource.filter((inv) => inv.status !== "Paid");
+  const count = (id) => (id === "all" ? invoices.length : invoices.filter((inv) => inv.source === id).length);
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
       <div className="px-5 pt-6 sm:px-8">
-        <PageHeader title="Sales & Invoices" subtitle="Sales and repair billing, in one place" />
+        <PageHeader title="Sales & Invoices" subtitle="Every invoice — sales, repairs and rentals — and every payment, in one place" />
       </div>
       <header className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-8">
         <div className="flex flex-col gap-2">
-          <TabBar
-            tabs={[
-              { id: "sales", label: `Sales (${invoices.length})` },
-              ...(canRepairs ? [{ id: "repairs", label: `Repairs (${repairInvoices.length})` }] : []),
-            ]}
-            value={source}
-            onChange={setSource}
-          />
-          {source === "sales" && (
-            <div className="overflow-x-auto">
-              <TabBar
-                tabs={["all", "Paid", "Payment link sent", "Overdue"].map((s) => ({ id: s, label: s === "all" ? "All invoices" : statusLabel(s) }))}
-                value={statusFilter}
-                onChange={setStatusFilter}
-              />
-            </div>
-          )}
+          <div className="overflow-x-auto">
+            <TabBar tabs={SOURCE_TABS.map((t) => ({ id: t.id, label: `${t.label} (${count(t.id)})` }))} value={source} onChange={setSource} />
+          </div>
+          <div className="overflow-x-auto">
+            <TabBar
+              tabs={["all", "Paid", "Payment link sent", "Overdue"].map((s) => ({ id: s, label: s === "all" ? "Any status" : statusLabel(s) }))}
+              value={statusFilter}
+              onChange={setStatusFilter}
+            />
+          </div>
         </div>
-        {source === "sales" && can("invoices.create") && (
-          <PillButton icon={Plus} primary onClick={() => setAdding(true)}>New invoice</PillButton>
+        {can("invoices.create") && (
+          <PillButton icon={Plus} primary onClick={() => setAdding(true)}>New sale invoice</PillButton>
         )}
       </header>
 
       <div className="flex flex-wrap items-center gap-3 px-5 pb-4 sm:px-8">
-        <SearchInput value={query} onChange={(e) => setQuery(e.target.value)} placeholder={source === "sales" ? "Search by invoice code or customer" : "Search by bill code or customer"} />
+        <SearchInput value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by invoice code, customer, ticket or agreement" />
+        <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
+          To collect: <b style={{ fontFamily: F.mono, color: C.ink }}>{money(awaiting.reduce((sum, inv) => sum + inv.total, 0))}</b> across {awaiting.length} invoice{awaiting.length !== 1 ? "s" : ""}
+        </span>
       </div>
 
-      {source === "repairs" && (
-        <div className="mx-5 mb-3 flex items-center justify-between px-3 py-2 sm:mx-8" style={{ backgroundColor: C.slip2 }}>
-          <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Repair revenue, settled</span>
-          <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{money(totalRepairRevenue)}</span>
-        </div>
-      )}
-
       <div className="flex-1 overflow-y-auto px-5 pb-4 sm:px-8">
-        {source === "sales" ? (
-          <div className="flex flex-col gap-2.5">
-            {visibleInvoices.map((inv) => (
-              <div key={inv.id} data-listcard onClick={() => setOpenInvoice(inv)} className="flex flex-wrap items-center gap-3 px-5 py-3.5 cursor-pointer">
-                <div className="min-w-[140px] flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 600, color: C.ink }}>{inv.code}</span>
-                    {inv.recurring_interval && <Pill color={C.blue}><Repeat2 size={10} />{inv.recurring_interval}</Pill>}
-                  </div>
-                  <p className="mt-0.5 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{inv.party_name} · {fmt(inv.date)}</p>
+        <div className="flex flex-col gap-2.5">
+          {visibleInvoices.map((inv) => (
+            <div key={inv.id} data-listcard onClick={() => setOpenInvoice(inv)} className="flex flex-wrap items-center gap-3 px-5 py-3.5 cursor-pointer">
+              <div className="min-w-[140px] flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 600, color: C.ink }}>{inv.code}</span>
+                  <Pill color={SOURCE_COLOR[inv.source]}>{inv.source_label}</Pill>
+                  {inv.recurring_interval && <Pill color={C.blue}><Repeat2 size={10} />{inv.recurring_interval}</Pill>}
                 </div>
-                <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{inv.stock_point_name}</span>
-                <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 600, color: C.ink, minWidth: 96, textAlign: "right" }}>{money(inv.total)}</span>
-                <Pill color={STATUS_COLOR[inv.status]}>{invoiceStatusLabel(inv)}</Pill>
-                {inv.status !== "Paid" && can("invoices.settle") && (
-                  <button onClick={(e) => { e.stopPropagation(); setOpenInvoice(inv); }} className="flex items-center gap-1 px-2 py-1 text-xs" style={{ border: `1px solid ${C.green}`, color: C.green, fontFamily: F.body, fontWeight: 600 }}>
-                    <IndianRupee size={11} /> Record payment
-                  </button>
-                )}
+                <p className="mt-0.5 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
+                  {inv.party_name} · {fmt(inv.date)}{inv.reference ? ` · ${inv.reference}` : ""}
+                </p>
               </div>
-            ))}
-            {!visibleInvoices.length && (
-              <p className="px-3 py-10 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>
-                {invoices.length ? "No invoices match that search." : "No invoices in this view."}
-              </p>
-            )}
-          </div>
-        ) : (
-          <div className="flex flex-col gap-2.5">
-            {visibleRepairInvoices.map((r) => (
-              <div key={r.id} data-listcard className="flex flex-wrap items-center gap-3 px-5 py-3.5">
-                <div className="min-w-[140px] flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 600, color: C.ink }}>{r.code}</span>
-                    {r.is_followup && <Pill color={C.amber}>follow-up</Pill>}
-                  </div>
-                  <p className="mt-0.5 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{r.party_name} · {fmt(r.date)} · ticket {r.ticket_code}</p>
-                </div>
-                <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{r.stock_point_name}</span>
-                <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 600, color: C.ink, minWidth: 96, textAlign: "right" }}>{money(r.amount)}</span>
-                <Pill color={STATUS_COLOR[r.status] || C.green}>{r.status}</Pill>
-              </div>
-            ))}
-            {!visibleRepairInvoices.length && (
-              <p className="px-3 py-10 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>
-                {repairInvoices.length ? "No repair bills match that search." : "No repair bills yet -- these appear automatically when a repair ticket is settled."}
-              </p>
-            )}
-          </div>
-        )}
+              <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{inv.stock_point_name}</span>
+              <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 600, color: C.ink, minWidth: 96, textAlign: "right" }}>{money(inv.total)}</span>
+              <Pill color={STATUS_COLOR[inv.status]}>{invoiceStatusLabel(inv)}</Pill>
+              {inv.status !== "Paid" && can("invoices.settle") && (
+                <button onClick={(e) => { e.stopPropagation(); setOpenInvoice(inv); }} className="flex items-center gap-1 px-2 py-1 text-xs" style={{ border: `1px solid ${C.green}`, color: C.green, fontFamily: F.body, fontWeight: 600 }}>
+                  <IndianRupee size={11} /> Record payment
+                </button>
+              )}
+            </div>
+          ))}
+          {!visibleInvoices.length && (
+            <p className="px-3 py-10 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>
+              {invoices.length ? "No invoices match these filters." : "No invoices yet."}
+            </p>
+          )}
+        </div>
       </div>
 
       {adding && <NewInvoiceModal products={products} stockPoints={stockPoints} onClose={() => setAdding(false)} onCreate={create} />}

@@ -104,7 +104,9 @@ class RepairTicket(models.Model):
 
     @property
     def original_invoice(self):
-        return self.invoices.filter(reopen__isnull=True).first()
+        """The invoice raised when the job was first delivered (a
+        sales.Invoice with source=repair; reopen visits get their own)."""
+        return self.invoices.filter(repair_reopen__isnull=True).first()
 
     @property
     def active_reopen(self):
@@ -330,20 +332,6 @@ class RepairTicketEvent(models.Model):
 
     class Meta:
         ordering = ["at", "id"]
-
-
-class RepairInvoice(models.Model):
-    # was OneToOneField -- a ticket can now be settled more than once
-    # (original delivery, then again after any reopen), so this is a
-    # FK: one ticket, many invoices over its lifetime. `reopen` is set
-    # for a reopen's bill, left null for the original delivery's bill.
-    ticket = models.ForeignKey(RepairTicket, on_delete=models.CASCADE, related_name="invoices")
-    reopen = models.OneToOneField("RepairReopen", on_delete=models.CASCADE, null=True, blank=True, related_name="invoice")
-    code = models.CharField(max_length=20, unique=True)
-    amount = models.PositiveIntegerField()
-    stock_point = models.ForeignKey(StockPoint, on_delete=models.PROTECT, related_name="repair_invoices")
-    status = models.CharField(max_length=20, default="Paid")
-    date = models.DateField()
 
 
 class RepairReopen(models.Model):

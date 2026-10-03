@@ -65,7 +65,9 @@ class Rental(models.Model):
     def total_monthly_fee(self):
         lines = getattr(self, "_prefetched_objects_cache", {}).get("lines")
         if lines is not None:
-            return sum(line.monthly_fee for line in lines)
+            # same fallback as below: a legacy rental with no lines bills
+            # its own monthly_fee, not 0
+            return sum(line.monthly_fee for line in lines) if lines else self.monthly_fee
         total = self.lines.aggregate(total=models.Sum("monthly_fee"))["total"]
         # Existing records have no RentalLine until they are migrated by staff.
         return total if total is not None else self.monthly_fee

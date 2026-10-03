@@ -5,13 +5,13 @@ from rest_framework import serializers
 from catalog.models import Service, StockPoint
 from catalog.serializers import ServiceSerializer
 from parties.models import Party
+from sales.models import Invoice
 from .models import (
     DEFAULT_APPROVAL_TERMS,
     Notification,
     RepairApproval,
     RepairEstimate,
     RepairEstimateLine,
-    RepairInvoice,
     RepairOrder,
     RepairOrderApproval,
     RepairReopen,
@@ -83,11 +83,14 @@ class NotificationSerializer(serializers.ModelSerializer):
 
 
 class RepairInvoiceSerializer(serializers.ModelSerializer):
+    """A repair job's invoice (a sales.Invoice, source=repair) as the
+    Repairs screen shows it; payment itself happens in Sales & Invoices."""
     stock_point_name = serializers.CharField(source="stock_point.name", read_only=True)
+    amount = serializers.IntegerField(source="total", read_only=True)
 
     class Meta:
-        model = RepairInvoice
-        fields = ["id", "code", "amount", "stock_point", "stock_point_name", "status", "date"]
+        model = Invoice
+        fields = ["id", "code", "amount", "stock_point", "stock_point_name", "status", "date", "paid_on", "pay_method"]
 
 
 class RepairReopenItemSerializer(serializers.ModelSerializer):
@@ -327,23 +330,3 @@ class RepairOrderSerializer(serializers.ModelSerializer):
     def get_ready_for_approval(self, obj):
         tickets = list(obj.tickets.all())
         return len(tickets) >= 2 and all(ticket.current_estimate for ticket in tickets)
-
-
-class RepairInvoiceListSerializer(serializers.ModelSerializer):
-    """
-    Flat view of a repair bill for surfacing alongside Sales invoices --
-    repair revenue was previously invisible outside the Repairs module
-    entirely (a completely separate table from sales.Invoice), which is
-    exactly the "invoice not updating" gap this closes.
-    """
-    party_name = serializers.CharField(source="ticket.party.name", read_only=True)
-    ticket_code = serializers.CharField(source="ticket.code", read_only=True)
-    stock_point_name = serializers.CharField(source="stock_point.name", read_only=True)
-    is_followup = serializers.SerializerMethodField()
-
-    class Meta:
-        model = RepairInvoice
-        fields = ["id", "code", "ticket", "ticket_code", "party_name", "amount", "stock_point", "stock_point_name", "status", "date", "is_followup"]
-
-    def get_is_followup(self, obj):
-        return obj.reopen_id is not None

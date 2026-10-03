@@ -12,6 +12,9 @@ from rest_framework.views import APIView
 from rest_framework.exceptions import MethodNotAllowed, ValidationError
 
 from accounts.permissions import HasPerm
+from catalog.models import StockPoint
+
+from .billing import RentBillingError, raise_rent_invoice
 from .models import Rental, RentalApproval, RentalAsset, RentalEvent, RentalIssue, RentalLine
 from .serializers import (
     CreateRentalAgreementSerializer,
@@ -50,7 +53,7 @@ def _audit_value(value):
 
 
 class RentalViewSet(viewsets.ModelViewSet):
-    queryset = Rental.objects.select_related("party").prefetch_related("issues__assigned_to", "lines__asset", "approvals").all()
+    queryset = Rental.objects.select_related("party").prefetch_related("issues__assigned_to", "lines__asset", "approvals", "invoices__items").all()
     serializer_class = RentalSerializer
     permission_classes = [permissions.IsAuthenticated, HasPerm]
     required_perms = {
@@ -59,7 +62,7 @@ class RentalViewSet(viewsets.ModelViewSet):
         "partial_update": "rentals.manage", "destroy": "rentals.manage",
         "create_agreement": "rentals.manage", "approval_link": "rentals.manage",
         "approve_on_behalf": "rentals.approve", "cancel": "rentals.manage",
-        "close": "rentals.manage",
+        "close": "rentals.manage", "raise_invoice": "rentals.manage",
     }
 
     def get_queryset(self):
@@ -176,6 +179,23 @@ class RentalViewSet(viewsets.ModelViewSet):
         payload.is_valid(raise_exception=True)
         rental = close_agreement(self.get_object(), request.user, payload.validated_data["reason"])
         return Response(RentalSerializer(self._fresh(rental)).data)
+
+    @action(detail=True, methods=["post"], url_path="raise-invoice")
+    def raise_invoice(self, request, pk=None):
+        """
+        Bill the next unbilled month as a new INV-numbered invoice dated
+        today, and send it to the customer. Payment is then taken in
+        Sales & Invoices. Body: {"stock_point": <id of the issuing shop>}.
+        """
+        rental = self.get_object()
+        stock_point = StockPoint.objects.filter(pk=request.data.get("stock_point")).first()
+        if not stock_point:
+            return Response({"detail": "Pick the shop issuing this invoice."}, status=400)
+        try:
+            invoice = raise_rent_invoice(rental, stock_point=stock_point, sent_by=request.user)
+        except RentBillingError as e:
+            return Response({"detail": str(e)}, status=400)
+        return Response({"invoice_code": invoice.code, "rental": RentalSerializer(self._fresh(rental)).data}, status=201)
 
     def destroy(self, request, *args, **kwargs):
         raise MethodNotAllowed("DELETE", detail="Rental agreements are retained for audit. Cancel the agreement instead.")

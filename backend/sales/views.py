@@ -14,13 +14,14 @@ from parties.models import Message
 
 from . import payments
 from .models import PAYMENT_METHODS, Invoice, PaymentLink
+from .services import on_invoice_paid
 from .serializers import InvoiceSerializer
 
 
 class InvoiceViewSet(viewsets.ModelViewSet):
-    queryset = Invoice.objects.select_related("party", "stock_point", "settled_by").prefetch_related(
-        "items__variant__product", "payment_links__sent_by",
-    ).all()
+    queryset = Invoice.objects.select_related(
+        "party", "stock_point", "settled_by", "repair_ticket", "rental",
+    ).prefetch_related("items__variant__product", "payment_links__sent_by").all()
     serializer_class = InvoiceSerializer
     permission_classes = [permissions.IsAuthenticated, HasPerm]
     required_perms = {
@@ -39,6 +40,9 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         status = self.request.query_params.get("status")
         party = self.request.query_params.get("party")
+        source = self.request.query_params.get("source")
+        if source:
+            qs = qs.filter(source=source)
         if status:
             qs = qs.filter(status=status)
         if party:
@@ -78,6 +82,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         invoice.paid_on = paid_on
         invoice.settled_by = request.user
         invoice.save(update_fields=["status", "pay_method", "payment_reference", "paid_on", "settled_by"])
+        on_invoice_paid(invoice)
         # Task 2 wiring: "any payment done" -- who actually gets pinged is
         # configured on Settings > Staff alerts, not hardcoded here.
         notify_staff(
@@ -98,16 +103,17 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             variant = item.variant
             items.append({
                 "n": n,
-                "description": variant.product.display_name,
-                "spec": variant.spec,
-                "code": variant.code,
-                "hsn": variant.product.hsn,
+                "description": item.description or variant.product.display_name,
+                "spec": variant.spec if variant else "",
+                "code": variant.code if variant else "",
+                "hsn": variant.product.hsn if variant else "",
                 "qty": item.qty,
                 "rate": item.price,
                 "amount": item.qty * item.price,
             })
         return Response({
             "invoice": InvoiceSerializer(invoice).data,
+            "reference": InvoiceSerializer(invoice).data["reference"],
             "seller": {
                 "name": settings.BUSINESS_NAME,
                 "branch": sp.name,

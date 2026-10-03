@@ -10,8 +10,9 @@ from broadcast.models import Campaign, WhatsAppOrder
 from catalog.models import Part, PartStock, Product, Service, Stock, StockPoint, Variant
 from parties.models import Message, Party
 from rentals.models import Rental, RentalIssue
-from repairs.models import Notification, RepairInvoice, RepairTicket
+from repairs.models import Notification, RepairTicket
 from sales.models import Invoice, InvoiceItem
+from sales.services import create_invoice
 from warranty.models import Warranty
 
 PERMS = {
@@ -308,6 +309,7 @@ class Command(BaseCommand):
                 rentals_by_key[pkey] = Rental.objects.create(
                     party=parties[pkey], product_label=label, monthly_fee=fee, start=start,
                     tenure_months=tenure, months_paid=paid, late_count=late, tickets=0, last_payment=last_pay,
+                    status=Rental.ACTIVE,  # live legacy rentals, not drafts (see rentals 0006)
                 )
 
             manager = User.objects.filter(username="vikram.sethi").first()
@@ -402,9 +404,10 @@ class Command(BaseCommand):
                 payment=RepairTicket.FULL, advance_paid=0,
             )
             delivered.services.add(services["keyboard"])
-            RepairInvoice.objects.create(
-                ticket=delivered, code="RPR-INV-1040", amount=1800,
-                stock_point=sps["np"], status="Paid", date=date(2026, 8, 23),
+            create_invoice(
+                source=Invoice.REPAIR, repair_ticket=delivered, party=delivered.party, stock_point=sps["np"],
+                date=date(2026, 8, 23), status=Invoice.PAID, pay_method="Cash", paid_on=date(2026, 8, 23),
+                lines=[{"description": services["keyboard"].label, "qty": 1, "price": 1800}],
             )
             Notification.objects.create(ticket=delivered, channel="whatsapp", text="Ticket RPR-1040 created.")
             Notification.objects.create(ticket=delivered, channel="whatsapp", text="Keyboard replaced, ready for pickup.")
