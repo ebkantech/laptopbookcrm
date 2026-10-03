@@ -193,6 +193,10 @@ class RepairTicketViewSet(viewsets.ModelViewSet):
         stage = ticket.next_stage()
         if not stage:
             return Response({"detail": "Ticket is already at its final stage."}, status=400)
+        if stage == RepairTicket.DELIVERED:
+            return Response({"detail": "Raise the invoice instead -- the ticket is marked Delivered automatically once it's paid."}, status=400)
+        if ticket.unpaid_invoice:
+            return Response({"detail": f"Invoice {ticket.unpaid_invoice.code} is awaiting payment -- collect it in Sales & Invoices first."}, status=400)
         if stage == RepairTicket.IN_PROGRESS and not ticket.has_repair_approval:
             return Response({"detail": "Final customer, Admin, or Super Admin approval is required before work starts."}, status=400)
         ticket.status = stage
@@ -223,9 +227,11 @@ class RepairTicketViewSet(viewsets.ModelViewSet):
             return Response({"detail": f"'{target}' is not a valid stage."}, status=400)
         if target == RepairTicket.DELIVERED:
             return Response(
-                {"detail": "Delivered can only be set by settling the ticket (generates the invoice) -- use the settle action instead."},
+                {"detail": "Delivered is set automatically once the ticket's invoice is paid in Sales & Invoices."},
                 status=400,
             )
+        if ticket.unpaid_invoice:
+            return Response({"detail": f"Invoice {ticket.unpaid_invoice.code} is awaiting payment -- collect it in Sales & Invoices first."}, status=400)
         if ticket.status == RepairTicket.DELIVERED:
             return Response({"detail": "This ticket has been delivered. Reopen it to make further changes."}, status=400)
         if target == ticket.status:
@@ -258,13 +264,18 @@ class RepairTicketViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def settle(self, request, pk=None):
         """
-        Deliver the job and raise its invoice in Sales & Invoices -- an
-        active reopen gets its own follow-up invoice, otherwise the
-        original job is billed. Payment is NOT taken here: the invoice is
-        left awaiting payment and settled from Sales & Invoices like any
-        other (a zero-balance bill, e.g. warranty work, is closed at once).
+        Raise the job's invoice in Sales & Invoices -- an active reopen gets
+        its own follow-up invoice, otherwise the original job is billed.
+        The ticket stays "Ready for pickup" until that invoice is paid
+        there; payment marks it Delivered (repairs.billing). A
+        zero-balance bill (warranty work, fully covered by the advance)
+        needs no payment, so the ticket is delivered straight away.
         """
         ticket = self.get_object()
+        if ticket.unpaid_invoice:
+            return Response({"detail": f"Invoice {ticket.unpaid_invoice.code} is already raised and awaiting payment."}, status=400)
+        if ticket.status != RepairTicket.READY:
+            return Response({"detail": "Move the ticket to Ready for pickup before raising its invoice."}, status=400)
         active_reopen = ticket.active_reopen
 
         if active_reopen:
@@ -302,13 +313,14 @@ class RepairTicketViewSet(viewsets.ModelViewSet):
                 source=Invoice.REPAIR, repair_ticket=ticket, repair_reopen=active_reopen,
                 party=ticket.party, stock_point=ticket.stock_point, date=today, lines=lines, **payment,
             )
-            ticket.status = RepairTicket.DELIVERED
-            ticket.save(update_fields=["status"])
+            if amount <= 0:
+                ticket.status = RepairTicket.DELIVERED
+                ticket.save(update_fields=["status"])
 
         if amount <= 0:
             wa_text = f"Thank you! Your {what} is complete -- invoice {invoice.code}, nothing to pay."
         else:
-            wa_text = f"Your {what} is ready. Invoice {invoice.code} for Rs {amount} has been raised -- please pay to complete."
+            wa_text = f"Your {what} is ready. Invoice {invoice.code} for Rs {amount} has been raised -- please pay to collect your device."
         email_text = f"Invoice {invoice.code} raised at {ticket.stock_point.name} for {what}: Rs {max(amount, 0)}."
         Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=wa_text)
         Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=email_text)

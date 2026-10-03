@@ -78,11 +78,13 @@ class UnifiedLedgerTests(TestCase):
         self.assertEqual([i["code"] for i in results(self.client_.get("/api/invoices/", {"source": "repair"}))], [repair_code])
 
     # -- repairs --------------------------------------------------------
-    def test_repair_delivery_raises_unpaid_invoice_paid_only_in_invoices(self):
+    def test_repair_invoice_is_raised_and_ticket_delivered_only_once_paid(self):
         ticket = self.approved_ticket(advance=1500)
         response = self.client_.post(f"/api/tickets/{ticket.id}/settle/")
         self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(response.json()["status"], RepairTicket.DELIVERED)
+        # raised, not paid -> still waiting at Ready for pickup
+        self.assertEqual(response.json()["status"], RepairTicket.READY)
+        self.assertIsNotNone(response.json()["pending_invoice"])
 
         invoice = Invoice.objects.get(repair_ticket=ticket)
         self.assertEqual((invoice.source, invoice.status), (Invoice.REPAIR, Invoice.LINK_SENT))
@@ -92,18 +94,49 @@ class UnifiedLedgerTests(TestCase):
         )
         self.assertEqual(invoice.total, 5000)
         self.assertEqual(response.json()["invoice"]["code"], invoice.code)
-        # can't be invoiced twice
+        # can't be invoiced twice, or pushed to Delivered / moved while unpaid
         self.assertEqual(self.client_.post(f"/api/tickets/{ticket.id}/settle/").status_code, 400)
+        self.assertEqual(self.client_.post(f"/api/tickets/{ticket.id}/advance/").status_code, 400)
+        self.assertEqual(self.client_.post(f"/api/tickets/{ticket.id}/set-stage/", {"status": RepairTicket.IN_PROGRESS}, format="json").status_code, 400)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, RepairTicket.READY)
 
         self.assertEqual(self.pay(invoice.id).status_code, 200)
         invoice.refresh_from_db()
-        self.assertEqual(invoice.status, Invoice.PAID)
+        ticket.refresh_from_db()
+        self.assertEqual((invoice.status, ticket.status), (Invoice.PAID, RepairTicket.DELIVERED))
+        self.assertIn("Payment received", ticket.notifications.order_by("-id").first().text)
+
+    def test_ready_ticket_cannot_skip_to_delivered_without_invoice(self):
+        ticket = self.approved_ticket()
+        self.assertEqual(self.client_.post(f"/api/tickets/{ticket.id}/advance/").status_code, 400)
+        self.assertEqual(self.client_.post(f"/api/tickets/{ticket.id}/set-stage/", {"status": RepairTicket.DELIVERED}, format="json").status_code, 400)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, RepairTicket.READY)
+
+    def test_invoice_needs_ticket_ready_for_pickup(self):
+        ticket = self.approved_ticket()
+        RepairTicket.objects.filter(pk=ticket.pk).update(status=RepairTicket.IN_PROGRESS)
+        self.assertEqual(self.client_.post(f"/api/tickets/{ticket.id}/settle/").status_code, 400)
+        self.assertFalse(Invoice.objects.filter(repair_ticket=ticket).exists())
+
+    @mock.patch.dict(os.environ, {"PAYMENT_PROVIDER": "sandbox", "UPI_LOOKUP_PROVIDER": "sandbox"})
+    def test_upi_payment_also_delivers_the_repair(self):
+        ticket = self.approved_ticket()
+        self.client_.post(f"/api/tickets/{ticket.id}/settle/")
+        invoice = Invoice.objects.get(repair_ticket=ticket)
+        self.client_.post(f"/api/invoices/{invoice.id}/send-upi-link/", {"phone": "9123456789"}, format="json")
+        self.client_.post(f"/api/invoices/{invoice.id}/simulate-payment/")
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, RepairTicket.DELIVERED)
 
     def test_fully_covered_repair_is_closed_without_payment(self):
         ticket = self.approved_ticket(advance=6500)
         self.client_.post(f"/api/tickets/{ticket.id}/settle/")
         invoice = Invoice.objects.get(repair_ticket=ticket)
         self.assertEqual((invoice.status, invoice.pay_method, invoice.total), (Invoice.PAID, "No charge", 0))
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, RepairTicket.DELIVERED)
 
     def test_repair_print_data_uses_line_descriptions(self):
         ticket = self.approved_ticket()

@@ -215,6 +215,7 @@ class RepairTicketSerializer(serializers.ModelSerializer):
     warranty_active = serializers.SerializerMethodField()
     warranty_end_date = serializers.SerializerMethodField()
     can_reopen = serializers.SerializerMethodField()
+    pending_invoice = serializers.SerializerMethodField()
     current_estimate = serializers.SerializerMethodField()
     approval_status = serializers.SerializerMethodField()
     events = RepairTicketEventSerializer(many=True, read_only=True)
@@ -232,7 +233,7 @@ class RepairTicketSerializer(serializers.ModelSerializer):
             "stock_point", "stock_point_name", "issue", "services", "service_ids",
             "status", "received", "expected", "payment", "advance_paid",
             "notifications", "invoice", "reopens", "total", "balance_due",
-            "warranty_active", "warranty_end_date", "can_reopen", "current_estimate",
+            "warranty_active", "warranty_end_date", "can_reopen", "pending_invoice", "current_estimate",
             "approval_status", "events",
             "order_id", "order_code", "repair_type", "order_device_count",
             "order_progress", "combined_approval_ready",
@@ -245,6 +246,11 @@ class RepairTicketSerializer(serializers.ModelSerializer):
             if not serial or serial == "—":
                 raise serializers.ValidationError({"serial": "Serial number or asset tag is required."})
         return attrs
+
+    def get_pending_invoice(self, obj):
+        # raised but not yet paid -- the ticket waits at Ready for pickup
+        inv = obj.unpaid_invoice
+        return RepairInvoiceSerializer(inv).data if inv else None
 
     def get_invoice(self, obj):
         # the ORIGINAL delivery's bill specifically -- a reopen's bill

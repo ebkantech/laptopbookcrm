@@ -48,6 +48,10 @@ def on_invoice_paid(invoice):
     """Called once an invoice has just been marked paid, by any route."""
     from .models import Invoice
 
+    if invoice.source == Invoice.REPAIR and invoice.repair_ticket_id:
+        from repairs.billing import on_repair_invoice_paid
+
+        on_repair_invoice_paid(invoice)
     if invoice.source == Invoice.RENTAL and invoice.rental_id:
         from rentals.billing import on_rent_invoice_paid
 
