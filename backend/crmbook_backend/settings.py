@@ -259,6 +259,13 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
+# Uploaded files (rental handover photos). Never served from a public URL:
+# rentals.views streams them to signed-in staff or via a customer's own
+# approval link only, so no MEDIA_URL route is registered.
+MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", BASE_DIR / "media"))
+# Phone camera photos are a few MB; leave headroom for the multipart body.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
+
 # ---------------------------------------------------------------- #
 # Email (still console backend until a real provider is wired --
 # see EXTERNAL_INTEGRATIONS notes in the project README)

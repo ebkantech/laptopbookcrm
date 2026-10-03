@@ -53,7 +53,7 @@ def _audit_value(value):
 
 
 class RentalViewSet(viewsets.ModelViewSet):
-    queryset = Rental.objects.select_related("party").prefetch_related("issues__assigned_to", "lines__asset", "approvals", "invoices__items").all()
+    queryset = Rental.objects.select_related("party").prefetch_related("issues__assigned_to", "lines__asset", "lines__photos", "approvals", "invoices__items").all()
     serializer_class = RentalSerializer
     permission_classes = [permissions.IsAuthenticated, HasPerm]
     required_perms = {

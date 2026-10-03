@@ -1,4 +1,5 @@
 import calendar
+import uuid
 from datetime import date
 
 from django.conf import settings
@@ -153,9 +154,35 @@ class RentalAsset(models.Model):
 class RentalLine(models.Model):
     """One physical device and its negotiated monthly rate within an agreement."""
 
+    # Functional checks done before handover, in display order.
+    CHECKS = [
+        ("power", "Powers on and boots"),
+        ("display", "Display (no dead pixels / lines)"),
+        ("keyboard", "Keyboard"),
+        ("touchpad", "Touchpad"),
+        ("battery", "Battery holds charge"),
+        ("wifi", "Wi-Fi / network"),
+        ("ports", "USB and charging ports"),
+        ("camera_mic", "Camera and microphone"),
+        ("speakers", "Speakers / audio"),
+    ]
+
     rental = models.ForeignKey(Rental, on_delete=models.CASCADE, related_name="lines")
     asset = models.ForeignKey(RentalAsset, on_delete=models.PROTECT, related_name="rental_lines")
     monthly_fee = models.PositiveIntegerField()
+
+    # -- Handover record: the state the device leaves the shop in. All of
+    # it goes into the customer's approval snapshot (see services._snapshot),
+    # and an approval link can't be issued until handover_issues() is empty.
+    checks = models.JSONField(default=dict, blank=True, help_text="{check_key: true/false} for CHECKS.")
+    working_confirmed = models.BooleanField(default=False, help_text="Staff confirm the device was tested and is in working condition.")
+    condition_notes = models.TextField(blank=True, help_text="Cosmetic condition: scratches, dents, wear.")
+    accessories = models.JSONField(default=list, blank=True, help_text='[{"name": "Charger", "serial": ""}]')
+    warranty_included = models.BooleanField(default=False)
+    warranty_months = models.PositiveSmallIntegerField(null=True, blank=True, help_text="Blank = the whole tenure.")
+    warranty_terms = models.TextField(blank=True, help_text="The shop's own warranty conditions for this device.")
+    handover_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    handover_updated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["id"]
@@ -166,6 +193,64 @@ class RentalLine(models.Model):
     @property
     def description(self):
         return f"{self.asset.brand} {self.asset.model_name}"
+
+    def handover_issues(self):
+        """What's still missing before this device can go to the customer
+        for approval -- an empty list means the handover is complete."""
+        issues = []
+        failed = [label for key, label in self.CHECKS if self.checks.get(key) is not True]
+        if failed:
+            issues.append(f"Not checked: {', '.join(failed)}")
+        if not self.working_confirmed:
+            issues.append("Confirm the device is tested and in working condition")
+        kinds = {photo.kind for photo in self.photos.all()}
+        missing = [label for kind, label in RentalLinePhoto.REQUIRED_KINDS if kind not in kinds]
+        if missing:
+            issues.append(f"Photos missing: {', '.join(missing)}")
+        if self.accessories and RentalLinePhoto.ACCESSORY not in kinds:
+            issues.append("Add a photo of the accessories being handed over")
+        if self.warranty_included and not self.warranty_terms.strip():
+            issues.append("Write the warranty conditions, or switch warranty off")
+        return issues
+
+
+def rental_photo_path(instance, filename):
+    ext = (filename.rsplit(".", 1)[-1] if "." in filename else "jpg").lower()[:5]
+    return f"rental-handover/{instance.line.rental_id}/{instance.line_id}/{instance.kind}-{uuid.uuid4().hex[:12]}.{ext}"
+
+
+class RentalLinePhoto(models.Model):
+    """A handover photo of one rented device or its accessories. Served
+    only to staff, or via the customer's own approval link -- never from
+    a public URL (see rentals.views)."""
+
+    FRONT, LID, LEFT, RIGHT, BASE, SERIAL = "front", "lid", "left", "right", "base", "serial"
+    KEYBOARD, SCREEN_ON, ACCESSORY, OTHER = "keyboard", "screen_on", "accessory", "other"
+    KIND_CHOICES = [
+        (FRONT, "Front (screen side)"),
+        (LID, "Back / lid"),
+        (LEFT, "Left side"),
+        (RIGHT, "Right side"),
+        (BASE, "Bottom / base"),
+        (SERIAL, "Serial number label"),
+        (KEYBOARD, "Keyboard"),
+        (SCREEN_ON, "Screen switched on"),
+        (ACCESSORY, "Accessories"),
+        (OTHER, "Other"),
+    ]
+    # Every side of the device plus its serial label is mandatory.
+    REQUIRED_KINDS = KIND_CHOICES[:6]
+
+    line = models.ForeignKey(RentalLine, on_delete=models.CASCADE, related_name="photos")
+    kind = models.CharField(max_length=12, choices=KIND_CHOICES)
+    caption = models.CharField(max_length=120, blank=True)
+    image = models.FileField(upload_to=rental_photo_path)
+    content_type = models.CharField(max_length=40)
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="+")
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["id"]
 
 
 class RentalApproval(models.Model):
@@ -222,6 +307,7 @@ class RentalEvent(models.Model):
     MODIFIED_AFTER_APPROVAL = "modified_after_approval"
     AGREEMENT_CANCELLED = "agreement_cancelled"
     AGREEMENT_CLOSED = "agreement_closed"
+    HANDOVER_UPDATED = "handover_updated"
     EVENT_CHOICES = [
         (AGREEMENT_CREATED, "Agreement created"),
         (APPROVAL_LINK_CREATED, "Approval link created"),
@@ -229,6 +315,7 @@ class RentalEvent(models.Model):
         (MODIFIED_AFTER_APPROVAL, "Modified internally after approval"),
         (AGREEMENT_CANCELLED, "Agreement cancelled"),
         (AGREEMENT_CLOSED, "Agreement closed"),
+        (HANDOVER_UPDATED, "Device handover details changed"),
     ]
 
     rental = models.ForeignKey(Rental, on_delete=models.CASCADE, related_name="events")

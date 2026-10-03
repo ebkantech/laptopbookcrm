@@ -11,7 +11,7 @@ from django.utils import timezone
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 
 from crmbook_backend.notify import notify_staff
-from .models import Rental, RentalApproval, RentalAsset, RentalEvent
+from .models import Rental, RentalApproval, RentalAsset, RentalEvent, RentalLine
 
 
 APPROVAL_LINK_TTL = timedelta(hours=24)
@@ -69,12 +69,47 @@ def _expire_pending_links(rental, now=None):
     ).update(status=RentalApproval.EXPIRED)
 
 
+def _handover_snapshot(line):
+    """The device's handover record exactly as the customer approves it."""
+    tested_by = line.handover_by
+    return {
+        "checks": [{"label": label, "ok": line.checks.get(key) is True} for key, label in RentalLine.CHECKS],
+        "working_confirmed": line.working_confirmed,
+        "condition_notes": line.condition_notes,
+        "accessories": [
+            {"name": a.get("name", ""), "serial": a.get("serial", "")} for a in (line.accessories or [])
+        ],
+        "warranty": {
+            "included": line.warranty_included,
+            "months": line.warranty_months,
+            "terms": line.warranty_terms if line.warranty_included else "",
+        },
+        # ids only -- the files are served through the approval link
+        # (RentalApprovalPhotoView checks the id is in this snapshot)
+        "photos": [
+            {"id": p.id, "kind": p.kind, "label": p.get_kind_display(), "caption": p.caption}
+            for p in line.photos.all()
+        ],
+        "tested_by": (tested_by.get_full_name() or tested_by.username) if tested_by else None,
+        "tested_at": line.handover_updated_at.isoformat() if line.handover_updated_at else None,
+    }
+
+
 def _snapshot(rental):
-    lines = list(rental.lines.select_related("asset").order_by("id"))
+    lines = list(rental.lines.select_related("asset", "handover_by").prefetch_related("photos").order_by("id"))
     if not lines:
         raise ValidationError({"lines": "Add at least one physical rental asset before requesting approval."})
     if any(not line.asset.asset_tag or not line.asset.serial_number for line in lines):
         raise ValidationError({"lines": "Every rental asset requires both an asset tag and serial number."})
+    incomplete = {
+        f"{line.asset.asset_tag} ({line.description})": line.handover_issues()
+        for line in lines if line.handover_issues()
+    }
+    if incomplete:
+        raise ValidationError({
+            "handover": "Complete the device handover (condition check, photos, accessories, warranty) before approval.",
+            "devices": incomplete,
+        })
     return {
         "agreement_code": rental.agreement_code or f"RENTAL-{rental.pk}",
         "customer": {
@@ -94,6 +129,7 @@ def _snapshot(rental):
                 "brand": line.asset.brand,
                 "model_name": line.asset.model_name,
                 "monthly_fee": line.monthly_fee,
+                **_handover_snapshot(line),
             }
             for line in lines
         ],
@@ -273,3 +309,23 @@ def close_agreement(rental, user, reason):
         metadata={"reason": reason},
     )
     return rental
+
+
+HANDOVER_EDITABLE = (Rental.DRAFT, Rental.PENDING_APPROVAL, Rental.REJECTED)
+
+
+@transaction.atomic
+def handover_changed(rental, user, what):
+    """
+    Called after any change to a device's handover record. Once a
+    customer is looking at a link, they must never approve details that
+    have since changed -- so a pending link is withdrawn and the
+    agreement goes back to draft for a fresh link.
+    """
+    rental = Rental.objects.select_for_update().get(pk=rental.pk)
+    revoked = rental.approvals.filter(status=RentalApproval.PENDING).update(status=RentalApproval.REVOKED)
+    if rental.status == Rental.PENDING_APPROVAL:
+        rental.status = Rental.DRAFT
+        rental.save(update_fields=["status"])
+    _record_event(rental, RentalEvent.HANDOVER_UPDATED, actor=user, metadata={"what": what, "pending_link_revoked": bool(revoked)})
+    return bool(revoked)

@@ -93,6 +93,39 @@ async function publicRequest(path, { method = "GET", body } = {}) {
   return res.json();
 }
 
+// Multipart upload (photos) with the same auth + refresh handling as
+// request(); the browser sets the multipart boundary itself.
+async function upload(path, formData) {
+  const doFetch = () =>
+    fetch(`${BASE_URL}${path}`, {
+      method: "POST",
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+      body: formData,
+    });
+  let res = await doFetch();
+  if (res.status === 401 && refreshToken && (await refreshAccessToken())) res = await doFetch();
+  if (!res.ok) {
+    let detail;
+    try { detail = await res.json(); } catch { detail = { detail: res.statusText }; }
+    const err = new Error(detail.detail || "Upload failed");
+    err.status = res.status;
+    err.body = detail;
+    throw err;
+  }
+  return res.json();
+}
+
+// A file that needs the staff login (e.g. a handover photo): <img src>
+// can't send the Authorization header, so fetch it and hand back an
+// object URL. Callers revoke it when done.
+async function blobUrl(path) {
+  const doFetch = () => fetch(`${BASE_URL}${path}`, { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {} });
+  let res = await doFetch();
+  if (res.status === 401 && refreshToken && (await refreshAccessToken())) res = await doFetch();
+  if (!res.ok) throw new Error("Couldn't load file");
+  return URL.createObjectURL(await res.blob());
+}
+
 // The API pages list endpoints 50 rows at a time. For pickers and lists
 // that must show everything (e.g. every product in a dropdown), walk all
 // pages and return one flat array. Also accepts an unpaginated response.
@@ -110,6 +143,10 @@ async function getAll(path) {
 export const api = {
   get: (path) => request(path),
   getAll,
+  upload,
+  blobUrl,
+  // for public pages that point <img> straight at a token-protected URL
+  publicUrl: (path) => `${BASE_URL}${path}`,
   post: (path, body) => request(path, { method: "POST", body }),
   patch: (path, body) => request(path, { method: "PATCH", body }),
   del: (path) => request(path, { method: "DELETE" }),

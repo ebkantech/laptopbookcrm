@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  AlertOctagon, Check, Clock3, Copy, Link2, MessageCircle, MessageSquarePlus, Phone,
+  AlertOctagon, Camera, Check, Clock3, Copy, Link2, MessageCircle, MessageSquarePlus, Phone,
   Plus, ShieldAlert, ShieldCheck, UserPlus, X,
 } from "lucide-react";
 import { C, F, fmt, money } from "../lib/theme";
@@ -11,6 +11,7 @@ import PageHeader from "../components/PageHeader";
 import { PartyChatModal } from "../components/PartyThread";
 import RentalAgreementModal from "../components/rentals/RentalAgreementModal";
 import RentInvoices from "../components/rentals/RentInvoices";
+import DeviceHandoverModal from "../components/rentals/DeviceHandoverModal";
 
 const BAND_COLOR = { "High risk": C.carbon, Watch: C.amber, Healthy: C.green };
 const ISSUE_STATUS_COLOR = { Open: C.carbon, "In progress": C.amber, Resolved: C.green };
@@ -184,6 +185,8 @@ export default function Rentals() {
     }
   };
 
+  const [handoverFor, setHandoverFor] = useState(null);
+
   const generateApprovalLink = async (rentalId) => {
     setActionError("");
     try {
@@ -191,8 +194,21 @@ export default function Rentals() {
       setApprovalLink(result.approval_url);
       setApprovalWhatsappUrl(result.whatsapp_url || "");
     } catch (requestError) {
-      setActionError(requestError.body?.detail || requestError.message);
+      const body = requestError.body || {};
+      if (body.handover) {
+        // say exactly what each device still needs
+        const devices = Object.entries(body.devices || {}).map(([device, issues]) => `${device}: ${[].concat(issues).join("; ")}`);
+        setActionError(`${[].concat(body.handover).join(" ")} ${devices.join(" | ")}`);
+        setHandoverFor(rentalId);
+      } else {
+        setActionError(body.detail || requestError.message);
+      }
     }
+  };
+
+  const refreshRental = async (rentalId) => {
+    const fresh = await api.get(`/rentals/${rentalId}/`);
+    setRentals((list) => list.map((x) => (x.id === fresh.id ? fresh : x)));
   };
 
   const patchRental = (rentalId, issue) => {
@@ -253,6 +269,21 @@ export default function Rentals() {
 
               <RentInvoices rental={r} canRaise={can("rentals.manage")} onChanged={(updated) => setRentals((list) => list.map((x) => (x.id === updated.id ? updated : x)))} />
 
+              {r.lines?.length > 0 && (() => {
+                const pending = r.lines.filter((l) => l.handover_issues?.length).length;
+                return (
+                  <button onClick={() => setHandoverFor(r.id)} className="mt-3 flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs"
+                    style={{ border: `1px solid ${pending ? C.amber : C.green}`, backgroundColor: pending ? `${C.amber}10` : `${C.green}10`, fontFamily: F.body, color: C.ink }}>
+                    <span className="flex items-center gap-1.5"><Camera size={13} style={{ color: pending ? C.amber : C.green }} />
+                      <b>Device handover & warranty</b> — condition, photos, accessories
+                    </span>
+                    <span style={{ fontWeight: 600, color: pending ? C.amber : C.green }}>
+                      {pending ? `${pending} of ${r.lines.length} device${r.lines.length > 1 ? "s" : ""} incomplete` : "Complete"}
+                    </span>
+                  </button>
+                );
+              })()}
+
               <div className="mt-3 flex flex-wrap gap-2">
                 {can("rentals.manage") && r.lines?.length > 0 && r.approval_status !== "approved" && <button onClick={() => generateApprovalLink(r.id)} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs" style={{ border: `1px solid ${C.green}`, color: C.green, fontFamily: F.body, fontWeight: 600 }}><Link2 size={12} /> Generate approval link</button>}
                 {can("rentals.approve") && r.lines?.length > 0 && r.approval_status !== "approved" && !["cancelled", "closed"].includes(r.status) && <button onClick={() => setRentalAction({ rental: r, action: "approve" })} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs" style={{ border: `1px solid ${C.blue}`, color: C.blue, fontWeight: 600 }}><ShieldCheck size={12} /> Approve on behalf</button>}
@@ -302,7 +333,10 @@ export default function Rentals() {
       )}
       {chatWith && <PartyChatModal partyId={chatWith.id} partyName={chatWith.name} onClose={() => setChatWith(null)} />}
       {rentalAction && <RentalActionModal {...rentalAction} onClose={() => setRentalAction(null)} onCompleted={(updated) => { setRentals((current) => current.map((item) => item.id === updated.id ? updated : item)); setRentalAction(null); api.get("/rental-assets/").then((data) => setAssets(data.results ?? data)); }} />}
-      {creating && <RentalAgreementModal parties={parties} initialAssets={assets} onClose={() => setCreating(false)} onCreated={(created) => { setRentals((current) => [created, ...current]); setCreating(false); api.get("/rental-assets/").then((data) => setAssets(data.results ?? data)); }} />}
+      {creating && <RentalAgreementModal parties={parties} initialAssets={assets} onClose={() => setCreating(false)} onCreated={(created) => { setRentals((current) => [created, ...current]); setCreating(false); setHandoverFor(created.id); api.get("/rental-assets/").then((data) => setAssets(data.results ?? data)); }} />}
+      {handoverFor && rentals.find((x) => x.id === handoverFor) && (
+        <DeviceHandoverModal rental={rentals.find((x) => x.id === handoverFor)} onClose={() => setHandoverFor(null)} onChanged={() => refreshRental(handoverFor)} />
+      )}
     </div>
   );
 }

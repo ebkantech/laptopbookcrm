@@ -93,10 +93,22 @@ class RentalLineSerializer(serializers.ModelSerializer):
     asset = RentalAssetSerializer(read_only=True)
     asset_id = serializers.IntegerField(source="asset.id", read_only=True)
     description = serializers.CharField(read_only=True)
+    # summary only -- the full handover record is at /rental-lines/<id>/handover/
+    handover_issues = serializers.SerializerMethodField()
+    photo_count = serializers.SerializerMethodField()
 
     class Meta:
         model = RentalLine
-        fields = ["id", "asset", "asset_id", "description", "monthly_fee"]
+        fields = [
+            "id", "asset", "asset_id", "description", "monthly_fee",
+            "handover_issues", "photo_count", "warranty_included", "warranty_months",
+        ]
+
+    def get_handover_issues(self, obj):
+        return obj.handover_issues()
+
+    def get_photo_count(self, obj):
+        return len(obj.photos.all())
 
 
 class CreateRentalLineSerializer(serializers.Serializer):

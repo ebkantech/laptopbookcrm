@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertCircle, CheckCircle2, Clock3, FileCheck2, LoaderCircle, XCircle } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock3, FileCheck2, LoaderCircle, Package, ShieldCheck, XCircle } from "lucide-react";
 
 import { api } from "../lib/api";
 import { C, F, money } from "../lib/theme";
@@ -77,9 +77,12 @@ export default function RentalApproval({ token }) {
             <div className="mt-5">
               <p className="text-xs uppercase" style={{ color: C.inkSoft }}>Devices and monthly charges</p>
               {approval.items?.map((item) => (
-                <div key={item.asset_tag} className="mt-1 flex items-start justify-between gap-3 p-3 text-sm" style={{ backgroundColor: C.slip2 }}>
-                  <span><strong>{item.brand} {item.model_name}</strong><span className="mt-1 block text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>Asset: {item.asset_tag} · Serial: {item.serial_number}</span></span>
-                  <strong className="shrink-0" style={{ fontFamily: F.mono }}>{money(item.monthly_fee)}/mo</strong>
+                <div key={item.asset_tag} className="mt-2 p-3 text-sm" style={{ backgroundColor: C.slip2 }}>
+                  <div className="flex items-start justify-between gap-3">
+                    <span><strong>{item.brand} {item.model_name}</strong><span className="mt-1 block text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>Asset: {item.asset_tag} · Serial: {item.serial_number}</span></span>
+                    <strong className="shrink-0" style={{ fontFamily: F.mono }}>{money(item.monthly_fee)}/mo</strong>
+                  </div>
+                  <DeviceHandover item={item} token={token} tenure={approval.tenure_months} />
                 </div>
               ))}
               <div className="mt-2 flex justify-between p-3" style={{ border: `1px solid ${C.rule}` }}><span>Total monthly charge</span><strong style={{ fontFamily: F.mono }}>{money(approval.total_monthly_fee)}/mo</strong></div>
@@ -94,7 +97,7 @@ export default function RentalApproval({ token }) {
             {!terminal && choice && (
               <form onSubmit={submit} className="mt-6 p-4" style={{ border: `1px solid ${C.rule}` }}>
                 <p className="text-sm" style={{ fontWeight: 700 }}>Confirm {choice}</p>
-                {choice === "approve" ? <label className="mt-3 flex gap-2 text-sm"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /> I reviewed the devices, rental duration and monthly charges and authorise this agreement.</label> : <textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason (optional)" rows={3} className="mt-3 w-full p-2 text-sm" style={{ border: `1px solid ${C.rule}` }} />}
+                {choice === "approve" ? <label className="mt-3 flex gap-2 text-sm"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /> I reviewed the devices, their condition and photos, the accessories, the warranty terms, the rental duration and monthly charges, and authorise this agreement.</label> : <textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason (optional)" rows={3} className="mt-3 w-full p-2 text-sm" style={{ border: `1px solid ${C.rule}` }} />}
                 <div className="mt-4 flex gap-2"><button type="button" onClick={() => { setChoice(""); setConsent(false); }} className="px-4 py-2 text-sm" style={{ border: `1px solid ${C.rule}` }}>Back</button><button disabled={busy || (choice === "approve" && !consent)} className="px-4 py-2 text-sm" style={{ backgroundColor: choice === "approve" ? C.green : C.carbon, color: C.onAccent, opacity: busy ? 0.6 : 1 }}>{busy ? "Saving…" : "Confirm decision"}</button></div>
               </form>
             )}
@@ -103,5 +106,49 @@ export default function RentalApproval({ token }) {
         )}
       </div>
     </main>
+  );
+}
+
+
+/* What the shop recorded at handover for one device -- shown so the
+ * customer approves the condition, accessories and warranty too. */
+function DeviceHandover({ item, token, tenure }) {
+  if (!item.checks && !item.photos) return null; // approvals sent before handover records existed
+  const photoUrl = (id) => api.publicUrl(`/public/rental-approvals/${encodeURIComponent(token)}/photos/${id}/`);
+  const warranty = item.warranty || {};
+  return (
+    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: C.rule }}>
+      <div>
+        <p className="flex items-center gap-1.5 text-xs" style={{ fontWeight: 700, color: item.working_confirmed ? C.green : C.carbon }}>
+          <CheckCircle2 size={13} /> {item.working_confirmed ? "Tested and in working condition at handover" : "Working condition not confirmed"}
+          {item.tested_by && <span style={{ fontWeight: 400, color: C.inkSoft }}> · checked by {item.tested_by}</span>}
+        </p>
+        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs" style={{ color: C.inkSoft }}>
+          {(item.checks || []).map((c) => <span key={c.label}>{c.ok ? "✓" : "✗"} {c.label}</span>)}
+        </div>
+        {item.condition_notes && <p className="mt-1 text-xs"><b>Condition:</b> {item.condition_notes}</p>}
+      </div>
+      {item.photos?.length > 0 && (
+        <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
+          {item.photos.map((p) => (
+            <a key={p.id} href={photoUrl(p.id)} target="_blank" rel="noreferrer" className="block">
+              <img src={photoUrl(p.id)} alt={p.label} loading="lazy" className="aspect-[4/3] w-full object-cover" style={{ border: `1px solid ${C.rule}` }} />
+              <span className="block truncate text-[11px]" style={{ color: C.inkSoft }}>{p.label}</span>
+            </a>
+          ))}
+        </div>
+      )}
+      <p className="flex items-start gap-1.5 text-xs">
+        <Package size={13} className="mt-0.5 shrink-0" style={{ color: C.inkSoft }} />
+        <span><b>Accessories:</b> {item.accessories?.length ? item.accessories.map((a) => a.serial ? `${a.name} (${a.serial})` : a.name).join(", ") : "None — device only"}</span>
+      </p>
+      <div className="p-2 text-xs" style={{ border: `1px solid ${warranty.included ? C.green : C.rule}` }}>
+        <p className="flex items-center gap-1.5" style={{ fontWeight: 700 }}>
+          <ShieldCheck size={13} style={{ color: warranty.included ? C.green : C.inkSoft }} />
+          {warranty.included ? `Warranty for ${warranty.months || tenure} month${(warranty.months || tenure) > 1 ? "s" : ""} of the rental` : "No warranty on this device"}
+        </p>
+        {warranty.included && <p className="mt-1 whitespace-pre-line leading-5">{warranty.terms}</p>}
+      </div>
+    </div>
   );
 }
