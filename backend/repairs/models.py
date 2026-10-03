@@ -106,13 +106,13 @@ class RepairTicket(models.Model):
     def original_invoice(self):
         """The invoice raised when the job was first delivered (a
         sales.Invoice with source=repair; reopen visits get their own)."""
-        return self.invoices.filter(repair_reopen__isnull=True).first()
+        return self.invoices.filter(repair_reopen__isnull=True).exclude(status="Cancelled").first()
 
     @property
     def unpaid_invoice(self):
         """An invoice raised for this ticket that hasn't been paid yet --
         while one exists the ticket waits at Ready for pickup."""
-        return self.invoices.exclude(status="Paid").first()
+        return self.invoices.filter(status__in=("Payment link sent", "Overdue")).first()
 
     @property
     def active_reopen(self):

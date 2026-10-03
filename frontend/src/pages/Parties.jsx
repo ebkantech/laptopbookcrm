@@ -135,7 +135,7 @@ export default function Parties() {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(null);
 
-  const load = (q) => api.get(`/parties/${q ? `?q=${encodeURIComponent(q)}` : ""}`).then((d) => setParties(d.results ?? d)).catch((e) => setError(e.message));
+  const load = (q) => api.getAll(`/parties/${q ? `?q=${encodeURIComponent(q)}` : ""}`).then(setParties).catch((e) => setError(e.message));
   useEffect(() => { load(""); }, []);
   useEffect(() => { const t = setTimeout(() => load(query), 300); return () => clearTimeout(t); }, [query]);
 

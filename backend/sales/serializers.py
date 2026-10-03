@@ -57,6 +57,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "id", "code", "source", "source_label", "reference", "party", "party_name", "stock_point", "stock_point_name",
             "date", "status", "pay_method", "paid_on", "payment_reference", "settled_by_name",
             "recurring_interval", "recurring_next", "repair_ticket", "rental", "period_start", "period_end",
+            "due_date", "cancel_reason", "cancelled_at", "cancelled_by_name",
             "items", "total", "payment_links",
         ]
         # Payment details are only ever written by the settle action, so
@@ -64,6 +65,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
         # repair/rental links are only ever set by those modules.
         read_only_fields = [
             "code", "source", "paid_on", "payment_reference", "repair_ticket", "rental", "period_start", "period_end",
+            "cancel_reason", "cancelled_at", "status",
         ]
 
     def get_reference(self, obj):
@@ -78,6 +80,11 @@ class InvoiceSerializer(serializers.ModelSerializer):
             return label
         return None
 
+    cancelled_by_name = serializers.SerializerMethodField()
+
+    def get_cancelled_by_name(self, obj):
+        return (obj.cancelled_by.get_full_name() or obj.cancelled_by.username) if obj.cancelled_by else None
+
     def get_settled_by_name(self, obj):
         return (obj.settled_by.get_full_name() or obj.settled_by.username) if obj.settled_by else None
 
@@ -91,17 +98,41 @@ class InvoiceSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Every sale line needs a product variant.")
             if item.get("price", 0) < 0:
                 raise serializers.ValidationError("Prices can't be negative.")
+            if item.get("qty", 0) < 1:
+                raise serializers.ValidationError("Quantity must be at least 1.")
         return items
+
+    @staticmethod
+    def _check_and_take_stock(items, stock_point):
+        """Lock the shelf rows, refuse to sell more than is there (instead
+        of the database refusing with a server error), then take the units."""
+        wanted = {}
+        for item in items:
+            wanted[item["variant"]] = wanted.get(item["variant"], 0) + item["qty"]
+        rows = {
+            row.variant_id: row
+            for row in Stock.objects.select_for_update().filter(stock_point=stock_point, variant__in=list(wanted))
+        }
+        problems = []
+        for variant, qty in wanted.items():
+            row = rows.get(variant.id)
+            have = row.quantity if row else 0
+            if have < qty:
+                name = f"{variant.product.display_name} ({variant.spec})"
+                problems.append(
+                    f"{name}: only {have} in stock at {stock_point.name}" if row
+                    else f"{name} isn't stocked at {stock_point.name}"
+                )
+        if problems:
+            raise serializers.ValidationError({"items": problems})
+        for variant, qty in wanted.items():
+            Stock.objects.filter(pk=rows[variant.id].pk).update(quantity=F("quantity") - qty)
 
     @transaction.atomic
     def create(self, validated_data):
         items = validated_data.pop("items")
-        validated_data.setdefault("status", Invoice.LINK_SENT)
-        invoice = create_invoice(source=Invoice.SALE, lines=items, **validated_data)
-        for item in items:
-            # decrement shared stock at the point of sale -- this is what makes
-            # stock "shared": a sale on any channel moves the same pool.
-            Stock.objects.filter(
-                variant=item["variant"], stock_point=invoice.stock_point
-            ).update(quantity=F("quantity") - item["qty"])
-        return invoice
+        validated_data["status"] = Invoice.LINK_SENT
+        # take the units off the shared stock pool of the shop/channel sold
+        # through -- a sale on any channel moves the same pool
+        self._check_and_take_stock(items, validated_data["stock_point"])
+        return create_invoice(source=Invoice.SALE, lines=items, **validated_data)

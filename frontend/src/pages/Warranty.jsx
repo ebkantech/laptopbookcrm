@@ -151,12 +151,12 @@ export default function Warranty() {
 
   const load = (phoneQuery) => {
     const params = phoneQuery ? `?phone=${encodeURIComponent(phoneQuery)}` : "";
-    api.get(`/warranties/${params}`).then((d) => setWarranties(d.results ?? d)).catch((e) => setError(e.message));
+    api.getAll(`/warranties/${params}`).then(setWarranties).catch((e) => setError(e.message));
   };
 
   useEffect(() => {
     load("");
-    api.get("/parties/").then((d) => setParties(d.results ?? d));
+    api.getAll("/parties/").then(setParties);
   }, []);
 
   useEffect(() => {

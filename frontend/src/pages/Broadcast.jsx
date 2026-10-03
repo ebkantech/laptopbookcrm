@@ -15,8 +15,8 @@ export default function Broadcast() {
   const [audience, setAudience] = useState("All retail customers");
 
   useEffect(() => {
-    api.get("/campaigns/").then((d) => setCampaigns(d.results ?? d));
-    api.get("/whatsapp-orders/").then((d) => setOrders(d.results ?? d));
+    api.getAll("/campaigns/").then(setCampaigns);
+    api.getAll("/whatsapp-orders/").then(setOrders);
   }, []);
 
   if (!campaigns) return <Spinner label="Loading broadcast…" />;

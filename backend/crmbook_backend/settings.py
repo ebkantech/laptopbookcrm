@@ -154,6 +154,8 @@ BUSINESS_NAME = os.environ.get("BUSINESS_NAME", "Vantage Computers")
 BUSINESS_GSTIN = os.environ.get("BUSINESS_GSTIN", "")
 BUSINESS_PHONE = os.environ.get("BUSINESS_PHONE", "")
 BUSINESS_EMAIL = os.environ.get("BUSINESS_EMAIL", "")
+# Days a customer has to pay a sale or repair invoice before it's Overdue.
+INVOICE_DUE_DAYS = int(os.environ.get("INVOICE_DUE_DAYS", 7))
 
 # Set PUBLIC_FRONTEND_URL to the HTTPS customer-facing frontend origin in production.
 PUBLIC_FRONTEND_URL = os.environ.get("PUBLIC_FRONTEND_URL", "http://localhost:5174")

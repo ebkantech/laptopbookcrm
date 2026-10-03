@@ -14,7 +14,7 @@ from parties.models import Message
 
 from . import payments
 from .models import PAYMENT_METHODS, Invoice, PaymentLink
-from .services import on_invoice_paid
+from .services import CancelError, cancel_invoice, mark_overdue, on_invoice_paid
 from .serializers import InvoiceSerializer
 
 
@@ -34,10 +34,12 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         "send_upi_link": "payments.send_link",
         "refresh_payment": "payments.send_link",
         "simulate_payment": "invoices.settle",
+        "cancel": "invoices.create",
     }
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        mark_overdue()
+        qs = super().get_queryset().select_related("cancelled_by")
         status = self.request.query_params.get("status")
         party = self.request.query_params.get("party")
         source = self.request.query_params.get("source")
@@ -61,6 +63,8 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         invoice = self.get_object()
         if invoice.status == Invoice.PAID:
             return Response({"detail": "This invoice is already marked paid."}, status=400)
+        if invoice.status == Invoice.CANCELLED:
+            return Response({"detail": "This invoice was cancelled."}, status=400)
         method = (request.data.get("pay_method") or "").strip()
         reference = (request.data.get("payment_reference") or "").strip()
         if method not in PAYMENT_METHODS:
@@ -91,6 +95,15 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             f"Invoice {invoice.code} for {invoice.party.name} was marked paid -- ₹{invoice.total}.",
         )
         return Response(InvoiceSerializer(invoice).data)
+
+    @action(detail=True, methods=["post"])
+    def cancel(self, request, pk=None):
+        """Cancel an unpaid invoice raised by mistake. Body: {"reason": "..."}."""
+        try:
+            invoice = cancel_invoice(self.get_object(), request.user, request.data.get("reason"))
+        except CancelError as e:
+            return Response({"detail": str(e)}, status=400)
+        return Response(InvoiceSerializer(Invoice.objects.get(pk=invoice.pk)).data)
 
     @action(detail=True, methods=["get"], url_path="print-data")
     def print_data(self, request, pk=None):
@@ -181,6 +194,8 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         invoice = self.get_object()
         if invoice.status == Invoice.PAID:
             return Response({"detail": "This invoice is already paid."}, status=400)
+        if invoice.status == Invoice.CANCELLED:
+            return Response({"detail": "This invoice was cancelled."}, status=400)
         if invoice.total <= 0:
             return Response({"detail": "This invoice has no amount to collect."}, status=400)
         phone, error = self._phone_from(request, invoice)

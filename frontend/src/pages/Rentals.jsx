@@ -151,7 +151,7 @@ export default function Rentals() {
 
   useEffect(() => {
     api.getAll("/rentals/").then(setRentals).catch((e) => setError(e.message));
-    api.get("/users/").then((d) => setStaff(d.results ?? d));
+    api.getAll("/users/").then(setStaff);
     // every customer and asset, not just the API's first page of 50 --
     // an asset missing from the picker got re-registered as a "duplicate"
     api.getAll("/parties/").then(setParties);

@@ -10,6 +10,7 @@ from catalog.models import Product, StockPoint
 from rentals.models import Rental
 from repairs.models import RepairTicket
 from sales.models import Invoice
+from sales.services import mark_overdue
 
 from .layouts import effective_layout, visible_sections
 
@@ -112,7 +113,8 @@ class DashboardView(APIView):
 
         if can_sales:
             # -- invoices: date range + channel both apply here --
-            all_invoices = Invoice.objects.select_related("stock_point").prefetch_related("items")
+            mark_overdue()
+            all_invoices = Invoice.objects.exclude(status=Invoice.CANCELLED).select_related("stock_point").prefetch_related("items")
             if date_from:
                 all_invoices = all_invoices.filter(date__gte=date_from)
             if date_to:
@@ -127,7 +129,7 @@ class DashboardView(APIView):
             sale_invoices = [i for i in all_invoices if i.source == Invoice.SALE]
             revenue_paid = [i for i in sale_invoices if i.status == Invoice.PAID]
             revenue_paid_total = sum(i.total for i in revenue_paid)
-            pending = [i for i in all_invoices if i.status != Invoice.PAID]
+            pending = [i for i in all_invoices if i.status in Invoice.OUTSTANDING]
             pending_total = sum(i.total for i in pending)
 
             # sales broken out per channel, respecting the same date filter --
@@ -140,7 +142,7 @@ class DashboardView(APIView):
             for sp in stock_points:
                 sp_invoices = [i for i in sale_invoices if i.stock_point_id == sp.id]
                 sp_paid = [i for i in sp_invoices if i.status == Invoice.PAID]
-                sp_pending = [i for i in sp_invoices if i.status != Invoice.PAID]
+                sp_pending = [i for i in sp_invoices if i.status in Invoice.OUTSTANDING]
                 channel_sales.append({
                     "id": sp.slug, "name": sp.name, "kind": sp.kind,
                     "invoice_count": len(sp_invoices),
@@ -182,7 +184,7 @@ class DashboardView(APIView):
         if can_repairs:
             # repair income: the repair-sourced invoices in the shared ledger,
             # kept separate from product sales revenue
-            repair_invoices = Invoice.objects.filter(source=Invoice.REPAIR).prefetch_related("items")
+            repair_invoices = Invoice.objects.filter(source=Invoice.REPAIR).exclude(status=Invoice.CANCELLED).prefetch_related("items")
             if date_from:
                 repair_invoices = repair_invoices.filter(date__gte=date_from)
             if date_to:

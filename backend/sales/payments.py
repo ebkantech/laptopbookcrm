@@ -165,6 +165,19 @@ def fetch_link_payment(link):
     return {"paid": True, "payment_id": captured.get("payment_id"), "rrn": None}
 
 
+def cancel_provider_link(link):
+    """Best effort: stop the customer paying a link for a cancelled
+    invoice. A failure is logged, not raised -- our own record is already
+    cancelled, and a payment that still slips through is visible in the
+    provider dashboard."""
+    if link.provider != "razorpay" or not link.provider_link_id:
+        return
+    try:
+        _razorpay_request("POST", f"/payment_links/{link.provider_link_id}/cancel", {})
+    except PaymentProviderError:
+        logger.exception("[Razorpay] couldn't cancel payment link %s", link.provider_link_id)
+
+
 def verify_razorpay_signature(raw_body: bytes, signature: str) -> bool:
     secret = os.environ.get("RAZORPAY_WEBHOOK_SECRET")
     if not secret or not signature:
@@ -190,7 +203,7 @@ def mark_link_paid(link, payment_id=None, rrn=None):
     link.save(update_fields=["status", "paid_at", "provider_payment_id"])
 
     invoice = link.invoice
-    if invoice.status != Invoice.PAID:
+    if invoice.status in Invoice.OUTSTANDING:  # never revive a cancelled invoice
         reference = " / ".join(x for x in [f"UPI RRN {rrn}" if rrn else "", payment_id or ""] if x) or f"UPI link {link.provider_link_id}"
         invoice.status = Invoice.PAID
         invoice.pay_method = "UPI"

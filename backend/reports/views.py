@@ -13,6 +13,7 @@ from portal.models import Feedback, PortalAccessLog
 from rentals.models import Rental, RentalAsset
 from repairs.models import RepairTicket
 from sales.models import Invoice
+from sales.services import mark_overdue
 from .utils import last_n_months, month_label
 
 # Task 7: both reports below are gated the same way, matching the
@@ -48,7 +49,8 @@ class FinancialSummaryReportView(APIView):
             if key in revenue_by_month:
                 revenue_by_month[key] += inv.total
 
-        outstanding_invoices = Invoice.objects.exclude(status=Invoice.PAID)
+        mark_overdue()
+        outstanding_invoices = Invoice.objects.filter(status__in=Invoice.OUTSTANDING)
         outstanding_total = sum(inv.total for inv in outstanding_invoices)
 
         active_rentals = Rental.objects.filter(status__in=[Rental.APPROVED, Rental.ACTIVE])
@@ -79,7 +81,7 @@ class SalesSummaryReportView(APIView):
         range_start = date(months[0][0], months[0][1], 1)
 
         all_invoices = list(
-            Invoice.objects.filter(source=Invoice.SALE, date__gte=range_start)
+            Invoice.objects.filter(source=Invoice.SALE, date__gte=range_start).exclude(status=Invoice.CANCELLED)
             .select_related("stock_point").prefetch_related("items")
         )
 
@@ -95,7 +97,7 @@ class SalesSummaryReportView(APIView):
         for sp in StockPoint.objects.all():
             sp_invoices = [i for i in all_invoices if i.stock_point_id == sp.id]
             sp_paid = [i for i in sp_invoices if i.status == Invoice.PAID]
-            sp_pending = [i for i in sp_invoices if i.status != Invoice.PAID]
+            sp_pending = [i for i in sp_invoices if i.status in Invoice.OUTSTANDING]
             by_stock_point.append({
                 "id": sp.slug, "name": sp.name, "kind": sp.kind,
                 "invoice_count": len(sp_invoices),

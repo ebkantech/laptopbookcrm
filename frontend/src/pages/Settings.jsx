@@ -79,8 +79,8 @@ function RolesAccess() {
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState("");
 
-  const loadRoles = () => api.get("/roles/").then((d) => setRoles(d.results ?? d));
-  const loadUsers = () => api.get("/users/").then((d) => setUsers(d.results ?? d));
+  const loadRoles = () => api.getAll("/roles/").then(setRoles);
+  const loadUsers = () => api.getAll("/users/").then(setUsers);
 
   useEffect(() => {
     loadRoles();
@@ -305,8 +305,8 @@ function StaffNotifications() {
   const load = () =>
     Promise.all([
       api.get("/notification-rules/events/"),
-      api.get("/roles/").then((d) => d.results ?? d),
-      api.get("/notification-rules/").then((d) => d.results ?? d),
+      api.getAll("/roles/"),
+      api.getAll("/notification-rules/"),
     ]).then(([ev, rl, ru]) => {
       setEvents(ev);
       setRoles(rl);
