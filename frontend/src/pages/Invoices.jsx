@@ -7,6 +7,7 @@ import { Eyebrow, ErrorNote, Pill, PillButton, SearchInput, Spinner, TabBar } fr
 import PageHeader from "../components/PageHeader";
 import PrintableInvoice from "../components/invoices/PrintableInvoice";
 import UpiPaymentLink from "../components/invoices/UpiPaymentLink";
+import PartyPicker from "../components/invoices/PartyPicker";
 
 const STATUS_COLOR = { Paid: "#36D399", "Payment link sent": "#F5A623", Overdue: "#FB5B5B" };
 // "Payment link sent" is also the default status of a brand-new unpaid
@@ -22,8 +23,10 @@ const REFERENCE_HINT = {
 };
 const WARRANTY_STATUS_COLOR = { Active: "#36D399", "Expiring soon": "#F5A623", Expired: "#FB5B5B" };
 
-function NewInvoiceModal({ parties, products, stockPoints, onClose, onCreate }) {
-  const [party, setParty] = useState(parties[0]?.id);
+function NewInvoiceModal({ products, stockPoints, onClose, onCreate }) {
+  // No default customer: pre-selecting the first name made it easy to
+  // bill the wrong person.
+  const [party, setParty] = useState(null);
   const [stockPoint, setStockPoint] = useState(stockPoints.find((s) => s.kind === "shop")?.id);
   const [productId, setProductId] = useState(products[0]?.id);
   const [vcode, setVcode] = useState(products[0]?.variants[0]?.code);
@@ -39,6 +42,7 @@ function NewInvoiceModal({ parties, products, stockPoints, onClose, onCreate }) 
     setBusy(true);
     setError("");
     try {
+      if (!party) throw new Error("Pick or add the customer.");
       if (!variant) throw new Error("Pick a product to invoice.");
       await onCreate({
         party, stock_point: stockPoint, date: new Date().toISOString().slice(0, 10),
@@ -54,15 +58,14 @@ function NewInvoiceModal({ parties, products, stockPoints, onClose, onCreate }) 
 
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(4,9,18,0.7)" }}>
-      <div className="w-full max-w-lg p-6" data-panel style={{ backgroundColor: C.slip, border: `2px solid ${C.ruleStrong || C.rule}`, boxShadow: "0 10px 30px rgba(0,0,0,0.5)" }}>
+      <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto p-6" data-panel style={{ backgroundColor: C.slip, border: `2px solid ${C.ruleStrong || C.rule}`, boxShadow: "0 10px 30px rgba(0,0,0,0.5)" }}>
         <div className="flex items-center justify-between"><span className="text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.14em", color: C.inkSoft }}>New invoice</span><button onClick={onClose}><X size={16} style={{ color: C.inkSoft }} /></button></div>
 
         <div className="mt-4 space-y-3">
-          <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Party
-            <select value={party} onChange={(e) => setParty(+e.target.value)} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}>
-              {parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          </label>
+          <div className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
+            <span className="mb-1 block">Customer</span>
+            <PartyPicker value={party} onChange={setParty} />
+          </div>
           <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Sold through
             <select value={stockPoint} onChange={(e) => setStockPoint(+e.target.value)} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}>
               {stockPoints.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -293,7 +296,6 @@ export default function Invoices() {
   // roles just don't get the Repairs tab instead of the page failing.
   const canRepairs = can("repairs.view");
   const [repairInvoices, setRepairInvoices] = useState(canRepairs ? null : []);
-  const [parties, setParties] = useState([]);
   const [products, setProducts] = useState([]);
   const [stockPoints, setStockPoints] = useState([]);
   const [error, setError] = useState("");
@@ -307,7 +309,6 @@ export default function Invoices() {
 
   useEffect(() => {
     loadInvoices("all");
-    api.getAll("/parties/").then(setParties);
     // Only products that have something sellable: stock and prices live
     // on variants, so a product with none yet can't go on an invoice.
     api.getAll("/products/").then((all) => setProducts(all.filter((p) => p.variants.length)));
@@ -441,7 +442,7 @@ export default function Invoices() {
         )}
       </div>
 
-      {adding && <NewInvoiceModal parties={parties} products={products} stockPoints={stockPoints} onClose={() => setAdding(false)} onCreate={create} />}
+      {adding && <NewInvoiceModal products={products} stockPoints={stockPoints} onClose={() => setAdding(false)} onCreate={create} />}
       {openInvoice && <InvoiceDetail invoice={openInvoice} onClose={() => setOpenInvoice(null)} onSettle={settle} onChanged={replaceInvoice} />}
     </div>
   );
