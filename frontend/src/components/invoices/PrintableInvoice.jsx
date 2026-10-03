@@ -76,6 +76,7 @@ function InvoiceSheet({ data }) {
         <div style={{ textAlign: "right" }}>
           <div style={{ color: SOFT, fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Sold from</div>
           <div style={{ fontWeight: 700, marginTop: 2 }}>{seller.branch}</div>
+          {data.reference && <div style={{ marginTop: 4 }}>For: <b>{data.reference}</b></div>}
         </div>
       </div>
 
@@ -96,7 +97,7 @@ function InvoiceSheet({ data }) {
               <td style={cell}>{it.n}</td>
               <td style={cell}>
                 <div style={{ fontWeight: 600 }}>{it.description}</div>
-                <div style={{ color: SOFT, fontSize: 11 }}>{it.spec} · {it.code}</div>
+                {(it.spec || it.code) && <div style={{ color: SOFT, fontSize: 11 }}>{[it.spec, it.code].filter(Boolean).join(" · ")}</div>}
               </td>
               <td style={cell}>{it.hsn || "—"}</td>
               <td style={num}>{it.qty}</td>

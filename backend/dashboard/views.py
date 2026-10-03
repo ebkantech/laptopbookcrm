@@ -8,7 +8,7 @@ from rest_framework.views import APIView
 from accounts.permissions import IsStaffAccount
 from catalog.models import Product, StockPoint
 from rentals.models import Rental
-from repairs.models import RepairInvoice, RepairTicket
+from repairs.models import RepairTicket
 from sales.models import Invoice
 
 from .layouts import effective_layout, visible_sections
@@ -121,7 +121,11 @@ class DashboardView(APIView):
                 all_invoices = all_invoices.filter(stock_point__slug=channel_slug)
             all_invoices = list(all_invoices)
 
-            revenue_paid = [i for i in all_invoices if i.status == Invoice.PAID]
+            # Every invoice -- sale, repair or rent -- is collected through
+            # Sales & Invoices, so pending collections cover all of them;
+            # "sales revenue" and the channel breakdown stay product sales.
+            sale_invoices = [i for i in all_invoices if i.source == Invoice.SALE]
+            revenue_paid = [i for i in sale_invoices if i.status == Invoice.PAID]
             revenue_paid_total = sum(i.total for i in revenue_paid)
             pending = [i for i in all_invoices if i.status != Invoice.PAID]
             pending_total = sum(i.total for i in pending)
@@ -134,7 +138,7 @@ class DashboardView(APIView):
             channel_sales = []
             stock_points = StockPoint.objects.filter(slug=channel_slug) if channel_slug else StockPoint.objects.all()
             for sp in stock_points:
-                sp_invoices = [i for i in all_invoices if i.stock_point_id == sp.id]
+                sp_invoices = [i for i in sale_invoices if i.stock_point_id == sp.id]
                 sp_paid = [i for i in sp_invoices if i.status == Invoice.PAID]
                 sp_pending = [i for i in sp_invoices if i.status != Invoice.PAID]
                 channel_sales.append({
@@ -162,26 +166,23 @@ class DashboardView(APIView):
             # months at a glance, not one filtered slice of them.
             months = _last_n_months(6)
             range_start = date(months[0][0], months[0][1], 1)
-            sales_by_month = defaultdict(int)
-            for inv in Invoice.objects.filter(status=Invoice.PAID, date__gte=range_start):
-                sales_by_month[(inv.date.year, inv.date.month)] += inv.total
-            repairs_by_month = defaultdict(int)
-            for ri in RepairInvoice.objects.filter(status="Paid", date__gte=range_start):
-                repairs_by_month[(ri.date.year, ri.date.month)] += ri.amount
+            by_month = {source: defaultdict(int) for source, _ in Invoice.SOURCE_CHOICES}
+            for inv in Invoice.objects.filter(status=Invoice.PAID, date__gte=range_start).prefetch_related("items"):
+                by_month[inv.source][(inv.date.year, inv.date.month)] += inv.total
             response["monthly_revenue"] = [
                 {
                     "month": f"{MONTH_ABBR[m]} {y}",
-                    "sales": sales_by_month.get((y, m), 0),
-                    "repairs": repairs_by_month.get((y, m), 0),
+                    "sales": by_month[Invoice.SALE].get((y, m), 0),
+                    "repairs": by_month[Invoice.REPAIR].get((y, m), 0),
+                    "rentals": by_month[Invoice.RENTAL].get((y, m), 0),
                 }
                 for (y, m) in months
             ]
 
         if can_repairs:
-            # repair income, tracked separately from product sales revenue --
-            # was previously invisible outside the Repairs module entirely,
-            # since RepairInvoice is a wholly separate table from sales.Invoice
-            repair_invoices = RepairInvoice.objects.select_related("stock_point").all()
+            # repair income: the repair-sourced invoices in the shared ledger,
+            # kept separate from product sales revenue
+            repair_invoices = Invoice.objects.filter(source=Invoice.REPAIR).prefetch_related("items")
             if date_from:
                 repair_invoices = repair_invoices.filter(date__gte=date_from)
             if date_to:
@@ -189,7 +190,7 @@ class DashboardView(APIView):
             if channel_slug:
                 repair_invoices = repair_invoices.filter(stock_point__slug=channel_slug)
             response.update({
-                "repair_revenue_paid": sum(ri.amount for ri in repair_invoices.filter(status="Paid")),
+                "repair_revenue_paid": sum(ri.total for ri in repair_invoices.filter(status=Invoice.PAID)),
                 "repair_invoice_count": repair_invoices.count(),
             })
 

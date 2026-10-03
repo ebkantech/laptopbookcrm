@@ -5,7 +5,6 @@ from .models import (
     RepairApproval,
     RepairEstimate,
     RepairEstimateLine,
-    RepairInvoice,
     RepairOrder,
     RepairOrderApproval,
     RepairTicket,
@@ -24,11 +23,6 @@ class RepairTicketAdmin(admin.ModelAdmin):
     list_filter = ["status", "stock_point"]
     filter_horizontal = ["services"]
     inlines = [NotificationInline]
-
-
-@admin.register(RepairInvoice)
-class RepairInvoiceAdmin(admin.ModelAdmin):
-    list_display = ["code", "ticket", "amount", "status", "date"]
 
 
 class RepairEstimateLineInline(admin.TabularInline):

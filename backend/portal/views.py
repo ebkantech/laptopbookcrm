@@ -9,7 +9,7 @@ from accounts.throttling import OTPVerifyThrottle
 from crmbook_backend.notify import notify_staff, send_email, send_whatsapp
 from parties.models import Message, Party
 from rentals.models import Rental
-from repairs.models import RepairInvoice, RepairTicket
+from repairs.models import RepairTicket
 from sales.models import Invoice
 from warranty.models import Warranty
 from .auth import IsPortalCustomer, PortalTokenAuthentication, issue_portal_token
@@ -242,7 +242,7 @@ class PortalRepairsView(APIView):
 
     def get(self, request):
         tickets = RepairTicket.objects.filter(party=request.party).prefetch_related("services")
-        invoices = RepairInvoice.objects.filter(ticket__party=request.party).select_related("ticket")
+        invoices = Invoice.objects.filter(party=request.party, source=Invoice.REPAIR).select_related("repair_ticket").prefetch_related("items")
         return Response({
             "tickets": PortalRepairTicketSerializer(tickets, many=True).data,
             "invoices": PortalRepairInvoiceSerializer(invoices, many=True).data,

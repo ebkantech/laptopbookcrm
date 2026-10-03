@@ -4,15 +4,22 @@ from rest_framework import serializers
 
 from catalog.models import Stock
 from .models import Invoice, InvoiceItem, PaymentLink
+from .services import create_invoice
 
 
 class InvoiceItemSerializer(serializers.ModelSerializer):
-    variant_code = serializers.CharField(source="variant.code", read_only=True)
-    product_name = serializers.CharField(source="variant.product.display_name", read_only=True)
+    variant_code = serializers.SerializerMethodField()
+    # Kept as product_name for existing callers: the line's label, i.e.
+    # the product for a sale line or the service/rent description.
+    product_name = serializers.CharField(source="label", read_only=True)
 
     class Meta:
         model = InvoiceItem
-        fields = ["id", "variant", "variant_code", "product_name", "qty", "price"]
+        fields = ["id", "variant", "variant_code", "product_name", "description", "qty", "price"]
+        read_only_fields = ["description"]
+
+    def get_variant_code(self, obj):
+        return obj.variant.code if obj.variant_id else None
 
 
 class PaymentLinkSerializer(serializers.ModelSerializer):
@@ -41,37 +48,57 @@ class InvoiceSerializer(serializers.ModelSerializer):
     total = serializers.IntegerField(read_only=True)
     settled_by_name = serializers.SerializerMethodField()
     payment_links = PaymentLinkSerializer(many=True, read_only=True)
+    source_label = serializers.CharField(source="get_source_display", read_only=True)
+    reference = serializers.SerializerMethodField()
 
     class Meta:
         model = Invoice
         fields = [
-            "id", "code", "party", "party_name", "stock_point", "stock_point_name",
+            "id", "code", "source", "source_label", "reference", "party", "party_name", "stock_point", "stock_point_name",
             "date", "status", "pay_method", "paid_on", "payment_reference", "settled_by_name",
-            "recurring_interval", "recurring_next",
+            "recurring_interval", "recurring_next", "repair_ticket", "rental", "period_start", "period_end",
             "items", "total", "payment_links",
         ]
         # Payment details are only ever written by the settle action, so
-        # every settlement goes through its validation and audit fields.
-        read_only_fields = ["code", "paid_on", "payment_reference"]
+        # every settlement goes through its validation and audit fields;
+        # repair/rental links are only ever set by those modules.
+        read_only_fields = [
+            "code", "source", "paid_on", "payment_reference", "repair_ticket", "rental", "period_start", "period_end",
+        ]
+
+    def get_reference(self, obj):
+        """What this invoice was raised for, in words, e.g. the repair
+        ticket or the rental agreement and month."""
+        if obj.source == Invoice.REPAIR and obj.repair_ticket_id:
+            return f"Repair {obj.repair_ticket.code}" + (" (follow-up visit)" if obj.repair_reopen_id else "")
+        if obj.source == Invoice.RENTAL and obj.rental_id:
+            label = obj.rental.agreement_code or f"Rental #{obj.rental_id}"
+            if obj.period_start and obj.period_end:
+                return f"{label} · {obj.period_start:%d %b %Y} – {obj.period_end:%d %b %Y}"
+            return label
+        return None
 
     def get_settled_by_name(self, obj):
         return (obj.settled_by.get_full_name() or obj.settled_by.username) if obj.settled_by else None
 
     def validate_items(self, items):
+        # This endpoint creates product sales only (repair/rental invoices
+        # are raised by their own modules): every line is a stock variant.
         if not items:
             raise serializers.ValidationError("An invoice needs at least one item.")
+        for item in items:
+            if not item.get("variant"):
+                raise serializers.ValidationError("Every sale line needs a product variant.")
+            if item.get("price", 0) < 0:
+                raise serializers.ValidationError("Prices can't be negative.")
         return items
 
     @transaction.atomic
     def create(self, validated_data):
         items = validated_data.pop("items")
-        last = Invoice.objects.order_by("-id").first()
-        next_num = 3320 + (last.id if last else 0) + 1
-        validated_data["code"] = f"INV-{next_num}"
         validated_data.setdefault("status", Invoice.LINK_SENT)
-        invoice = Invoice.objects.create(**validated_data)
+        invoice = create_invoice(source=Invoice.SALE, lines=items, **validated_data)
         for item in items:
-            InvoiceItem.objects.create(invoice=invoice, **item)
             # decrement shared stock at the point of sale -- this is what makes
             # stock "shared": a sale on any channel moves the same pool.
             Stock.objects.filter(

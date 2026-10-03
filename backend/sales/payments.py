@@ -198,6 +198,9 @@ def mark_link_paid(link, payment_id=None, rrn=None):
         invoice.paid_on = timezone.localdate()
         invoice.settled_by = None  # confirmed by the payment provider, not a person
         invoice.save(update_fields=["status", "pay_method", "payment_reference", "paid_on", "settled_by"])
+        from .services import on_invoice_paid
+
+        on_invoice_paid(invoice)
     # any other open links for the same invoice are now moot
     invoice.payment_links.exclude(pk=link.pk).filter(status=PaymentLink.SENT).update(status=PaymentLink.CANCELLED)
     return True

@@ -208,7 +208,7 @@ export default function Dashboard({ onGo }) {
       <div className="mt-5 flex flex-wrap gap-3">
         {data.sections.sales && <StatCard label="Sales revenue, paid" value={compact(data.revenue_paid)} icon={Receipt} />}
         {data.sections.repairs && <StatCard label="Repair revenue, paid" value={compact(data.repair_revenue_paid)} sub={`${data.repair_invoice_count} repair bill${data.repair_invoice_count !== 1 ? "s" : ""}`} icon={Wrench} />}
-        {data.sections.sales && <StatCard label="Pending collections" value={compact(data.pending_collections)} sub={`${data.open_invoice_count} invoices open`} trend={data.open_invoice_count ? "down" : undefined} icon={CreditCard} />}
+        {data.sections.sales && <StatCard label="Pending collections" value={compact(data.pending_collections)} sub={`${data.open_invoice_count} invoices open — sales, repairs & rent`} trend={data.open_invoice_count ? "down" : undefined} icon={CreditCard} />}
         {data.sections.stock && <StatCard label="Stock on hand" value={`${data.total_stock_units} units`} sub={`${compact(data.stock_value)} at cost`} icon={Package} />}
         {data.sections.stock && <StatCard label="Low stock alerts" value={data.low_stock_count} sub="4 units or fewer" trend={data.low_stock_count ? "down" : undefined} icon={AlertTriangle} />}
         {data.sections.rentals && <StatCard label="Rentals at churn risk" value={data.rentals_at_risk} sub={`${data.rental_device_count ?? data.rental_count} devices across ${data.rental_count} active agreements`} trend={data.rentals_at_risk ? "down" : undefined} icon={Repeat2} />}
@@ -220,8 +220,8 @@ export default function Dashboard({ onGo }) {
         <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
           {data.sections.sales && data.monthly_revenue && (
             <div className="p-4" style={cardStyle}>
-              <p className="text-sm" style={{ fontFamily: F.body, fontWeight: 700, color: C.ink }}>Revenue by month — sales & repairs, paid</p>
-              <p className="text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>last 6 months, real figures from invoices and repair bills</p>
+              <p className="text-sm" style={{ fontFamily: F.body, fontWeight: 700, color: C.ink }}>Revenue by month — sales, repairs & rentals, paid</p>
+              <p className="text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>last 6 months, from paid invoices in Sales & Invoices</p>
               <div className="mt-3" style={{ height: 230 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={data.monthly_revenue}>
@@ -232,6 +232,7 @@ export default function Dashboard({ onGo }) {
                     <Legend wrapperStyle={{ fontFamily: F.body, fontSize: 11, color: C.inkSoft }} />
                     <Line type="monotone" dataKey="sales" name="Sales" stroke={C.stamp} strokeWidth={2} dot={false} />
                     <Line type="monotone" dataKey="repairs" name="Repairs" stroke={C.amber} strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="rentals" name="Rentals" stroke={C.blue} strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>

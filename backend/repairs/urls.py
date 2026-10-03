@@ -3,7 +3,6 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     RepairApprovalPublicView,
-    RepairInvoiceViewSet,
     RepairOrderApprovalPublicView,
     RepairOrderViewSet,
     RepairTicketViewSet,
@@ -12,7 +11,6 @@ from .views import (
 router = DefaultRouter()
 router.register("tickets", RepairTicketViewSet, basename="repairticket")
 router.register("repair-orders", RepairOrderViewSet, basename="repairorder")
-router.register("repair-invoices", RepairInvoiceViewSet, basename="repairinvoice")
 
 urlpatterns = [
     path(

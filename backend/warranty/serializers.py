@@ -41,6 +41,8 @@ class WarrantySerializer(serializers.ModelSerializer):
         if section == Warranty.SALES:
             if not invoice:
                 raise serializers.ValidationError({"invoice": "Pick the paid invoice this warranty covers."})
+            if invoice.source != Invoice.SALE:
+                raise serializers.ValidationError({"invoice": "Sales warranties are raised against product sale invoices only."})
             if invoice.status != Invoice.PAID:
                 raise serializers.ValidationError({"invoice": "This invoice isn't marked Paid yet -- settle it before raising a sales warranty."})
             if invoice.party_id != party.id:

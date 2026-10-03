@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from parties.models import Party
 from rentals.models import Rental
-from repairs.models import RepairInvoice, RepairTicket
+from repairs.models import RepairTicket
 from sales.models import Invoice
 from warranty.models import Warranty
 from .models import Feedback, PortalAccessLog, PortalInvite
@@ -25,16 +25,17 @@ class PortalInvoiceSerializer(serializers.ModelSerializer):
 
     def get_items(self, obj):
         return [
-            {"product": i.variant.product.display_name, "spec": i.variant.spec, "qty": i.qty, "price": i.price}
+            {"product": i.label, "spec": i.variant.spec if i.variant_id else "", "qty": i.qty, "price": i.price}
             for i in obj.items.all()
         ]
 
 
 class PortalRepairInvoiceSerializer(serializers.ModelSerializer):
-    ticket_code = serializers.CharField(source="ticket.code", read_only=True)
+    ticket_code = serializers.CharField(source="repair_ticket.code", read_only=True)
+    amount = serializers.IntegerField(source="total", read_only=True)
 
     class Meta:
-        model = RepairInvoice
+        model = Invoice
         fields = ["id", "code", "ticket_code", "amount", "status", "date"]
 
 

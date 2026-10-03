@@ -21,7 +21,7 @@ class PartyInvoiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Invoice
         fields = [
-            "id", "code", "date", "status", "stock_point_name", "total",
+            "id", "code", "source", "date", "status", "stock_point_name", "total",
             "item_count", "pay_method", "recurring_interval",
         ]
 

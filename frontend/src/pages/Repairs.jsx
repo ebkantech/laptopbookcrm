@@ -400,6 +400,19 @@ function ReopenModal({ ticket, services, onClose, onReopened }) {
   );
 }
 
+/* A repair job's invoice as seen from the Repairs module: raised here,
+ * paid in Sales & Invoices, so only its status is shown. */
+function RepairInvoiceRow({ label, invoice }) {
+  const paid = invoice.status === "Paid";
+  const color = paid ? C.green : C.amber;
+  return (
+    <div className="mt-2 flex items-center justify-between px-3 py-2.5" style={{ backgroundColor: `${color}17`, border: `1px solid ${color}` }}>
+      <span className="flex items-center gap-1.5 text-sm" style={{ fontFamily: F.body, color: C.ink }}><PackageCheck size={14} style={{ color }} />{label}</span>
+      <Pill color={color}>{paid ? (invoice.pay_method === "No charge" ? "No charge" : "Paid") : "Awaiting payment"}</Pill>
+    </div>
+  );
+}
+
 function TicketDetail({ ticketId, onClose, onChanged }) {
   const { can } = useSession();
   const [ticket, setTicket] = useState(null);
@@ -480,18 +493,15 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
 
         {ticket.status === "Delivered" ? (
           <>
-            {ticket.invoice && (
-              <div className="mt-3 flex items-center justify-between px-3 py-2.5" style={{ backgroundColor: `${C.green}17`, border: `1px solid ${C.green}` }}>
-                <span className="flex items-center gap-1.5 text-sm" style={{ fontFamily: F.body, color: C.ink }}><PackageCheck size={14} style={{ color: C.green }} />{ticket.invoice.code} · {ticket.invoice.stock_point_name}</span>
-                <Pill color={C.green}>{ticket.invoice.status}</Pill>
-              </div>
-            )}
+            {ticket.invoice && <RepairInvoiceRow label={`${ticket.invoice.code} · ${ticket.invoice.stock_point_name}`} invoice={ticket.invoice} />}
             {settledReopens.map((r) => (
-              <div key={r.id} className="mt-2 flex items-center justify-between px-3 py-2.5" style={{ backgroundColor: `${C.green}17`, border: `1px solid ${C.green}` }}>
-                <span className="flex items-center gap-1.5 text-sm" style={{ fontFamily: F.body, color: C.ink }}><PackageCheck size={14} style={{ color: C.green }} />Follow-up · {r.invoice.code} · {money(r.invoice.amount)}</span>
-                <Pill color={C.green}>{r.invoice.status}</Pill>
-              </div>
+              <RepairInvoiceRow key={r.id} label={`Follow-up · ${r.invoice.code} · ${money(r.invoice.amount)}`} invoice={r.invoice} />
             ))}
+            {[ticket.invoice, ...settledReopens.map((r) => r.invoice)].some((inv) => inv && inv.status !== "Paid") && (
+              <p className="mt-2 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
+                Payment is collected in Sales &amp; Invoices — record it or send a UPI link there.
+              </p>
+            )}
             {can("repairs.manage") && ticket.can_reopen && (
               <button onClick={async () => { setTicket(await api.get(`/tickets/${ticket.id}/`)); setReopening(true); }} className="mt-3 flex w-full items-center justify-center gap-1.5 py-2.5 text-xs uppercase" style={{ backgroundColor: C.amber, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em" }}>
                 <Truck size={13} /> Device came back -- reopen ticket
@@ -507,7 +517,7 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
             )}
             {ticket.status === "Ready for pickup" && can("repairs.manage") && (
               <button onClick={settle} className="mt-2 flex w-full items-center justify-center gap-1.5 py-2.5 text-xs uppercase" style={{ backgroundColor: C.green, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em" }}>
-                <IndianRupee size={13} /> Mark delivered — generate & settle bill
+                <IndianRupee size={13} /> Mark delivered — raise invoice
               </button>
             )}
           </>
@@ -575,7 +585,7 @@ function KanbanBoard({ tickets, canManage, onOpen, onMoved, onError }) {
 
     if (targetStage === "Delivered") {
       if (ticket.status !== "Ready for pickup") {
-        onError("Only tickets that are Ready for pickup can be dropped into Delivered -- it settles the bill.");
+        onError("Only tickets that are Ready for pickup can be dropped into Delivered -- it raises the invoice.");
         return;
       }
       const previous = ticket;

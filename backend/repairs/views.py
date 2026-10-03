@@ -14,14 +14,16 @@ from rest_framework.views import APIView
 from accounts.permissions import HasPerm
 from catalog.models import Service
 from crmbook_backend.notify import notify_staff, send_email, send_whatsapp
-from .models import Notification, RepairInvoice, RepairOrder, RepairReopen, RepairReopenItem, RepairTicket, RepairTicketEvent
+from sales.models import Invoice
+from sales.services import create_invoice
+
+from .models import Notification, RepairOrder, RepairReopen, RepairReopenItem, RepairTicket, RepairTicketEvent
 from .serializers import (
     CreateRepairOrderSerializer,
     FinalizeEstimateSerializer,
     PublicApprovalDecisionSerializer,
     PublicRepairApprovalSerializer,
     PublicRepairOrderApprovalSerializer,
-    RepairInvoiceListSerializer,
     RepairOrderSerializer,
     RepairTicketSerializer,
     StaffApprovalSerializer,
@@ -256,50 +258,62 @@ class RepairTicketViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def settle(self, request, pk=None):
         """
-        Settles whichever is currently open: an active reopen if one
-        exists, otherwise the original job. Each gets its own
-        RepairInvoice -- settling a reopen never touches or re-charges
-        what was already billed on the original delivery.
+        Deliver the job and raise its invoice in Sales & Invoices -- an
+        active reopen gets its own follow-up invoice, otherwise the
+        original job is billed. Payment is NOT taken here: the invoice is
+        left awaiting payment and settled from Sales & Invoices like any
+        other (a zero-balance bill, e.g. warranty work, is closed at once).
         """
         ticket = self.get_object()
         active_reopen = ticket.active_reopen
 
         if active_reopen:
-            amount = active_reopen.total
-            invoice = RepairInvoice.objects.create(
-                ticket=ticket, reopen=active_reopen, code=f"RPR-INV-{ticket.code.split('-')[1]}-R{active_reopen.id}",
-                amount=amount, stock_point=ticket.stock_point, status="Paid", date=timezone.now().date(),
-            )
-            wa_text = (
-                f"Thank you! {invoice.code} settled -- {'no charge, covered under warranty.' if amount == 0 else 'amount collected on delivery.'}"
-            )
-            email_text = f"Invoice {invoice.code} generated at {ticket.stock_point.name} and marked paid."
+            lines = [
+                {
+                    "description": item.service.label + (" (covered under warranty)" if item.covered_by_warranty else ""),
+                    "qty": 1, "price": item.charge,
+                }
+                for item in active_reopen.items.select_related("service")
+            ]
+            what = f"follow-up visit on {ticket.code}"
         else:
             if ticket.original_invoice:
-                return Response({"detail": "Already settled."}, status=400)
+                return Response({"detail": "Already invoiced."}, status=400)
             if not ticket.has_repair_approval:
                 return Response({"detail": "A final customer, Admin, or Super Admin approval is required before settlement."}, status=400)
-            amount = ticket.total - ticket.advance_paid
-            invoice = RepairInvoice.objects.create(
-                ticket=ticket, reopen=None, code=f"RPR-INV-{ticket.code.split('-')[1]}", amount=amount,
-                stock_point=ticket.stock_point, status="Paid", date=timezone.now().date(),
-            )
-            wa_text = f"Thank you! {invoice.code} settled -- amount collected on delivery."
-            email_text = f"Invoice {invoice.code} generated at {ticket.stock_point.name} and marked paid."
+            estimate = ticket.current_estimate
+            if estimate:
+                lines = [{"description": line.description, "qty": line.quantity, "price": line.unit_price} for line in estimate.lines.all()]
+            else:
+                lines = [{"description": svc.label, "qty": 1, "price": svc.charge} for svc in ticket.services.all()]
+            if ticket.advance_paid:
+                lines.append({"description": "Less: advance received", "qty": 1, "price": -ticket.advance_paid})
+            what = f"repair {ticket.code}"
 
-        ticket.status = RepairTicket.DELIVERED
-        ticket.save(update_fields=["status"])
+        amount = sum(line["qty"] * line["price"] for line in lines)
+        today = timezone.localdate()
+        payment = (
+            {"status": Invoice.PAID, "pay_method": "No charge", "paid_on": today,
+             "payment_reference": "Nothing due (warranty / advance covered it)"}
+            if amount <= 0 else {"status": Invoice.LINK_SENT}
+        )
+        with transaction.atomic():
+            invoice = create_invoice(
+                source=Invoice.REPAIR, repair_ticket=ticket, repair_reopen=active_reopen,
+                party=ticket.party, stock_point=ticket.stock_point, date=today, lines=lines, **payment,
+            )
+            ticket.status = RepairTicket.DELIVERED
+            ticket.save(update_fields=["status"])
+
+        if amount <= 0:
+            wa_text = f"Thank you! Your {what} is complete -- invoice {invoice.code}, nothing to pay."
+        else:
+            wa_text = f"Your {what} is ready. Invoice {invoice.code} for Rs {amount} has been raised -- please pay to complete."
+        email_text = f"Invoice {invoice.code} raised at {ticket.stock_point.name} for {what}: Rs {max(amount, 0)}."
         Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=wa_text)
         Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=email_text)
         send_whatsapp(ticket.party.phone, wa_text)
-        send_email(ticket.party.email, f"Invoice {invoice.code} settled", email_text)
-        # Task 2 wiring: "any payment done" -- who actually gets pinged is
-        # configured on Settings > Staff alerts, not hardcoded here.
-        notify_staff(
-            "payment_received",
-            f"Repair invoice {invoice.code} settled",
-            f"Repair invoice {invoice.code} for {ticket.party.name} was marked paid -- ₹{invoice.amount}.",
-        )
+        send_email(ticket.party.email, f"Invoice {invoice.code}", email_text)
         return Response(RepairTicketSerializer(self._fresh(ticket)).data)
 
     @action(detail=True, methods=["post"])
@@ -505,21 +519,3 @@ class RepairOrderApprovalPublicView(APIView):
         )
         return _private_response(PublicRepairOrderApprovalSerializer(approval).data)
 
-
-class RepairInvoiceViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    Repair bills, listable on their own -- this is what lets the Sales
-    & Invoices screen (and the Dashboard's revenue figure) show repair
-    income instead of it being visible only inside the Repairs module.
-    """
-    queryset = RepairInvoice.objects.select_related("ticket__party", "stock_point").all()
-    serializer_class = RepairInvoiceListSerializer
-    permission_classes = [permissions.IsAuthenticated, HasPerm]
-    required_perm = "repairs.view"
-
-    def get_queryset(self):
-        qs = super().get_queryset()
-        status_ = self.request.query_params.get("status")
-        if status_:
-            qs = qs.filter(status=status_)
-        return qs.order_by("-date", "-id")

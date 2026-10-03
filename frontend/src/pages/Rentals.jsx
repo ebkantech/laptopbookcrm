@@ -10,6 +10,7 @@ import { Eyebrow, Pill, PillButton, Spinner, ErrorNote } from "../components/Ato
 import PageHeader from "../components/PageHeader";
 import { PartyChatModal } from "../components/PartyThread";
 import RentalAgreementModal from "../components/rentals/RentalAgreementModal";
+import RentInvoices from "../components/rentals/RentInvoices";
 
 const BAND_COLOR = { "High risk": C.carbon, Watch: C.amber, Healthy: C.green };
 const ISSUE_STATUS_COLOR = { Open: C.carbon, "In progress": C.amber, Resolved: C.green };
@@ -247,8 +248,10 @@ export default function Rentals() {
                 <div><p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Tenure</p><p className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{r.months_paid}/{r.tenure_months} mo</p></div>
                 <div><p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Months left</p><p className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{left}</p></div>
                 <div><p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Late payments</p><p className="text-sm" style={{ fontFamily: F.mono, color: r.late_count ? C.carbon : C.ink }}>{r.late_count}</p></div>
-                <div><p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Last payment</p><p className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{fmt(r.last_payment)}</p></div>
+                <div><p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Last month paid</p><p className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{r.months_paid ? fmt(r.last_payment) : "—"}</p></div>
               </div>
+
+              <RentInvoices rental={r} canRaise={can("rentals.manage")} onChanged={(updated) => setRentals((list) => list.map((x) => (x.id === updated.id ? updated : x)))} />
 
               <div className="mt-3 flex flex-wrap gap-2">
                 {can("rentals.manage") && r.lines?.length > 0 && r.approval_status !== "approved" && <button onClick={() => generateApprovalLink(r.id)} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs" style={{ border: `1px solid ${C.green}`, color: C.green, fontFamily: F.body, fontWeight: 600 }}><Link2 size={12} /> Generate approval link</button>}
