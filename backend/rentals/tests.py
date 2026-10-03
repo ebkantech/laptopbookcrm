@@ -1,16 +1,27 @@
+import shutil
+import tempfile
 from datetime import date
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from accounts.models import Role
 from parties.models import Party
 from rentals.models import Rental, RentalApproval, RentalAsset, RentalEvent, RentalLine
 from rentals.services import RentalApprovalLinkGone, customer_decide, issue_approval_link
+from crmbook_backend.testing import complete_handover
+
+TEST_MEDIA = tempfile.mkdtemp(prefix="crmbook-test-media-")
 
 
+@override_settings(MEDIA_ROOT=TEST_MEDIA)
 class RentalApprovalWorkflowTests(TestCase):
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        shutil.rmtree(TEST_MEDIA, ignore_errors=True)
+
     def setUp(self):
         self.user = get_user_model().objects.create_user(
             username="rental-approval-admin", password="safe-test-password", is_superuser=True
@@ -34,8 +45,8 @@ class RentalApprovalWorkflowTests(TestCase):
         self.asset_two = RentalAsset.objects.create(
             asset_tag="AST-TEST-2", serial_number="SERIAL-TEST-2", brand="Lenovo", model_name="ThinkPad T14"
         )
-        RentalLine.objects.create(rental=self.rental, asset=self.asset_one, monthly_fee=2000)
-        RentalLine.objects.create(rental=self.rental, asset=self.asset_two, monthly_fee=2500)
+        complete_handover(RentalLine.objects.create(rental=self.rental, asset=self.asset_one, monthly_fee=2000), self.user)
+        complete_handover(RentalLine.objects.create(rental=self.rental, asset=self.asset_two, monthly_fee=2500), self.user)
         self.client = APIClient()
         self.client.force_authenticate(self.user)
 
