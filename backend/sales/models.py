@@ -48,3 +48,38 @@ class InvoiceItem(models.Model):
 
 
 PAYMENT_METHODS = ["Cash", "UPI", "Bank transfer", "Card", "Cheque", "Other"]
+
+
+class PaymentLink(models.Model):
+    """
+    One UPI payment link sent for an invoice: to which number, whether
+    that number was confirmed to have UPI (and how), who sent it, and
+    what came of it. See sales/payments.py for the flow.
+    """
+    SENT, PAID, CANCELLED, FAILED = "sent", "paid", "cancelled", "failed"
+    STATUS_CHOICES = [(SENT, "Sent"), (PAID, "Paid"), (CANCELLED, "Cancelled"), (FAILED, "Failed")]
+    # How the number's UPI registration was established before sending.
+    UPI_VERIFIED, UPI_STAFF_CONFIRMED = "verified", "staff_confirmed"
+    UPI_CHECK_CHOICES = [
+        (UPI_VERIFIED, "Verified by lookup"),
+        (UPI_STAFF_CONFIRMED, "Confirmed with customer by staff"),
+    ]
+
+    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name="payment_links")
+    phone = models.CharField(max_length=10, help_text="10-digit Indian mobile number the link was sent to.")
+    upi_check = models.CharField(max_length=20, choices=UPI_CHECK_CHOICES)
+    amount = models.PositiveIntegerField(help_text="Rupees, at the time the link was sent.")
+    provider = models.CharField(max_length=20)
+    provider_link_id = models.CharField(max_length=64, blank=True, db_index=True)
+    url = models.URLField(blank=True)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=SENT)
+    sent_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="payment_links_sent")
+    created_at = models.DateTimeField(auto_now_add=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
+    provider_payment_id = models.CharField(max_length=64, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.invoice.code} → ******{self.phone[-4:]} ({self.status})"

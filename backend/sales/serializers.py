@@ -3,7 +3,7 @@ from django.db.models import F
 from rest_framework import serializers
 
 from catalog.models import Stock
-from .models import Invoice, InvoiceItem
+from .models import Invoice, InvoiceItem, PaymentLink
 
 
 class InvoiceItemSerializer(serializers.ModelSerializer):
@@ -15,12 +15,32 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
         fields = ["id", "variant", "variant_code", "product_name", "qty", "price"]
 
 
+class PaymentLinkSerializer(serializers.ModelSerializer):
+    phone_masked = serializers.SerializerMethodField()
+    sent_by_name = serializers.SerializerMethodField()
+    upi_check_label = serializers.CharField(source="get_upi_check_display", read_only=True)
+
+    class Meta:
+        model = PaymentLink
+        fields = [
+            "id", "phone_masked", "upi_check", "upi_check_label", "amount", "provider", "url",
+            "status", "sent_by_name", "created_at", "paid_at", "provider_payment_id",
+        ]
+
+    def get_phone_masked(self, obj):
+        return f"******{obj.phone[-4:]}"
+
+    def get_sent_by_name(self, obj):
+        return obj.sent_by.get_full_name() or obj.sent_by.username
+
+
 class InvoiceSerializer(serializers.ModelSerializer):
     items = InvoiceItemSerializer(many=True)
     party_name = serializers.CharField(source="party.name", read_only=True)
     stock_point_name = serializers.CharField(source="stock_point.name", read_only=True)
     total = serializers.IntegerField(read_only=True)
     settled_by_name = serializers.SerializerMethodField()
+    payment_links = PaymentLinkSerializer(many=True, read_only=True)
 
     class Meta:
         model = Invoice
@@ -28,7 +48,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "id", "code", "party", "party_name", "stock_point", "stock_point_name",
             "date", "status", "pay_method", "paid_on", "payment_reference", "settled_by_name",
             "recurring_interval", "recurring_next",
-            "items", "total",
+            "items", "total", "payment_links",
         ]
         # Payment details are only ever written by the settle action, so
         # every settlement goes through its validation and audit fields.

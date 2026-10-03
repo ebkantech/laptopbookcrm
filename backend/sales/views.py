@@ -1,18 +1,26 @@
+import json
 from datetime import date
 
 from django.conf import settings
+from django.db import transaction
 from rest_framework import permissions, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from accounts.permissions import HasPerm
 from crmbook_backend.notify import notify_staff
-from .models import PAYMENT_METHODS, Invoice
+from parties.models import Message
+
+from . import payments
+from .models import PAYMENT_METHODS, Invoice, PaymentLink
 from .serializers import InvoiceSerializer
 
 
 class InvoiceViewSet(viewsets.ModelViewSet):
-    queryset = Invoice.objects.select_related("party", "stock_point", "settled_by").prefetch_related("items__variant__product").all()
+    queryset = Invoice.objects.select_related("party", "stock_point", "settled_by").prefetch_related(
+        "items__variant__product", "payment_links__sent_by",
+    ).all()
     serializer_class = InvoiceSerializer
     permission_classes = [permissions.IsAuthenticated, HasPerm]
     required_perms = {
@@ -21,6 +29,10 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         "partial_update": "invoices.create", "destroy": "invoices.create",
         "settle": "invoices.settle",
         "print_data": "invoices.view",
+        "upi_check": "payments.send_link",
+        "send_upi_link": "payments.send_link",
+        "refresh_payment": "payments.send_link",
+        "simulate_payment": "invoices.settle",
     }
 
     def get_queryset(self):
@@ -112,3 +124,156 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             "total_qty": sum(i["qty"] for i in items),
             "total": sum(i["amount"] for i in items),
         })
+
+    # -------------------------------------------------------------- #
+    #  UPI payment links -- see sales/payments.py for the whole flow.
+    # -------------------------------------------------------------- #
+
+    def _refuse_repair_staff(self, request):
+        """Payment links are never sent by Repair Staff, even if a role
+        edit ever hands that role payments.send_link by mistake."""
+        role = getattr(request.user, "role", None)
+        if not request.user.is_superuser and role and role.slug == "repair_staff":
+            return Response({"detail": "Repair staff can't send payment links."}, status=403)
+        return None
+
+    def _phone_from(self, request, invoice):
+        raw = request.data.get("phone") or invoice.party.phone
+        phone = payments.normalize_mobile(raw)
+        if not phone:
+            return None, Response({"detail": f"\"{raw or ''}\" isn't a valid 10-digit Indian mobile number."}, status=400)
+        return phone, None
+
+    @action(detail=True, methods=["post"], url_path="upi-check")
+    def upi_check(self, request, pk=None):
+        """Is this number (default: the customer's number on file) on UPI?"""
+        refused = self._refuse_repair_staff(request)
+        if refused:
+            return refused
+        invoice = self.get_object()
+        phone, error = self._phone_from(request, invoice)
+        if error:
+            return error
+        result = payments.check_upi_linked(phone)
+        return Response({
+            "phone": phone,
+            "is_customer_number": phone == payments.normalize_mobile(invoice.party.phone),
+            **result,
+        })
+
+    @action(detail=True, methods=["post"], url_path="send-upi-link")
+    def send_upi_link(self, request, pk=None):
+        """
+        Body: {"phone": "98xxxxxxxx", "staff_confirmed_upi": false}.
+        The number is re-checked here (never trust the earlier check
+        alone): a number with no UPI is refused; if the check can't run,
+        the sender must confirm they've verified it with the customer.
+        """
+        refused = self._refuse_repair_staff(request)
+        if refused:
+            return refused
+        invoice = self.get_object()
+        if invoice.status == Invoice.PAID:
+            return Response({"detail": "This invoice is already paid."}, status=400)
+        if invoice.total <= 0:
+            return Response({"detail": "This invoice has no amount to collect."}, status=400)
+        phone, error = self._phone_from(request, invoice)
+        if error:
+            return error
+
+        check = payments.check_upi_linked(phone)
+        if check["status"] == payments.NOT_LINKED:
+            return Response({"detail": "This number isn't linked to UPI -- ask the customer for a number that has UPI.", "upi_status": check["status"]}, status=400)
+        if check["status"] == payments.UNKNOWN and request.data.get("staff_confirmed_upi") is not True:
+            return Response({"detail": "Couldn't check this number automatically -- confirm with the customer that it has UPI, then tick the confirmation.", "upi_status": check["status"]}, status=400)
+        upi_check = PaymentLink.UPI_VERIFIED if check["status"] == payments.LINKED else PaymentLink.UPI_STAFF_CONFIRMED
+
+        sender = request.user.get_full_name() or request.user.username
+        description = (
+            f"Hi {invoice.party.name}, {sender} from {settings.BUSINESS_NAME} has sent you a UPI payment link "
+            f"for invoice {invoice.code} of Rs {invoice.total}."
+        )
+        try:
+            created = payments.create_upi_link(invoice, phone, sender, description)
+        except payments.PaymentProviderError as e:
+            return Response({"detail": str(e)}, status=502)
+
+        with transaction.atomic():
+            # a fresh link supersedes any earlier unpaid one
+            invoice.payment_links.filter(status=PaymentLink.SENT).update(status=PaymentLink.CANCELLED)
+            link = PaymentLink.objects.create(
+                invoice=invoice, phone=phone, upi_check=upi_check, amount=invoice.total,
+                provider=payments.payment_provider(), provider_link_id=created["provider_link_id"],
+                url=created["url"], sent_by=request.user,
+            )
+            if invoice.status != Invoice.OVERDUE:
+                invoice.status = Invoice.LINK_SENT
+                invoice.save(update_fields=["status"])
+            Message.objects.create(
+                party=invoice.party, channel=Message.SMS, direction=Message.OUT,
+                body=f"{description} Pay here: {created['url']} (sent to ******{phone[-4:]})",
+            )
+        invoice.refresh_from_db()
+        return Response(InvoiceSerializer(invoice).data, status=201)
+
+    @action(detail=True, methods=["post"], url_path="refresh-payment")
+    def refresh_payment(self, request, pk=None):
+        """Ask the payment provider whether the open link has been paid --
+        for when the webhook can't reach this server (e.g. running locally)."""
+        refused = self._refuse_repair_staff(request)
+        if refused:
+            return refused
+        invoice = self.get_object()
+        link = invoice.payment_links.filter(status=PaymentLink.SENT).first()
+        if not link:
+            return Response({"detail": "No open payment link for this invoice."}, status=400)
+        try:
+            result = payments.fetch_link_payment(link)
+        except payments.PaymentProviderError as e:
+            return Response({"detail": str(e)}, status=502)
+        if result["paid"]:
+            payments.mark_link_paid(link, payment_id=result["payment_id"], rrn=result["rrn"])
+        invoice.refresh_from_db()
+        return Response({"paid": result["paid"], "invoice": InvoiceSerializer(invoice).data})
+
+    @action(detail=True, methods=["post"], url_path="simulate-payment")
+    def simulate_payment(self, request, pk=None):
+        """Sandbox only: pretend the customer paid the open link, to try the
+        paid path without real money."""
+        invoice = self.get_object()
+        link = invoice.payment_links.filter(status=PaymentLink.SENT, provider="sandbox").first()
+        if not link:
+            return Response({"detail": "No open sandbox payment link for this invoice."}, status=400)
+        payments.mark_link_paid(link, payment_id=f"sandbox_pay_{link.pk}", rrn="000000000000")
+        invoice.refresh_from_db()
+        return Response(InvoiceSerializer(invoice).data)
+
+
+class RazorpayWebhookView(APIView):
+    """
+    Razorpay calls this when a payment link is paid (subscribe to the
+    "payment_link.paid" event in the Razorpay dashboard). Authenticated
+    only by the HMAC signature over the raw body, using
+    RAZORPAY_WEBHOOK_SECRET -- anything unsigned or mis-signed is refused.
+    """
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        raw = request.body
+        if not payments.verify_razorpay_signature(raw, request.headers.get("X-Razorpay-Signature", "")):
+            return Response({"detail": "invalid signature"}, status=400)
+        try:
+            event = json.loads(raw)
+        except ValueError:
+            return Response({"detail": "invalid body"}, status=400)
+        if event.get("event") != "payment_link.paid":
+            return Response({"status": "ignored"})
+        payload = event.get("payload", {})
+        link_id = payload.get("payment_link", {}).get("entity", {}).get("id")
+        payment = payload.get("payment", {}).get("entity", {})
+        link = PaymentLink.objects.select_related("invoice").filter(provider="razorpay", provider_link_id=link_id).first()
+        if not link:
+            return Response({"status": "unknown link"})
+        payments.mark_link_paid(link, payment_id=payment.get("id"), rrn=(payment.get("acquirer_data") or {}).get("rrn"))
+        return Response({"status": "ok"})
