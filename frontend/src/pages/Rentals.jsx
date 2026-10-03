@@ -152,8 +152,10 @@ export default function Rentals() {
   useEffect(() => {
     api.get("/rentals/").then((d) => setRentals(d.results ?? d)).catch((e) => setError(e.message));
     api.get("/users/").then((d) => setStaff(d.results ?? d));
-    api.get("/parties/").then((d) => setParties(d.results ?? d));
-    api.get("/rental-assets/").then((d) => setAssets(d.results ?? d));
+    // every customer and asset, not just the API's first page of 50 --
+    // an asset missing from the picker got re-registered as a "duplicate"
+    api.getAll("/parties/").then(setParties);
+    api.getAll("/rental-assets/").then(setAssets);
     if (can("portal.manage")) {
       // Latest portal login per party -- shown as a small line under each
       // rental card so staff can see whether the customer has actually
@@ -332,8 +334,8 @@ export default function Rentals() {
           onCreated={(issue) => { patchRental(raisingFor, issue); setRaisingFor(null); }} />
       )}
       {chatWith && <PartyChatModal partyId={chatWith.id} partyName={chatWith.name} onClose={() => setChatWith(null)} />}
-      {rentalAction && <RentalActionModal {...rentalAction} onClose={() => setRentalAction(null)} onCompleted={(updated) => { setRentals((current) => current.map((item) => item.id === updated.id ? updated : item)); setRentalAction(null); api.get("/rental-assets/").then((data) => setAssets(data.results ?? data)); }} />}
-      {creating && <RentalAgreementModal parties={parties} initialAssets={assets} onClose={() => setCreating(false)} onCreated={(created) => { setRentals((current) => [created, ...current]); setCreating(false); setHandoverFor(created.id); api.get("/rental-assets/").then((data) => setAssets(data.results ?? data)); }} />}
+      {rentalAction && <RentalActionModal {...rentalAction} onClose={() => setRentalAction(null)} onCompleted={(updated) => { setRentals((current) => current.map((item) => item.id === updated.id ? updated : item)); setRentalAction(null); api.getAll("/rental-assets/").then(setAssets); }} />}
+      {creating && <RentalAgreementModal parties={parties} initialAssets={assets} onClose={() => setCreating(false)} onCreated={(created) => { setRentals((current) => [created, ...current]); setCreating(false); setHandoverFor(created.id); api.getAll("/rental-assets/").then(setAssets); }} />}
       {handoverFor && rentals.find((x) => x.id === handoverFor) && (
         <DeviceHandoverModal rental={rentals.find((x) => x.id === handoverFor)} onClose={() => setHandoverFor(null)} onChanged={() => refreshRental(handoverFor)} />
       )}

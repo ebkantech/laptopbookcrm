@@ -81,12 +81,58 @@ class RentalSerializer(serializers.ModelSerializer):
 
 
 class RentalAssetSerializer(serializers.ModelSerializer):
+    # Optional: left blank, the next AST-#### tag is generated on create.
+    asset_tag = serializers.CharField(max_length=48, required=False, allow_blank=True)
+
     class Meta:
         model = RentalAsset
         fields = ["id", "asset_tag", "serial_number", "brand", "model_name", "status", "created_at"]
         # Availability is a workflow state. It can only change when an
         # agreement is approved, rejected, cancelled, or closed.
         read_only_fields = ["status", "created_at"]
+        # uniqueness is checked case-insensitively in validate() instead,
+        # with a message that says where the existing asset is
+        validators = []
+
+    @staticmethod
+    def _where(asset):
+        line = asset.rental_lines.select_related("rental").order_by("-id").first()
+        if asset.status == RentalAsset.AVAILABLE:
+            return "it's available -- pick it from the device list instead of registering it again"
+        if line and asset.status in (RentalAsset.RESERVED, RentalAsset.RENTED):
+            return f"it's {asset.get_status_display().lower()} on agreement {line.rental.agreement_code or line.rental_id}"
+        return f"its status is {asset.get_status_display().lower()}"
+
+    def _duplicate(self, field, value, label):
+        qs = RentalAsset.objects.filter(**{f"{field}__iexact": value})
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        existing = qs.first()
+        if existing:
+            raise serializers.ValidationError({
+                field: f"{label} {existing.__getattribute__(field)} is already registered "
+                       f"({existing.brand} {existing.model_name}) -- {self._where(existing)}.",
+                "existing_asset": RentalAssetSerializer(existing).data,
+            })
+
+    def validate(self, attrs):
+        for key in ("asset_tag", "serial_number", "brand", "model_name"):
+            if key in attrs:
+                attrs[key] = attrs[key].strip()
+        if attrs.get("serial_number"):
+            self._duplicate("serial_number", attrs["serial_number"], "Serial number")
+        if attrs.get("asset_tag"):
+            self._duplicate("asset_tag", attrs["asset_tag"], "Asset tag")
+        elif self.instance is not None and "asset_tag" in attrs:
+            raise serializers.ValidationError({"asset_tag": "An asset tag can't be blank."})
+        return attrs
+
+    def create(self, validated_data):
+        if not validated_data.get("asset_tag"):
+            from catalog.utils import next_code
+
+            validated_data["asset_tag"] = next_code("AST", RentalAsset, "asset_tag")
+        return super().create(validated_data)
 
 
 class RentalLineSerializer(serializers.ModelSerializer):
