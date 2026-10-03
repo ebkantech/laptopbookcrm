@@ -1,12 +1,23 @@
 import { useEffect, useState } from "react";
-import { Check, Link2, Mail, Plus, Repeat2, ShieldCheck, X } from "lucide-react";
+import { Check, IndianRupee, Mail, Plus, Printer, Repeat2, ShieldCheck, X } from "lucide-react";
 import { C, F, fmt, money } from "../lib/theme";
 import { api } from "../lib/api";
 import { useSession } from "../context/SessionContext";
 import { Eyebrow, ErrorNote, Pill, PillButton, SearchInput, Spinner, TabBar } from "../components/Atoms";
 import PageHeader from "../components/PageHeader";
+import PrintableInvoice from "../components/invoices/PrintableInvoice";
 
 const STATUS_COLOR = { Paid: "#36D399", "Payment link sent": "#F5A623", Overdue: "#FB5B5B" };
+// "Payment link sent" is the stored status for an unpaid invoice, but no
+// payment link is actually generated or sent (no gateway is wired in),
+// so the screen says what it really means.
+const STATUS_LABEL = { "Payment link sent": "Awaiting payment" };
+const statusLabel = (s) => STATUS_LABEL[s] || s;
+const PAYMENT_METHODS = ["Cash", "UPI", "Bank transfer", "Card", "Cheque", "Other"];
+const REFERENCE_HINT = {
+  UPI: "UPI transaction ID / UTR", "Bank transfer": "UTR / NEFT / IMPS reference", Card: "Card slip / approval code",
+  Cheque: "Cheque number and bank", Other: "Reference", Cash: "Receipt number (optional)",
+};
 const WARRANTY_STATUS_COLOR = { Active: "#36D399", "Expiring soon": "#F5A623", Expired: "#FB5B5B" };
 
 function NewInvoiceModal({ parties, products, stockPoints, onClose, onCreate }) {
@@ -30,7 +41,7 @@ function NewInvoiceModal({ parties, products, stockPoints, onClose, onCreate }) 
       await onCreate({
         party, stock_point: stockPoint, date: new Date().toISOString().slice(0, 10),
         items: [{ variant: variant.id, qty, price: variant.sell_price }],
-        recurring_interval: recurring, pay_method: "Razorpay link",
+        recurring_interval: recurring,
       });
     } catch (e) {
       setError(e.message);
@@ -88,7 +99,7 @@ function NewInvoiceModal({ parties, products, stockPoints, onClose, onCreate }) 
 
         <ErrorNote message={error} />
         <button onClick={submit} disabled={busy} className="mt-5 flex w-full items-center justify-center gap-2 py-2.5 text-xs uppercase" style={{ backgroundColor: C.stamp, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em", opacity: busy ? 0.7 : 1 }}>
-          <Link2 size={13} /> {busy ? "Creating…" : "Generate invoice + payment link"}
+          <Plus size={13} /> {busy ? "Creating…" : "Generate invoice"}
         </button>
       </div>
     </div>
@@ -161,9 +172,58 @@ function WarrantyCard({ invoice, warranty, onGranted }) {
   );
 }
 
+/* Recording a payment received outside any gateway -- the method and
+ * the reference (UTR, cheque no. ...) are what let anyone match this
+ * invoice against the bank/UPI statement later. */
+function RecordPayment({ invoice, onSettle }) {
+  const [method, setMethod] = useState("UPI");
+  const [reference, setReference] = useState("");
+  const [paidOn, setPaidOn] = useState(new Date().toISOString().slice(0, 10));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async () => {
+    setError("");
+    if (method !== "Cash" && !reference.trim()) return setError(`Enter the ${REFERENCE_HINT[method]} so this payment can be traced.`);
+    setBusy(true);
+    try {
+      await onSettle(invoice.id, { pay_method: method, payment_reference: reference.trim(), paid_on: paidOn });
+    } catch (e) {
+      setError(e.body?.detail || e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const field = { fontFamily: F.body, color: C.ink, background: C.slip, border: `1px solid ${C.rule}` };
+  return (
+    <div className="mt-3 p-3" data-panel style={{ border: `1px solid ${C.rule}` }}>
+      <Eyebrow>Record payment received</Eyebrow>
+      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Method
+          <select value={method} onChange={(e) => setMethod(e.target.value)} className="mt-1 w-full px-2 py-1.5 text-sm outline-none" style={field}>
+            {PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}
+          </select>
+        </label>
+        <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Paid on
+          <input type="date" value={paidOn} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setPaidOn(e.target.value)} className="mt-1 w-full px-2 py-1.5 text-sm outline-none" style={{ ...field, fontFamily: F.mono }} />
+        </label>
+        <label className="block text-xs sm:col-span-2" style={{ fontFamily: F.body, color: C.inkSoft }}>{REFERENCE_HINT[method]}
+          <input value={reference} maxLength={80} onChange={(e) => setReference(e.target.value)} placeholder={method === "Cash" ? "Optional" : "Required"} className="mt-1 w-full px-2 py-1.5 text-sm outline-none" style={{ ...field, fontFamily: F.mono }} />
+        </label>
+      </div>
+      <ErrorNote message={error} />
+      <button onClick={submit} disabled={busy} className="mt-2 flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase" style={{ backgroundColor: C.green, color: C.onAccent, fontFamily: F.body, fontWeight: 600, opacity: busy ? 0.7 : 1 }}>
+        <Check size={12} /> {busy ? "Saving…" : `Mark paid — ${money(invoice.total)}`}
+      </button>
+    </div>
+  );
+}
+
 function InvoiceDetail({ invoice, onClose, onSettle }) {
   const { can } = useSession();
   const [warranty, setWarranty] = useState(undefined); // undefined = loading, null = none
+  const [printing, setPrinting] = useState(false);
 
   useEffect(() => {
     api.get(`/warranties/?invoice=${invoice.id}`).then((d) => {
@@ -180,13 +240,18 @@ function InvoiceDetail({ invoice, onClose, onSettle }) {
             <p style={{ fontFamily: F.display, fontWeight: 700, fontSize: 18, color: C.ink }}>{invoice.code}</p>
             <p className="mt-1 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{invoice.party_name} · {fmt(invoice.date)} · {invoice.stock_point_name}</p>
           </div>
-          <button onClick={onClose}><X size={18} style={{ color: C.inkSoft }} /></button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setPrinting(true)} className="flex items-center gap-1 px-2 py-1 text-xs" style={{ border: `1px solid ${C.rule}`, fontFamily: F.body, fontWeight: 600, color: C.ink }}>
+              <Printer size={12} /> Print
+            </button>
+            <button onClick={onClose}><X size={18} style={{ color: C.inkSoft }} /></button>
+          </div>
         </div>
 
         <div className="mt-4 space-y-1.5">
           {invoice.items.map((it) => (
             <div key={it.id} className="flex items-center justify-between px-3 py-2" style={{ backgroundColor: C.slip2 }}>
-              <span className="text-sm" style={{ fontFamily: F.body, color: C.ink }}>{it.product_name} <span style={{ fontFamily: F.mono, color: C.inkSoft, fontSize: 11 }}>×{it.qty}</span></span>
+              <span className="text-sm" style={{ fontFamily: F.body, color: C.ink }}>{it.product_name} <span style={{ fontFamily: F.mono, color: C.inkSoft, fontSize: 11 }}>{it.qty} × {money(it.price)}</span></span>
               <span className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{money(it.price * it.qty)}</span>
             </div>
           ))}
@@ -197,16 +262,23 @@ function InvoiceDetail({ invoice, onClose, onSettle }) {
           <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{money(invoice.total)}</span>
         </div>
         <div className="mt-2 flex items-center gap-2">
-          <Pill color={STATUS_COLOR[invoice.status]}>{invoice.status}</Pill>
-          {invoice.status !== "Paid" && can("invoices.settle") && (
-            <button onClick={() => onSettle(invoice.id)} className="flex items-center gap-1 px-2 py-1 text-xs" style={{ border: `1px solid ${C.green}`, color: C.green, fontFamily: F.body, fontWeight: 600 }}>
-              <Check size={11} /> Mark settled
-            </button>
-          )}
+          <Pill color={STATUS_COLOR[invoice.status]}>{statusLabel(invoice.status)}</Pill>
         </div>
+        {invoice.status === "Paid" ? (
+          invoice.paid_on ? (
+            <p className="mt-2 flex flex-wrap items-center gap-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
+              <IndianRupee size={11} /> Paid {fmt(invoice.paid_on)} via <b style={{ color: C.ink }}>{invoice.pay_method}</b>
+              {invoice.payment_reference && <> · ref <span style={{ fontFamily: F.mono, color: C.ink }}>{invoice.payment_reference}</span></>}
+              {invoice.settled_by_name && <> · recorded by {invoice.settled_by_name}</>}
+            </p>
+          ) : (
+            <p className="mt-2 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Marked paid before payment details were recorded{invoice.pay_method ? ` (${invoice.pay_method})` : ""}.</p>
+          )
+        ) : can("invoices.settle") && <RecordPayment invoice={invoice} onSettle={onSettle} />}
 
         {warranty === undefined ? <div className="mt-4"><Spinner /></div> : <WarrantyCard invoice={invoice} warranty={warranty} onGranted={setWarranty} />}
       </div>
+      {printing && <PrintableInvoice invoiceId={invoice.id} onClose={() => setPrinting(false)} />}
     </div>
   );
 }
@@ -245,8 +317,8 @@ export default function Invoices() {
     setAdding(false);
   };
 
-  const settle = async (id) => {
-    const inv = await api.post(`/invoices/${id}/settle/`);
+  const settle = async (id, payment) => {
+    const inv = await api.post(`/invoices/${id}/settle/`, payment);
     setInvoices((l) => l.map((i) => (i.id === id ? inv : i)));
     setOpenInvoice((cur) => (cur?.id === id ? inv : cur));
   };
@@ -278,7 +350,7 @@ export default function Invoices() {
           {source === "sales" && (
             <div className="overflow-x-auto">
               <TabBar
-                tabs={["all", "Paid", "Payment link sent", "Overdue"].map((s) => ({ id: s, label: s === "all" ? "All invoices" : s }))}
+                tabs={["all", "Paid", "Payment link sent", "Overdue"].map((s) => ({ id: s, label: s === "all" ? "All invoices" : statusLabel(s) }))}
                 value={statusFilter}
                 onChange={setStatusFilter}
               />
@@ -315,10 +387,10 @@ export default function Invoices() {
                 </div>
                 <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{inv.stock_point_name}</span>
                 <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 600, color: C.ink, minWidth: 96, textAlign: "right" }}>{money(inv.total)}</span>
-                <Pill color={STATUS_COLOR[inv.status]}>{inv.status}</Pill>
+                <Pill color={STATUS_COLOR[inv.status]}>{statusLabel(inv.status)}</Pill>
                 {inv.status !== "Paid" && can("invoices.settle") && (
-                  <button onClick={(e) => { e.stopPropagation(); settle(inv.id); }} className="flex items-center gap-1 px-2 py-1 text-xs" style={{ border: `1px solid ${C.green}`, color: C.green, fontFamily: F.body, fontWeight: 600 }}>
-                    <Check size={11} /> Mark settled
+                  <button onClick={(e) => { e.stopPropagation(); setOpenInvoice(inv); }} className="flex items-center gap-1 px-2 py-1 text-xs" style={{ border: `1px solid ${C.green}`, color: C.green, fontFamily: F.body, fontWeight: 600 }}>
+                    <IndianRupee size={11} /> Record payment
                   </button>
                 )}
               </div>

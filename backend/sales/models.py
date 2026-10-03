@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 from catalog.models import StockPoint, Variant
@@ -16,6 +17,15 @@ class Invoice(models.Model):
     date = models.DateField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=LINK_SENT)
     pay_method = models.CharField(max_length=40, blank=True)
+    # Recorded by staff when a payment is received (there is no payment
+    # gateway wired in, so this is the audit trail for every settlement):
+    # when it was paid, the UPI/UTR/cheque/card reference to match against
+    # the bank statement, and who recorded it.
+    paid_on = models.DateField(null=True, blank=True)
+    payment_reference = models.CharField(max_length=80, blank=True)
+    settled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="settled_invoices",
+    )
     recurring_interval = models.CharField(max_length=10, choices=RECURRING_CHOICES, blank=True)
     recurring_next = models.DateField(null=True, blank=True)
 
@@ -35,3 +45,6 @@ class InvoiceItem(models.Model):
     variant = models.ForeignKey(Variant, on_delete=models.PROTECT, related_name="invoice_items")
     qty = models.PositiveIntegerField(default=1)
     price = models.PositiveIntegerField(help_text="Snapshot of sell price at the time of sale.")
+
+
+PAYMENT_METHODS = ["Cash", "UPI", "Bank transfer", "Card", "Cheque", "Other"]

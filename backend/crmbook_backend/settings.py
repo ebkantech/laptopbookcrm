@@ -147,6 +147,14 @@ SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_AGE = int(os.environ.get("DJANGO_SESSION_COOKIE_AGE", 28800))
 CSRF_COOKIE_SAMESITE = "Lax"
 
+# Seller details printed at the top of every sales invoice. Per-branch
+# address/phone/GSTIN live on catalog.StockPoint; these are the
+# business-wide values (and the GSTIN fallback for branches without one).
+BUSINESS_NAME = os.environ.get("BUSINESS_NAME", "Vantage Computers")
+BUSINESS_GSTIN = os.environ.get("BUSINESS_GSTIN", "")
+BUSINESS_PHONE = os.environ.get("BUSINESS_PHONE", "")
+BUSINESS_EMAIL = os.environ.get("BUSINESS_EMAIL", "")
+
 # Set PUBLIC_FRONTEND_URL to the HTTPS customer-facing frontend origin in production.
 PUBLIC_FRONTEND_URL = os.environ.get("PUBLIC_FRONTEND_URL", "http://localhost:5174")
 

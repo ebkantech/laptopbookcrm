@@ -20,15 +20,22 @@ class InvoiceSerializer(serializers.ModelSerializer):
     party_name = serializers.CharField(source="party.name", read_only=True)
     stock_point_name = serializers.CharField(source="stock_point.name", read_only=True)
     total = serializers.IntegerField(read_only=True)
+    settled_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Invoice
         fields = [
             "id", "code", "party", "party_name", "stock_point", "stock_point_name",
-            "date", "status", "pay_method", "recurring_interval", "recurring_next",
+            "date", "status", "pay_method", "paid_on", "payment_reference", "settled_by_name",
+            "recurring_interval", "recurring_next",
             "items", "total",
         ]
-        read_only_fields = ["code"]
+        # Payment details are only ever written by the settle action, so
+        # every settlement goes through its validation and audit fields.
+        read_only_fields = ["code", "paid_on", "payment_reference"]
+
+    def get_settled_by_name(self, obj):
+        return (obj.settled_by.get_full_name() or obj.settled_by.username) if obj.settled_by else None
 
     def validate_items(self, items):
         if not items:
@@ -42,7 +49,6 @@ class InvoiceSerializer(serializers.ModelSerializer):
         next_num = 3320 + (last.id if last else 0) + 1
         validated_data["code"] = f"INV-{next_num}"
         validated_data.setdefault("status", Invoice.LINK_SENT)
-        validated_data.setdefault("pay_method", "Razorpay link")
         invoice = Invoice.objects.create(**validated_data)
         for item in items:
             InvoiceItem.objects.create(invoice=invoice, **item)

@@ -42,11 +42,61 @@ class InvoiceApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("items", response.json())
 
-    def test_settle_marks_invoice_paid(self):
+    def test_settle_records_how_and_when_it_was_paid(self):
         invoice_id = self.create_invoice().json()["id"]
-        response = self.seller.post(f"/api/invoices/{invoice_id}/settle/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(Invoice.objects.get(id=invoice_id).status, Invoice.PAID)
+        response = self.seller.post(f"/api/invoices/{invoice_id}/settle/", {
+            "pay_method": "UPI", "payment_reference": "UTR 412345678901", "paid_on": "2026-01-05",
+        }, format="json")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["settled_by_name"], "seller")
+        invoice = Invoice.objects.get(id=invoice_id)
+        self.assertEqual(
+            (invoice.status, invoice.pay_method, invoice.payment_reference, invoice.paid_on.isoformat()),
+            (Invoice.PAID, "UPI", "UTR 412345678901", "2026-01-05"),
+        )
+        # can't be settled twice
+        again = self.seller.post(f"/api/invoices/{invoice_id}/settle/", {"pay_method": "Cash"}, format="json")
+        self.assertEqual(again.status_code, 400)
+
+    def test_settle_validation(self):
+        invoice_id = self.create_invoice().json()["id"]
+        url = f"/api/invoices/{invoice_id}/settle/"
+        self.assertEqual(self.seller.post(url, {}, format="json").status_code, 400)
+        self.assertEqual(self.seller.post(url, {"pay_method": "Bitcoin"}, format="json").status_code, 400)
+        # non-cash payments need a reference to trace them
+        self.assertEqual(self.seller.post(url, {"pay_method": "UPI"}, format="json").status_code, 400)
+        self.assertEqual(self.seller.post(url, {"pay_method": "Cash", "paid_on": "2999-01-01"}, format="json").status_code, 400)
+        # cash needs no reference; paid_on defaults to today
+        cash = self.seller.post(url, {"pay_method": "Cash"}, format="json")
+        self.assertEqual(cash.status_code, 200)
+        self.assertEqual(cash.json()["paid_on"], date.today().isoformat())
+
+    def test_payment_fields_cannot_be_set_on_create(self):
+        response = self.seller.post("/api/invoices/", {
+            "party": self.party.id, "stock_point": self.shop.id, "date": date.today().isoformat(),
+            "payment_reference": "fake", "items": [{"variant": self.variant.id, "qty": 1, "price": 1}],
+        }, format="json")
+        self.assertEqual(response.json()["payment_reference"], "")
+
+    def test_print_data(self):
+        self.shop.address = "12 Main Road, Karol Bagh, New Delhi"
+        self.shop.gstin = "07ABCDE1234F1Z5"
+        self.shop.save()
+        self.variant.product.hsn = "84713010"
+        self.variant.product.save()
+        invoice_id = self.create_invoice(qty=2).json()["id"]
+
+        data = self.seller.get(f"/api/invoices/{invoice_id}/print-data/").json()
+        self.assertEqual(data["seller"]["branch"], "Test Shop")
+        self.assertEqual(data["seller"]["address"], "12 Main Road, Karol Bagh, New Delhi")
+        self.assertEqual(data["seller"]["gstin"], "07ABCDE1234F1Z5")
+        self.assertEqual(data["buyer"]["name"], "Test Customer")
+        self.assertEqual(
+            {k: data["items"][0][k] for k in ("n", "hsn", "qty", "rate", "amount")},
+            {"n": 1, "hsn": "84713010", "qty": 2, "rate": 35000, "amount": 70000},
+        )
+        self.assertEqual((data["total_qty"], data["total"]), (2, 70000))
+        self.assertEqual(client_for(make_user("no-invoices")).get(f"/api/invoices/{invoice_id}/print-data/").status_code, 403)
 
     def test_list_filters_by_status_and_party(self):
         paid = Invoice.objects.create(code="INV-P", party=self.party, stock_point=self.shop, date=date.today(), status=Invoice.PAID)
@@ -64,7 +114,7 @@ class InvoiceApiTests(TestCase):
         self.assertEqual(self.create_invoice(client=viewer).status_code, 403)
 
         invoice_id = self.create_invoice().json()["id"]
-        self.assertEqual(viewer.post(f"/api/invoices/{invoice_id}/settle/").status_code, 403)
+        self.assertEqual(viewer.post(f"/api/invoices/{invoice_id}/settle/", {"pay_method": "Cash"}, format="json").status_code, 403)
 
         nobody = client_for(make_user("nobody"))
         self.assertEqual(nobody.get("/api/invoices/").status_code, 403)
