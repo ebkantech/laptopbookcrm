@@ -17,8 +17,11 @@ class Invoice(models.Model):
     SALE, REPAIR, RENTAL = "sale", "repair", "rental"
     SOURCE_CHOICES = [(SALE, "Sale"), (REPAIR, "Repair"), (RENTAL, "Rental")]
 
-    PAID, LINK_SENT, OVERDUE = "Paid", "Payment link sent", "Overdue"
-    STATUS_CHOICES = [(PAID, "Paid"), (LINK_SENT, "Payment link sent"), (OVERDUE, "Overdue")]
+    PAID, LINK_SENT, OVERDUE, CANCELLED = "Paid", "Payment link sent", "Overdue", "Cancelled"
+    STATUS_CHOICES = [(PAID, "Paid"), (LINK_SENT, "Payment link sent"), (OVERDUE, "Overdue"), (CANCELLED, "Cancelled")]
+    # Still owed: everything that's neither paid nor cancelled. Use this,
+    # never "status != Paid", so cancelled invoices don't count as owed.
+    OUTSTANDING = (LINK_SENT, OVERDUE)
 
     RECURRING_CHOICES = [("weekly", "Weekly"), ("monthly", "Monthly"), ("6-month", "Every 6 months")]
 
@@ -48,8 +51,17 @@ class Invoice(models.Model):
     # gateway wired in, so this is the audit trail for every settlement):
     # when it was paid, the UPI/UTR/cheque/card reference to match against
     # the bank statement, and who recorded it.
+    # When payment is due; past it, an unpaid invoice is marked Overdue
+    # (sales.services.mark_overdue). Sales/repairs: date + INVOICE_DUE_DAYS;
+    # rent: the first day of the month billed.
+    due_date = models.DateField(null=True, blank=True)
     paid_on = models.DateField(null=True, blank=True)
     payment_reference = models.CharField(max_length=80, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancel_reason = models.CharField(max_length=200, blank=True)
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="cancelled_invoices",
+    )
     settled_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="settled_invoices",
     )

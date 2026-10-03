@@ -408,7 +408,7 @@ function RepairInvoiceRow({ label, invoice }) {
   return (
     <div className="mt-2 flex items-center justify-between px-3 py-2.5" style={{ backgroundColor: `${color}17`, border: `1px solid ${color}` }}>
       <span className="flex items-center gap-1.5 text-sm" style={{ fontFamily: F.body, color: C.ink }}><PackageCheck size={14} style={{ color }} />{label}</span>
-      <Pill color={color}>{paid ? (invoice.pay_method === "No charge" ? "No charge" : "Paid") : "Awaiting payment"}</Pill>
+      <Pill color={color}>{paid ? (invoice.pay_method === "No charge" ? "No charge" : "Paid") : invoice.status === "Overdue" ? "Overdue" : "Awaiting payment"}</Pill>
     </div>
   );
 }
@@ -420,7 +420,7 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
   const [reopening, setReopening] = useState(false);
 
   const load = useCallback(() => api.get(`/tickets/${ticketId}/`).then(setTicket), [ticketId]);
-  useEffect(() => { load(); api.get("/services/").then((d) => setServices(d.results ?? d)); }, [load]);
+  useEffect(() => { load(); api.getAll("/services/").then(setServices); }, [load]);
   if (!ticket) return null;
 
   const nextStage = STAGES[STAGES.indexOf(ticket.status) + 1];
@@ -685,12 +685,12 @@ export default function Repairs() {
   const [view, setView] = useState("list");
   const [flash, setFlash] = useState("");
 
-  const load = useCallback((status) => api.get(`/tickets/${status !== "all" ? `?status=${encodeURIComponent(status)}` : ""}`).then((d) => setTickets(d.results ?? d)).catch((e) => setError(e.message)), []);
+  const load = useCallback((status) => api.getAll(`/tickets/${status !== "all" ? `?status=${encodeURIComponent(status)}` : ""}`).then(setTickets).catch((e) => setError(e.message)), []);
 
   useEffect(() => {
-    api.get("/parties/").then((d) => setParties(d.results ?? d));
-    api.get("/services/").then((d) => setServices(d.results ?? d));
-    api.get("/stock-points/").then((d) => setStockPoints(d.results ?? d));
+    api.getAll("/parties/").then(setParties);
+    api.getAll("/services/").then(setServices);
+    api.getAll("/stock-points/").then(setStockPoints);
   }, [load]);
   useEffect(() => { load(filter); }, [filter, load]);
 

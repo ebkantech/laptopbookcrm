@@ -227,3 +227,15 @@ class UnifiedLedgerTests(TestCase):
         code = self.client_.post(f"/api/rentals/{rental.id}/raise-invoice/", {"stock_point": self.shop.id}, format="json").json()["invoice_code"]
         invoice = Invoice.objects.get(code=code)
         self.assertEqual((invoice.total, invoice.period_start), (1699, date(2026, 6, 2)))
+
+    def test_cancelled_repair_invoice_can_be_raised_again(self):
+        ticket = self.approved_ticket()
+        self.client_.post(f"/api/tickets/{ticket.id}/settle/")
+        first = Invoice.objects.get(repair_ticket=ticket)
+        self.client_.post(f"/api/invoices/{first.id}/cancel/", {"reason": "Wrong labour charge"}, format="json")
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, RepairTicket.READY)
+        self.assertIsNone(ticket.unpaid_invoice)
+        response = self.client_.post(f"/api/tickets/{ticket.id}/settle/")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(Invoice.objects.filter(repair_ticket=ticket, status=Invoice.LINK_SENT).count(), 1)

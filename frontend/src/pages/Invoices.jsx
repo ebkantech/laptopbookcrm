@@ -9,7 +9,8 @@ import PrintableInvoice from "../components/invoices/PrintableInvoice";
 import UpiPaymentLink from "../components/invoices/UpiPaymentLink";
 import PartyPicker from "../components/invoices/PartyPicker";
 
-const STATUS_COLOR = { Paid: "#36D399", "Payment link sent": "#F5A623", Overdue: "#FB5B5B" };
+const STATUS_COLOR = { Paid: "#36D399", "Payment link sent": "#F5A623", Overdue: "#FB5B5B", Cancelled: "#8A8F98" };
+const isOutstanding = (inv) => inv.status === "Payment link sent" || inv.status === "Overdue";
 // "Payment link sent" is also the default status of a brand-new unpaid
 // invoice, so only say a link was sent when one actually is open.
 const STATUS_LABEL = { "Payment link sent": "Awaiting payment" };
@@ -28,78 +29,101 @@ function NewInvoiceModal({ products, stockPoints, onClose, onCreate }) {
   // bill the wrong person.
   const [party, setParty] = useState(null);
   const [stockPoint, setStockPoint] = useState(stockPoints.find((s) => s.kind === "shop")?.id);
-  const [productId, setProductId] = useState(products[0]?.id);
-  const [vcode, setVcode] = useState(products[0]?.variants[0]?.code);
-  const [qty, setQty] = useState(1);
-  const [recurring, setRecurring] = useState("");
+  const blankLine = () => ({ productId: "", variantId: "", qty: 1, price: "" });
+  const [lines, setLines] = useState([blankLine()]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const product = products.find((p) => p.id === productId);
-  const variant = product?.variants.find((v) => v.code === vcode) || product?.variants[0];
+  const shopSlug = stockPoints.find((s) => s.id === stockPoint)?.slug;
+  const variantOf = (line) => products.find((p) => p.id === +line.productId)?.variants.find((v) => v.id === +line.variantId);
+  const inStock = (variant) => variant?.stock?.find((s) => s.stock_point === shopSlug)?.quantity ?? 0;
+  const setLine = (i, patch) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  const pickProduct = (i, productId) => {
+    const v = products.find((p) => p.id === +productId)?.variants[0];
+    setLine(i, { productId, variantId: v ? String(v.id) : "", price: v ? String(v.sell_price) : "" });
+  };
+  const pickVariant = (i, variantId) => {
+    const v = products.find((p) => p.id === +lines[i].productId)?.variants.find((x) => x.id === +variantId);
+    setLine(i, { variantId, price: v ? String(v.sell_price) : "" });
+  };
+  const total = lines.reduce((sum, l) => sum + (+l.price || 0) * (+l.qty || 0), 0);
 
   const submit = async () => {
-    setBusy(true);
     setError("");
+    if (!party) return setError("Pick or add the customer.");
+    const filled = lines.filter((l) => l.variantId);
+    if (!filled.length) return setError("Add at least one product.");
+    for (const l of filled) {
+      const v = variantOf(l);
+      if (!(+l.qty >= 1)) return setError("Every line needs a quantity of at least 1.");
+      if (l.price === "" || +l.price < 0) return setError(`Enter a price for ${v?.spec || "each line"}.`);
+    }
+    setBusy(true);
     try {
-      if (!party) throw new Error("Pick or add the customer.");
-      if (!variant) throw new Error("Pick a product to invoice.");
       await onCreate({
         party, stock_point: stockPoint, date: new Date().toISOString().slice(0, 10),
-        items: [{ variant: variant.id, qty, price: variant.sell_price }],
-        recurring_interval: recurring,
+        items: filled.map((l) => ({ variant: +l.variantId, qty: +l.qty, price: +l.price })),
       });
     } catch (e) {
-      setError(e.message);
+      const body = e.body || {};
+      setError([].concat(body.items || body.detail || e.message).join(" · "));
     } finally {
       setBusy(false);
     }
   };
 
+  const field = { fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}`, background: C.slip };
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(4,9,18,0.7)" }}>
-      <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto p-6" data-panel style={{ backgroundColor: C.slip, border: `2px solid ${C.ruleStrong || C.rule}`, boxShadow: "0 10px 30px rgba(0,0,0,0.5)" }}>
-        <div className="flex items-center justify-between"><span className="text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.14em", color: C.inkSoft }}>New invoice</span><button onClick={onClose}><X size={16} style={{ color: C.inkSoft }} /></button></div>
+      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto p-6" data-panel style={{ backgroundColor: C.slip, border: `2px solid ${C.ruleStrong || C.rule}`, boxShadow: "0 10px 30px rgba(0,0,0,0.5)" }}>
+        <div className="flex items-center justify-between"><span className="text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.14em", color: C.inkSoft }}>New sale invoice</span><button onClick={onClose}><X size={16} style={{ color: C.inkSoft }} /></button></div>
 
         <div className="mt-4 space-y-3">
           <div className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
             <span className="mb-1 block">Customer</span>
             <PartyPicker value={party} onChange={setParty} />
           </div>
-          <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Sold through
-            <select value={stockPoint} onChange={(e) => setStockPoint(+e.target.value)} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}>
+          <label className="text-xs" style={{ display: "block", fontFamily: F.body, color: C.inkSoft }}>Sold through (stock is taken from here)
+            <select value={stockPoint} onChange={(e) => setStockPoint(+e.target.value)} className="mt-1 w-full py-2 text-sm outline-none" style={field}>
               {stockPoints.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </label>
-          <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Product
-            <select value={productId} onChange={(e) => { const pid = +e.target.value; setProductId(pid); setVcode(products.find((p) => p.id === pid)?.variants[0]?.code); }} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}>
-              {products.map((p) => <option key={p.id} value={p.id}>{p.display_name}</option>)}
-            </select>
-          </label>
-          <div className="flex gap-3">
-            <label className="block flex-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Variant
-              <select value={vcode} onChange={(e) => setVcode(e.target.value)} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}>
-                {product?.variants.map((v) => <option key={v.code} value={v.code}>{v.spec} — {money(v.sell_price)}</option>)}
-              </select>
-            </label>
-            <label className="block w-20 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Qty
-              <input type="number" min={1} value={qty} onChange={(e) => setQty(Math.max(1, +e.target.value))} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.mono, color: C.ink, border: `1px solid ${C.rule}` }} />
-            </label>
-          </div>
-          <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Recurring billing
-            <select value={recurring} onChange={(e) => setRecurring(e.target.value)} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}>
-              <option value="">One-time only</option>
-              <option value="weekly">Repeat weekly</option>
-              <option value="monthly">Repeat monthly</option>
-              <option value="6-month">Repeat every 6 months</option>
-            </select>
-          </label>
-          {variant && (
-            <div className="flex items-center justify-between px-3 py-2" style={{ backgroundColor: C.slip2 }}>
-              <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Amount</span>
-              <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 600, color: C.ink }}>{money(variant.sell_price * qty)}</span>
+
+          <div>
+            <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Items</span>
+            <div className="mt-1 space-y-2">
+              {lines.map((l, i) => {
+                const product = products.find((p) => p.id === +l.productId);
+                const v = variantOf(l);
+                const have = v ? inStock(v) : null;
+                const short = v && +l.qty > have;
+                return (
+                  <div key={i} className="grid grid-cols-[1fr_1fr_64px_100px_24px] items-start gap-2">
+                    <select value={l.productId} onChange={(e) => pickProduct(i, e.target.value)} className="py-1.5 text-sm outline-none" style={field}>
+                      <option value="">Product…</option>
+                      {products.map((p) => <option key={p.id} value={p.id}>{p.display_name}</option>)}
+                    </select>
+                    <div>
+                      <select value={l.variantId} onChange={(e) => pickVariant(i, e.target.value)} disabled={!product} className="w-full py-1.5 text-sm outline-none" style={field}>
+                        {product?.variants.map((x) => <option key={x.id} value={x.id}>{x.spec}</option>)}
+                      </select>
+                      {v && <span className="text-[11px]" style={{ fontFamily: F.mono, color: short ? C.carbon : C.inkSoft }}>{have} in stock here</span>}
+                    </div>
+                    <input type="number" min={1} value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} title="Quantity" className="py-1.5 text-center text-sm outline-none" style={{ ...field, fontFamily: F.mono, borderColor: short ? C.carbon : C.rule }} />
+                    <input value={l.price} onChange={(e) => setLine(i, { price: e.target.value.replace(/\D/g, "") })} placeholder="₹ each" title="Unit price -- edit for a discount" className="py-1.5 text-right text-sm outline-none" style={{ ...field, fontFamily: F.mono }} />
+                    <button type="button" disabled={lines.length === 1} onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))} className="pt-2" title="Remove line"><X size={14} style={{ color: C.inkSoft }} /></button>
+                  </div>
+                );
+              })}
             </div>
-          )}
+            <button type="button" onClick={() => setLines((ls) => [...ls, blankLine()])} className="mt-2 flex items-center gap-1 text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: C.stamp }}><Plus size={12} /> Add another item</button>
+            <p className="mt-1 text-[11px]" style={{ fontFamily: F.body, color: C.inkSoft }}>The unit price starts at the list price — change it to give a discount.</p>
+          </div>
+
+          <div className="flex items-center justify-between px-3 py-2" style={{ backgroundColor: C.slip2 }}>
+            <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Total</span>
+            <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{money(total)}</span>
+          </div>
         </div>
 
         <ErrorNote message={error} />
@@ -225,6 +249,45 @@ function RecordPayment({ invoice, onSettle }) {
   );
 }
 
+/* Cancel an unpaid invoice raised by mistake -- a reason is required and
+ * recorded; a sale's items go back into stock. */
+function CancelInvoice({ invoice, onChanged }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="mt-3 text-xs underline" style={{ fontFamily: F.body, color: C.carbon }}>Cancel this invoice…</button>
+    );
+  }
+  const submit = async () => {
+    if (!reason.trim()) return setError("Say why it's being cancelled.");
+    setBusy(true);
+    setError("");
+    try {
+      onChanged(await api.post(`/invoices/${invoice.id}/cancel/`, { reason: reason.trim() }));
+    } catch (e) {
+      setError(e.body?.detail || e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mt-3 p-3" style={{ border: `1px solid ${C.carbon}55`, backgroundColor: `${C.carbon}0A` }}>
+      <p className="text-xs" style={{ fontFamily: F.body, color: C.ink }}>
+        Cancel {invoice.code}? {invoice.source === "sale" ? "The items go back into stock. " : ""}Any payment link sent for it stops working.
+      </p>
+      <input autoFocus value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} placeholder="Reason, e.g. wrong item billed" className="mt-2 w-full px-2 py-1.5 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, background: C.slip, border: `1px solid ${C.rule}` }} />
+      <ErrorNote message={error} />
+      <div className="mt-2 flex gap-2">
+        <button onClick={submit} disabled={busy} className="px-3 py-1.5 text-xs uppercase" style={{ backgroundColor: C.carbon, color: C.onAccent, fontFamily: F.body, fontWeight: 600, opacity: busy ? 0.6 : 1 }}>{busy ? "Cancelling…" : "Cancel invoice"}</button>
+        <button onClick={() => setOpen(false)} className="text-xs underline" style={{ fontFamily: F.body, color: C.inkSoft }}>Keep it</button>
+      </div>
+    </div>
+  );
+}
+
 function InvoiceDetail({ invoice, onClose, onSettle, onChanged }) {
   const { can } = useSession();
   const [warranty, setWarranty] = useState(undefined); // undefined = loading, null = none
@@ -267,10 +330,18 @@ function InvoiceDetail({ invoice, onClose, onSettle, onChanged }) {
           <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Total</span>
           <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{money(invoice.total)}</span>
         </div>
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <Pill color={STATUS_COLOR[invoice.status]}>{invoiceStatusLabel(invoice)}</Pill>
+          {invoice.due_date && isOutstanding(invoice) && (
+            <span className="text-xs" style={{ fontFamily: F.mono, color: invoice.status === "Overdue" ? C.carbon : C.inkSoft }}>due {fmt(invoice.due_date)}</span>
+          )}
         </div>
-        {invoice.status === "Paid" ? (
+        {invoice.status === "Cancelled" ? (
+          <p className="mt-2 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
+            Cancelled {fmt(invoice.cancelled_at)}{invoice.cancelled_by_name ? ` by ${invoice.cancelled_by_name}` : ""} — “{invoice.cancel_reason}”.
+            {invoice.source === "sale" ? " The items went back into stock." : ""}
+          </p>
+        ) : invoice.status === "Paid" ? (
           invoice.paid_on ? (
             <p className="mt-2 flex flex-wrap items-center gap-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
               <IndianRupee size={11} /> Paid {fmt(invoice.paid_on)} via <b style={{ color: C.ink }}>{invoice.pay_method}</b>
@@ -281,7 +352,8 @@ function InvoiceDetail({ invoice, onClose, onSettle, onChanged }) {
             <p className="mt-2 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Marked paid before payment details were recorded{invoice.pay_method ? ` (${invoice.pay_method})` : ""}.</p>
           )
         ) : can("invoices.settle") && <RecordPayment invoice={invoice} onSettle={onSettle} />}
-        <UpiPaymentLink invoice={invoice} onChanged={onChanged} />
+        {invoice.status !== "Cancelled" && <UpiPaymentLink invoice={invoice} onChanged={onChanged} />}
+        {isOutstanding(invoice) && can("invoices.create") && <CancelInvoice invoice={invoice} onChanged={onChanged} />}
 
         {invoice.source === "sale" && (warranty === undefined ? <div className="mt-4"><Spinner /></div> : <WarrantyCard invoice={invoice} warranty={warranty} onGranted={setWarranty} />)}
       </div>
@@ -349,7 +421,7 @@ export default function Invoices() {
   const visibleInvoices = q
     ? byStatus.filter((inv) => inv.code.toLowerCase().includes(q) || inv.party_name.toLowerCase().includes(q) || (inv.reference || "").toLowerCase().includes(q))
     : byStatus;
-  const awaiting = bySource.filter((inv) => inv.status !== "Paid");
+  const awaiting = bySource.filter(isOutstanding);
   const count = (id) => (id === "all" ? invoices.length : invoices.filter((inv) => inv.source === id).length);
 
   return (
@@ -364,7 +436,7 @@ export default function Invoices() {
           </div>
           <div className="overflow-x-auto">
             <TabBar
-              tabs={["all", "Paid", "Payment link sent", "Overdue"].map((s) => ({ id: s, label: s === "all" ? "Any status" : statusLabel(s) }))}
+              tabs={["all", "Paid", "Payment link sent", "Overdue", "Cancelled"].map((s) => ({ id: s, label: s === "all" ? "Any status" : statusLabel(s) }))}
               value={statusFilter}
               onChange={setStatusFilter}
             />
@@ -399,7 +471,7 @@ export default function Invoices() {
               <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{inv.stock_point_name}</span>
               <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 600, color: C.ink, minWidth: 96, textAlign: "right" }}>{money(inv.total)}</span>
               <Pill color={STATUS_COLOR[inv.status]}>{invoiceStatusLabel(inv)}</Pill>
-              {inv.status !== "Paid" && can("invoices.settle") && (
+              {isOutstanding(inv) && can("invoices.settle") && (
                 <button onClick={(e) => { e.stopPropagation(); setOpenInvoice(inv); }} className="flex items-center gap-1 px-2 py-1 text-xs" style={{ border: `1px solid ${C.green}`, color: C.green, fontFamily: F.body, fontWeight: 600 }}>
                   <IndianRupee size={11} /> Record payment
                 </button>

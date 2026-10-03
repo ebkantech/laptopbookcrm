@@ -25,7 +25,7 @@ export default function UpiPaymentLink({ invoice, onChanged }) {
 
   const links = invoice.payment_links || [];
   const openLink = links.find((l) => l.status === "sent");
-  const unpaid = invoice.status !== "Paid";
+  const unpaid = invoice.status === "Payment link sent" || invoice.status === "Overdue";
   const canSend = can("payments.send_link");
 
   const run = async (label, fn) => {

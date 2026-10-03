@@ -24,7 +24,8 @@ class RentBillingError(Exception):
 def _open_rent_invoices(rental):
     from sales.models import Invoice
 
-    return rental.invoices.filter(source=Invoice.RENTAL).exclude(status=Invoice.PAID)
+    # cancelled rent invoices free their month to be billed again
+    return rental.invoices.filter(source=Invoice.RENTAL, status__in=Invoice.OUTSTANDING)
 
 
 def next_billing_period(rental):
