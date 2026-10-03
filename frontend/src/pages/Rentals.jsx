@@ -150,7 +150,7 @@ export default function Rentals() {
   const [accessLogs, setAccessLogs] = useState({});
 
   useEffect(() => {
-    api.get("/rentals/").then((d) => setRentals(d.results ?? d)).catch((e) => setError(e.message));
+    api.getAll("/rentals/").then(setRentals).catch((e) => setError(e.message));
     api.get("/users/").then((d) => setStaff(d.results ?? d));
     // every customer and asset, not just the API's first page of 50 --
     // an asset missing from the picker got re-registered as a "duplicate"
@@ -230,7 +230,7 @@ export default function Rentals() {
     <div className="flex-1 overflow-y-auto px-5 py-6 sm:px-8">
       <PageHeader
         title="Rental accounts"
-        subtitle="Churn risk, next payment due, and client-raised issues — highest risk first"
+        subtitle="New agreements awaiting action first, then live rentals by churn risk — next payment due and client-raised issues"
         actions={can("rentals.manage") && <PillButton icon={Plus} primary onClick={() => setCreating(true)}>New rental agreement</PillButton>}
       />
 

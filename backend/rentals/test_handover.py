@@ -214,3 +214,19 @@ class RentFromInventoryTests(TestCase):
     def test_needs_rentals_manage(self):
         viewer = client_for(make_user("fleet-viewer", ["rentals.view"]))
         self.assertEqual(viewer.post(self.url, {"stock": self.stock.id, "serial_number": "S2"}, format="json").status_code, 403)
+
+
+
+class RentalListOrderTests(TestCase):
+    def test_new_agreements_stay_at_the_top_after_reload(self):
+        client = client_for(make_user("list-viewer", ["rentals.view"]))
+        party = Party.objects.create(name="P", type=Party.RENTAL, phone="9876543210", joined=date.today())
+        old = date(2025, 1, 1)
+        risky = Rental.objects.create(party=party, product_label="risky", monthly_fee=1, start=old, tenure_months=12,
+                                      last_payment=old, late_count=5, status=Rental.ACTIVE)
+        closed = Rental.objects.create(party=party, product_label="closed", monthly_fee=1, start=old, tenure_months=1,
+                                       last_payment=old, status=Rental.CLOSED)
+        new = Rental.objects.create(party=party, agreement_code="RNT-NEW", product_label="new", monthly_fee=1,
+                                    start=date.today(), tenure_months=6, last_payment=date.today())
+        ids = [r["id"] for r in client.get("/api/rentals/").json()["results"]]
+        self.assertEqual(ids, [new.id, risky.id, closed.id])
