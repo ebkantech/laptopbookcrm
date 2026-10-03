@@ -8,6 +8,7 @@ with zero setup. See backend/.env.example for the full list.
 """
 
 import os
+import sys
 from datetime import timedelta
 from pathlib import Path
 
@@ -281,5 +282,11 @@ if not DEBUG:
     # knows the original request was HTTPS even though it reaches
     # Gunicorn over plain HTTP internally
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# `manage.py test` talks plain HTTP through Django's test client, so the
+# HTTPS redirect would answer every API test with a 301. Never true when
+# serving real traffic.
+if len(sys.argv) > 1 and sys.argv[1] == "test":
+    SECURE_SSL_REDIRECT = False
 
 X_FRAME_OPTIONS = 'DENY'
