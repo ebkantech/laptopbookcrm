@@ -11,6 +11,8 @@ from rentals.models import Rental
 from repairs.models import RepairInvoice, RepairTicket
 from sales.models import Invoice
 
+from .layouts import effective_layout, visible_sections
+
 
 def _parse_date(value):
     if not value:
@@ -65,20 +67,13 @@ class DashboardView(APIView):
 
         # Per-role dashboard: each section only runs its (sometimes
         # expensive) query and appears in the response if the signed-in
-        # user actually holds the permission for that domain. A superuser
-        # holds every permission via has_perm_code(), so Owner/Admin see
-        # everything unchanged. See docs/PERMISSIONS.md.
-        can_stock = request.user.has_perm_code("inventory.edit")
-        can_sales = request.user.has_perm_code("invoices.view")
-        can_repairs = request.user.has_perm_code("repairs.view")
-        can_rentals = request.user.has_perm_code("rentals.view")
-        # Task 4: Repair Staff doesn't hold inventory.edit (that's a stock
-        # *management* permission, editing quantities/records), but the
-        # doc's dashboard spec still wants them seeing parts stock -- they
-        # need to know what's on the shelf, just not edit it. So the stock
-        # section's *visibility* is widened to can_repairs too, while the
-        # inventory.edit-gated pages/actions elsewhere are untouched.
-        show_stock_section = can_stock or can_repairs
+        # user actually holds the permission for that domain -- the same
+        # gate the widget layout uses, see dashboard.layouts.
+        sections = visible_sections(request.user)
+        show_stock_section = sections["stock"]
+        can_sales = sections["sales"]
+        can_repairs = sections["repairs"]
+        can_rentals = sections["rentals"]
 
         response = {
             "filters_applied": {
@@ -86,10 +81,7 @@ class DashboardView(APIView):
                 "date_to": date_to.isoformat() if date_to else None,
                 "channel": channel_slug,
             },
-            "sections": {
-                "stock": show_stock_section, "sales": can_sales,
-                "repairs": can_repairs, "rentals": can_rentals,
-            },
+            "sections": sections,
         }
 
         if show_stock_section:
@@ -269,3 +261,16 @@ class DashboardView(APIView):
             })
 
         return Response(response)
+
+
+class DashboardLayoutView(APIView):
+    """
+    The signed-in user's dashboard elements: which widgets, in what
+    order and size, already narrowed to the sections their role can see.
+    Pairs with DashboardView -- this says *what* to draw, summary/ holds
+    the figures each widget's data_keys point into.
+    """
+    permission_classes = [IsAuthenticated, IsStaffAccount]
+
+    def get(self, request):
+        return Response(effective_layout(request.user))

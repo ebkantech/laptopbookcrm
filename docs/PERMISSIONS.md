@@ -26,9 +26,9 @@ change one, update the other two and this file in the same change.
   a real staff account and not a portal customer") is only appropriate for
   endpoints with no sensitive data and no role distinction — currently
   that's the read-only catalogue lookups (`StockPointViewSet`,
-  `PartViewSet`, `ServiceViewSet`) and the shared `DashboardView` (splitting
-  the dashboard by role is tracked separately, see Task 4 of the Phase 2
-  pipeline).
+  `PartViewSet`, `ServiceViewSet`) and the shared `DashboardView` /
+  `DashboardLayoutView`, which narrow their own output per role via
+  `dashboard.layouts.visible_sections()`.
 
 ## Roles
 
