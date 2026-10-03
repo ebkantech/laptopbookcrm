@@ -52,8 +52,8 @@ class Party(models.Model):
 
 class Message(models.Model):
     """A single WhatsApp/email exchange with a party -- powers the chat thread panel."""
-    WHATSAPP, EMAIL = "whatsapp", "email"
-    CHANNEL_CHOICES = [(WHATSAPP, "WhatsApp"), (EMAIL, "Email")]
+    WHATSAPP, EMAIL, SMS = "whatsapp", "email", "sms"
+    CHANNEL_CHOICES = [(WHATSAPP, "WhatsApp"), (EMAIL, "Email"), (SMS, "SMS")]
     IN, OUT = "in", "out"
     DIRECTION_CHOICES = [(IN, "Inbound"), (OUT, "Outbound")]
 

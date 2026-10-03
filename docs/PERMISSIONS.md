@@ -57,6 +57,7 @@ bypass, shown here for reference as if it were role-based too, since
 | `invoices.view` | View invoices | ✅ | ✅ | ✅ | — | ✅ | ✅ |
 | `invoices.create` | Create invoices & payment links | ✅ | ✅ | ✅ | — | — | — |
 | `invoices.settle` | Mark invoices settled | ✅ | ✅ | ✅ | — | ✅ | — |
+| `payments.send_link` | Send UPI payment links to customers | ✅ | ✅ | ✅ | — | ✅ | — |
 | `inventory.edit` | Edit stock and product records | ✅ | ✅ | — | — | — | — |
 | `rentals.view` | View rental assets | ✅ | ✅ | ✅ | — | — | ✅ |
 | `rentals.manage` | Manage rental accounts | ✅ | ✅ | ✅ | — | — | — |
@@ -81,6 +82,7 @@ bypass, shown here for reference as if it were role-based too, since
 | `bankbook.view` | `BankAccountViewSet` | `backend/accounting/views.py` |
 | `bankbook.view` / `bankbook.edit` / `bankbook.reconcile` | `BankEntryViewSet` | `backend/accounting/views.py` |
 | `invoices.view` / `invoices.create` / `invoices.settle` | `InvoiceViewSet` | `backend/sales/views.py` |
+| `payments.send_link` | `InvoiceViewSet.upi_check` / `send_upi_link` / `refresh_payment` (also hard-refused for the `repair_staff` role, whatever its permissions) | `backend/sales/views.py` |
 | `inventory.edit` | `ProductViewSet`, `AddStockView` | `backend/catalog/views.py` |
 | `rentals.view` / `rentals.manage` / `rentals.approve` | `RentalViewSet`, `RentalAssetViewSet` | `backend/rentals/views.py` |
 | `rentals.manage` | `RentalIssueViewSet` (assign/resolve) | `backend/rentals/views.py` |

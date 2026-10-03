@@ -6,13 +6,15 @@ import { useSession } from "../context/SessionContext";
 import { Eyebrow, ErrorNote, Pill, PillButton, SearchInput, Spinner, TabBar } from "../components/Atoms";
 import PageHeader from "../components/PageHeader";
 import PrintableInvoice from "../components/invoices/PrintableInvoice";
+import UpiPaymentLink from "../components/invoices/UpiPaymentLink";
 
 const STATUS_COLOR = { Paid: "#36D399", "Payment link sent": "#F5A623", Overdue: "#FB5B5B" };
-// "Payment link sent" is the stored status for an unpaid invoice, but no
-// payment link is actually generated or sent (no gateway is wired in),
-// so the screen says what it really means.
+// "Payment link sent" is also the default status of a brand-new unpaid
+// invoice, so only say a link was sent when one actually is open.
 const STATUS_LABEL = { "Payment link sent": "Awaiting payment" };
 const statusLabel = (s) => STATUS_LABEL[s] || s;
+const invoiceStatusLabel = (inv) =>
+  inv.status === "Payment link sent" && inv.payment_links?.some((l) => l.status === "sent") ? "Payment link sent" : statusLabel(inv.status);
 const PAYMENT_METHODS = ["Cash", "UPI", "Bank transfer", "Card", "Cheque", "Other"];
 const REFERENCE_HINT = {
   UPI: "UPI transaction ID / UTR", "Bank transfer": "UTR / NEFT / IMPS reference", Card: "Card slip / approval code",
@@ -220,7 +222,7 @@ function RecordPayment({ invoice, onSettle }) {
   );
 }
 
-function InvoiceDetail({ invoice, onClose, onSettle }) {
+function InvoiceDetail({ invoice, onClose, onSettle, onChanged }) {
   const { can } = useSession();
   const [warranty, setWarranty] = useState(undefined); // undefined = loading, null = none
   const [printing, setPrinting] = useState(false);
@@ -262,7 +264,7 @@ function InvoiceDetail({ invoice, onClose, onSettle }) {
           <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{money(invoice.total)}</span>
         </div>
         <div className="mt-2 flex items-center gap-2">
-          <Pill color={STATUS_COLOR[invoice.status]}>{statusLabel(invoice.status)}</Pill>
+          <Pill color={STATUS_COLOR[invoice.status]}>{invoiceStatusLabel(invoice)}</Pill>
         </div>
         {invoice.status === "Paid" ? (
           invoice.paid_on ? (
@@ -275,6 +277,7 @@ function InvoiceDetail({ invoice, onClose, onSettle }) {
             <p className="mt-2 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Marked paid before payment details were recorded{invoice.pay_method ? ` (${invoice.pay_method})` : ""}.</p>
           )
         ) : can("invoices.settle") && <RecordPayment invoice={invoice} onSettle={onSettle} />}
+        <UpiPaymentLink invoice={invoice} onChanged={onChanged} />
 
         {warranty === undefined ? <div className="mt-4"><Spinner /></div> : <WarrantyCard invoice={invoice} warranty={warranty} onGranted={setWarranty} />}
       </div>
@@ -286,7 +289,10 @@ function InvoiceDetail({ invoice, onClose, onSettle }) {
 export default function Invoices() {
   const { can } = useSession();
   const [invoices, setInvoices] = useState(null);
-  const [repairInvoices, setRepairInvoices] = useState(null);
+  // Repair bills need repairs.view (Sales Staff don't hold it) -- those
+  // roles just don't get the Repairs tab instead of the page failing.
+  const canRepairs = can("repairs.view");
+  const [repairInvoices, setRepairInvoices] = useState(canRepairs ? null : []);
   const [parties, setParties] = useState([]);
   const [products, setProducts] = useState([]);
   const [stockPoints, setStockPoints] = useState([]);
@@ -301,13 +307,16 @@ export default function Invoices() {
 
   useEffect(() => {
     loadInvoices("all");
-    api.get("/repair-invoices/").then((d) => setRepairInvoices(d.results ?? d)).catch((e) => setError(e.message));
     api.getAll("/parties/").then(setParties);
     // Only products that have something sellable: stock and prices live
     // on variants, so a product with none yet can't go on an invoice.
     api.getAll("/products/").then((all) => setProducts(all.filter((p) => p.variants.length)));
     api.get("/stock-points/").then((d) => setStockPoints(d.results ?? d));
   }, []);
+
+  useEffect(() => {
+    if (canRepairs) api.get("/repair-invoices/").then((d) => setRepairInvoices(d.results ?? d)).catch((e) => setError(e.message));
+  }, [canRepairs]);
 
   useEffect(() => { loadInvoices(statusFilter); }, [statusFilter]);
 
@@ -317,10 +326,13 @@ export default function Invoices() {
     setAdding(false);
   };
 
+  const replaceInvoice = (inv) => {
+    setInvoices((l) => l.map((i) => (i.id === inv.id ? inv : i)));
+    setOpenInvoice((cur) => (cur?.id === inv.id ? inv : cur));
+  };
+
   const settle = async (id, payment) => {
-    const inv = await api.post(`/invoices/${id}/settle/`, payment);
-    setInvoices((l) => l.map((i) => (i.id === id ? inv : i)));
-    setOpenInvoice((cur) => (cur?.id === id ? inv : cur));
+    replaceInvoice(await api.post(`/invoices/${id}/settle/`, payment));
   };
 
   if (error) return <div className="flex-1 px-8 py-10"><ErrorNote message={error} /></div>;
@@ -343,7 +355,10 @@ export default function Invoices() {
       <header className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-8">
         <div className="flex flex-col gap-2">
           <TabBar
-            tabs={[{ id: "sales", label: `Sales (${invoices.length})` }, { id: "repairs", label: `Repairs (${repairInvoices.length})` }]}
+            tabs={[
+              { id: "sales", label: `Sales (${invoices.length})` },
+              ...(canRepairs ? [{ id: "repairs", label: `Repairs (${repairInvoices.length})` }] : []),
+            ]}
             value={source}
             onChange={setSource}
           />
@@ -387,7 +402,7 @@ export default function Invoices() {
                 </div>
                 <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{inv.stock_point_name}</span>
                 <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 600, color: C.ink, minWidth: 96, textAlign: "right" }}>{money(inv.total)}</span>
-                <Pill color={STATUS_COLOR[inv.status]}>{statusLabel(inv.status)}</Pill>
+                <Pill color={STATUS_COLOR[inv.status]}>{invoiceStatusLabel(inv)}</Pill>
                 {inv.status !== "Paid" && can("invoices.settle") && (
                   <button onClick={(e) => { e.stopPropagation(); setOpenInvoice(inv); }} className="flex items-center gap-1 px-2 py-1 text-xs" style={{ border: `1px solid ${C.green}`, color: C.green, fontFamily: F.body, fontWeight: 600 }}>
                     <IndianRupee size={11} /> Record payment
@@ -427,7 +442,7 @@ export default function Invoices() {
       </div>
 
       {adding && <NewInvoiceModal parties={parties} products={products} stockPoints={stockPoints} onClose={() => setAdding(false)} onCreate={create} />}
-      {openInvoice && <InvoiceDetail invoice={openInvoice} onClose={() => setOpenInvoice(null)} onSettle={settle} />}
+      {openInvoice && <InvoiceDetail invoice={openInvoice} onClose={() => setOpenInvoice(null)} onSettle={settle} onChanged={replaceInvoice} />}
     </div>
   );
 }
