@@ -26,6 +26,7 @@ function NewInvoiceModal({ parties, products, stockPoints, onClose, onCreate }) 
     setBusy(true);
     setError("");
     try {
+      if (!variant) throw new Error("Pick a product to invoice.");
       await onCreate({
         party, stock_point: stockPoint, date: new Date().toISOString().slice(0, 10),
         items: [{ variant: variant.id, qty, price: variant.sell_price }],
@@ -55,7 +56,7 @@ function NewInvoiceModal({ parties, products, stockPoints, onClose, onCreate }) 
             </select>
           </label>
           <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Product
-            <select value={productId} onChange={(e) => { const pid = +e.target.value; setProductId(pid); setVcode(products.find((p) => p.id === pid).variants[0].code); }} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}>
+            <select value={productId} onChange={(e) => { const pid = +e.target.value; setProductId(pid); setVcode(products.find((p) => p.id === pid)?.variants[0]?.code); }} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}>
               {products.map((p) => <option key={p.id} value={p.id}>{p.display_name}</option>)}
             </select>
           </label>
@@ -229,8 +230,10 @@ export default function Invoices() {
   useEffect(() => {
     loadInvoices("all");
     api.get("/repair-invoices/").then((d) => setRepairInvoices(d.results ?? d)).catch((e) => setError(e.message));
-    api.get("/parties/").then((d) => setParties(d.results ?? d));
-    api.get("/products/").then((d) => setProducts(d.results ?? d));
+    api.getAll("/parties/").then(setParties);
+    // Only products that have something sellable: stock and prices live
+    // on variants, so a product with none yet can't go on an invoice.
+    api.getAll("/products/").then((all) => setProducts(all.filter((p) => p.variants.length)));
     api.get("/stock-points/").then((d) => setStockPoints(d.results ?? d));
   }, []);
 

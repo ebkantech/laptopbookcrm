@@ -63,10 +63,10 @@ class CatalogTests(TestCase):
             "stock_point": self.shop.id, "product": self.product.id, "variant": self.variant.id, "quantity": 0,
         }, format="json")
         self.assertEqual(bad_qty.status_code, 400)
-        no_spec = self.stock_manager.post("/api/inventory/add-stock/", {
-            "stock_point": self.shop.id, "product": self.product.id, "quantity": 1,
+        new_spec_no_price = self.stock_manager.post("/api/inventory/add-stock/", {
+            "stock_point": self.shop.id, "product": self.product.id, "spec": "i7 / 32GB", "quantity": 1,
         }, format="json")
-        self.assertEqual(no_spec.status_code, 400)
+        self.assertEqual(new_spec_no_price.status_code, 400)
 
     def test_writes_need_inventory_edit(self):
         add = self.any_staff.post("/api/inventory/add-stock/", {
@@ -113,3 +113,55 @@ class StockLocationTests(TestCase):
         self.assertEqual(self.stock_manager.patch(url, {}, format="json").status_code, 400)
         self.assertEqual(self.stock_manager.patch(url, {"location": "x" * 81}, format="json").status_code, 400)
         self.assertEqual(self.any_staff.patch(url, {"location": "Rack Z"}, format="json").status_code, 403)
+
+
+class AddStockWithoutVariantsTests(TestCase):
+    """Variants are optional: a restock without one still lands somewhere sensible."""
+
+    def setUp(self):
+        self.shop = StockPoint.objects.create(slug="test-shop", name="Test Shop", kind=StockPoint.SHOP)
+        self.stock_manager = client_for(make_user("stock-manager", ["inventory.edit"]))
+        self.url = "/api/inventory/add-stock/"
+
+    def test_product_with_no_variants_gets_a_default_one(self):
+        product = Product.objects.create(brand="\u2014", model_name="USB-C charger", product_code="VC-ACC-0001")
+        response = self.stock_manager.post(self.url, {
+            "stock_point": self.shop.id, "product": product.id, "quantity": 5,
+        }, format="json")
+        self.assertEqual(response.status_code, 201, response.content)
+        body = response.json()
+        self.assertEqual((body["variant"]["spec"], body["new_quantity"]), ("Standard", 5))
+        self.assertTrue(body["generated_variant_code"])
+
+        # restocking again reuses that variant instead of making another
+        again = self.stock_manager.post(self.url, {"stock_point": self.shop.id, "product": product.id, "quantity": 2}, format="json")
+        self.assertEqual(again.json()["new_quantity"], 7)
+        self.assertEqual(product.variants.count(), 1)
+
+    def test_single_variant_is_used_automatically(self):
+        product = Product.objects.create(model_name="Mouse", product_code="VC-ACC-0002")
+        only = Variant.objects.create(product=product, code="VC-SKU-0001", spec="Black", mrp=600, sell_price=500, cost=300)
+        response = self.stock_manager.post(self.url, {"stock_point": self.shop.id, "product": product.id, "quantity": 3}, format="json")
+        self.assertEqual(response.json()["variant"]["id"], only.id)
+
+    def test_several_variants_must_be_picked(self):
+        product = Product.objects.create(model_name="Laptop bag", product_code="VC-ACC-0003")
+        for i, colour in enumerate(["Black", "Grey"], start=1):
+            Variant.objects.create(product=product, code=f"VC-SKU-000{i}", spec=colour, mrp=1, sell_price=1, cost=1)
+        response = self.stock_manager.post(self.url, {"stock_point": self.shop.id, "product": product.id, "quantity": 1}, format="json")
+        self.assertEqual(response.status_code, 400)
+
+    def test_new_item_without_variant_details(self):
+        response = self.stock_manager.post(self.url, {
+            "stock_point": self.shop.id, "model_name": "HDMI cable", "sell_price": 299, "quantity": 10,
+        }, format="json")
+        self.assertEqual(response.status_code, 201, response.content)
+        body = response.json()
+        self.assertEqual((body["variant"]["spec"], body["variant"]["sell_price"]), ("Standard", 299))
+
+    def test_failed_request_does_not_leave_a_new_product_behind(self):
+        response = self.stock_manager.post(self.url, {
+            "stock_point": self.shop.id, "model_name": "Ghost item", "spec": "Big", "quantity": 1,
+        }, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Product.objects.filter(model_name="Ghost item").exists())

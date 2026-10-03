@@ -93,8 +93,23 @@ async function publicRequest(path, { method = "GET", body } = {}) {
   return res.json();
 }
 
+// The API pages list endpoints 50 rows at a time. For pickers and lists
+// that must show everything (e.g. every product in a dropdown), walk all
+// pages and return one flat array. Also accepts an unpaginated response.
+async function getAll(path) {
+  const sep = path.includes("?") ? "&" : "?";
+  const rows = [];
+  for (let page = 1; ; page += 1) {
+    const data = await request(`${path}${sep}page=${page}`);
+    if (!data || !Array.isArray(data.results)) return Array.isArray(data) ? data : rows;
+    rows.push(...data.results);
+    if (!data.next) return rows;
+  }
+}
+
 export const api = {
   get: (path) => request(path),
+  getAll,
   post: (path, body) => request(path, { method: "POST", body }),
   patch: (path, body) => request(path, { method: "PATCH", body }),
   del: (path) => request(path, { method: "DELETE" }),

@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.db.models import F, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import permissions, viewsets
@@ -85,6 +86,57 @@ class ServiceViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsStaffAccount]
 
 
+DEFAULT_SPEC = "Standard"
+
+
+def _int_or_zero(value):
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _resolve_variant(product, data):
+    """
+    Which variant a restock goes to. Stock is kept per variant, but a
+    product doesn't have to be set up with variants:
+      - `variant` given             -> that variant
+      - `spec` given                -> a new variant with that spec
+      - neither, product has one    -> its only variant
+      - neither, product has none   -> a default "Standard" variant,
+                                       created now (price optional)
+      - neither, product has several -> ask which one
+    Returns (variant, created, error_message).
+    """
+    variant_id = data.get("variant")
+    if variant_id:
+        variant = Variant.objects.filter(pk=variant_id, product=product).first()
+        if variant is None:
+            return None, False, "That variant doesn't belong to this product."
+        return variant, False, None
+
+    spec = (data.get("spec") or "").strip()
+    sell_price = _int_or_zero(data.get("sell_price"))
+    if not spec:
+        existing = list(product.variants.all()[:2])
+        if len(existing) == 1:
+            return existing[0], False, None
+        if len(existing) > 1:
+            return None, False, "This product has several variants -- pick which one the stock is for."
+        spec = DEFAULT_SPEC
+    elif sell_price <= 0:
+        return None, False, "sell_price must be a positive number for a new variant."
+
+    sell_price = max(sell_price, 0)
+    mrp = _int_or_zero(data.get("mrp")) or sell_price
+    cost = _int_or_zero(data.get("cost")) or round(sell_price * 0.78)
+    variant = Variant.objects.create(
+        product=product, spec=spec, mrp=mrp, sell_price=sell_price, cost=cost,
+        code=next_code("VC-SKU", Variant, "code"),
+    )
+    return variant, True, None
+
+
 class AddStockView(APIView):
     """
     One endpoint for both real-world restock flows:
@@ -92,7 +144,9 @@ class AddStockView(APIView):
         (pass `product` + `variant`), or
       - a brand-new item arriving that isn't in the catalogue yet
         (pass `brand`/`model_name`/... instead of `product`, and
-        `spec`/`sell_price`/... instead of `variant`).
+        optionally `spec`/`sell_price`/... instead of `variant`).
+    Variants are optional -- see _resolve_variant() for how a restock
+    without one is placed.
     Whichever product code / variant code isn't supplied gets
     auto-generated -- this is the "no HSN, no scanner code yet"
     case: the item still gets a unique internal code so it's never
@@ -101,6 +155,7 @@ class AddStockView(APIView):
     permission_classes = [permissions.IsAuthenticated, HasPerm]
     required_perm = "inventory.edit"
 
+    @transaction.atomic
     def post(self, request):
         data = request.data
         stock_point = get_object_or_404(StockPoint, pk=data.get("stock_point"))
@@ -130,27 +185,11 @@ class AddStockView(APIView):
             )
             generated_product_code = True
 
-        generated_variant_code = False
-        variant_id = data.get("variant")
-        if variant_id:
-            variant = get_object_or_404(Variant, pk=variant_id, product=product)
-        else:
-            spec = (data.get("spec") or "").strip()
-            if not spec:
-                return Response({"detail": "spec is required for a new variant."}, status=400)
-            try:
-                sell_price = int(data.get("sell_price", 0))
-            except (TypeError, ValueError):
-                sell_price = 0
-            if sell_price <= 0:
-                return Response({"detail": "sell_price must be a positive number for a new variant."}, status=400)
-            mrp = int(data.get("mrp") or sell_price)
-            cost = int(data.get("cost") or round(sell_price * 0.78))
-            variant = Variant.objects.create(
-                product=product, spec=spec, mrp=mrp, sell_price=sell_price, cost=cost,
-                code=next_code("VC-SKU", Variant, "code"),
-            )
-            generated_variant_code = True
+        variant, generated_variant_code, error = _resolve_variant(product, data)
+        if error:
+            # don't keep a product created above for a request that failed
+            transaction.set_rollback(True)
+            return Response({"detail": error}, status=400)
 
         stock, _ = Stock.objects.get_or_create(variant=variant, stock_point=stock_point, defaults={"quantity": 0})
         update = {"quantity": F("quantity") + quantity}
