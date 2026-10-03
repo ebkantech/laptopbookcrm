@@ -8,7 +8,7 @@ from rest_framework.views import APIView
 from accounts.permissions import HasPerm, IsStaffAccount
 from .models import Part, Product, Service, Stock, StockPoint, Variant
 from .serializers import (
-    PartSerializer, ProductSerializer, ServiceSerializer, StockPointSerializer, VariantSerializer,
+    PartSerializer, ProductSerializer, ServiceSerializer, StockPointSerializer, StockSerializer, VariantSerializer,
 )
 from .utils import next_code
 
@@ -153,7 +153,13 @@ class AddStockView(APIView):
             generated_variant_code = True
 
         stock, _ = Stock.objects.get_or_create(variant=variant, stock_point=stock_point, defaults={"quantity": 0})
-        Stock.objects.filter(pk=stock.pk).update(quantity=F("quantity") + quantity)
+        update = {"quantity": F("quantity") + quantity}
+        # Optional: where the units were put away. Left blank, the row
+        # keeps whatever location it already had.
+        location = (data.get("location") or "").strip()[:80]
+        if location:
+            update["location"] = location
+        Stock.objects.filter(pk=stock.pk).update(**update)
         stock.refresh_from_db()
 
         return Response({
@@ -161,6 +167,29 @@ class AddStockView(APIView):
             "variant": VariantSerializer(variant).data,
             "stock_point": stock_point.name,
             "new_quantity": stock.quantity,
+            "location": stock.location,
             "generated_product_code": generated_product_code,
             "generated_variant_code": generated_variant_code,
         }, status=201)
+
+
+class StockLocationView(APIView):
+    """
+    Set or clear where one variant's units sit inside one shop
+    (PATCH {"location": "Rack A / Shelf 3"}). Separate from add-stock so
+    staff can re-shelve items without recording a fake restock.
+    """
+    permission_classes = [permissions.IsAuthenticated, HasPerm]
+    required_perm = "inventory.edit"
+
+    def patch(self, request, pk):
+        stock = get_object_or_404(Stock.objects.select_related("stock_point"), pk=pk)
+        location = request.data.get("location")
+        if location is None:
+            return Response({"detail": "location is required (send an empty string to clear it)."}, status=400)
+        location = str(location).strip()
+        if len(location) > 80:
+            return Response({"detail": "location must be 80 characters or fewer."}, status=400)
+        stock.location = location
+        stock.save(update_fields=["location"])
+        return Response(StockSerializer(stock).data)

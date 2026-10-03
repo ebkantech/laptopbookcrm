@@ -11,6 +11,7 @@ class VariantInline(admin.TabularInline):
 class StockInline(admin.TabularInline):
     model = Stock
     extra = 0
+    fields = ["stock_point", "quantity", "location"]
 
 
 @admin.register(StockPoint)
