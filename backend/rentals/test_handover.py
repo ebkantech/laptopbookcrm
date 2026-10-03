@@ -171,3 +171,46 @@ class RentalAssetRegistrationTests(TestCase):
         RentalAsset.objects.filter(pk=self.existing.pk).update(status=RentalAsset.RENTED)
         response = self.register(asset_tag="AST-0007", serial_number="OTHER")
         self.assertIn("rented on agreement RNT-000042", response.json()["asset_tag"][0])
+
+
+class RentFromInventoryTests(TestCase):
+    def setUp(self):
+        from catalog.models import Product, Stock, StockPoint, Variant
+
+        self.manager = client_for(make_user("fleet-manager", ["rentals.view", "rentals.manage"]))
+        self.shop = StockPoint.objects.create(slug="kb-test", name="Karol Bagh Test", kind=StockPoint.SHOP)
+        product = Product.objects.create(brand="Apple", model_name="MacBook Air 13", product_code="VC-LAP-0101")
+        self.variant = Variant.objects.create(product=product, code="VC-SKU-0101", spec="M2 / 8GB / 256GB", mrp=1, sell_price=99900, cost=1)
+        self.stock = Stock.objects.create(variant=self.variant, stock_point=self.shop, quantity=2)
+        self.url = "/api/rental-assets/from-inventory/"
+
+    def test_unit_leaves_sale_stock_and_becomes_a_rental_asset(self):
+        response = self.manager.post(self.url, {"stock": self.stock.id, "serial_number": "C02XYZ123"}, format="json")
+        self.assertEqual(response.status_code, 201, response.content)
+        body = response.json()
+        self.assertEqual((body["brand"], body["model_name"], body["status"]), ("Apple", "MacBook Air 13 (M2 / 8GB / 256GB)", "available"))
+        self.assertTrue(body["asset_tag"].startswith("AST-"))
+        self.assertEqual((body["variant"], body["source_stock_point"]), (self.variant.id, self.shop.id))
+        self.stock.refresh_from_db()
+        self.assertEqual(self.stock.quantity, 1)
+
+    def test_out_of_stock_and_duplicate_serial_take_nothing(self):
+        self.stock.quantity = 0
+        self.stock.save()
+        self.assertEqual(self.manager.post(self.url, {"stock": self.stock.id, "serial_number": "S1"}, format="json").status_code, 400)
+        self.stock.quantity = 1
+        self.stock.save()
+        RentalAsset.objects.create(asset_tag="AST-0500", serial_number="DUP-1", brand="x", model_name="y")
+        self.assertEqual(self.manager.post(self.url, {"stock": self.stock.id, "serial_number": "dup-1"}, format="json").status_code, 400)
+        self.stock.refresh_from_db()
+        self.assertEqual(self.stock.quantity, 1)
+        self.assertEqual(RentalAsset.objects.count(), 1)
+
+    def test_generic_word_is_not_an_asset_tag(self):
+        response = self.manager.post("/api/rental-assets/", {"asset_tag": "laptop", "serial_number": "S9", "brand": "Apple", "model_name": "M2"}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("sticker", response.json()["asset_tag"][0])
+
+    def test_needs_rentals_manage(self):
+        viewer = client_for(make_user("fleet-viewer", ["rentals.view"]))
+        self.assertEqual(viewer.post(self.url, {"stock": self.stock.id, "serial_number": "S2"}, format="json").status_code, 403)

@@ -12,11 +12,12 @@ from rest_framework.views import APIView
 from rest_framework.exceptions import MethodNotAllowed, ValidationError
 
 from accounts.permissions import HasPerm
-from catalog.models import StockPoint
+from catalog.models import Stock, StockPoint
 
 from .billing import RentBillingError, raise_rent_invoice
 from .models import Rental, RentalApproval, RentalAsset, RentalEvent, RentalIssue, RentalLine
 from .serializers import (
+    AssetFromInventorySerializer,
     CreateRentalAgreementSerializer,
     PublicRentalApprovalDecisionSerializer,
     PublicRentalApprovalSerializer,
@@ -209,7 +210,34 @@ class RentalAssetViewSet(viewsets.ModelViewSet):
         "list": "rentals.view", "retrieve": "rentals.view",
         "create": "rentals.manage", "update": "rentals.manage",
         "partial_update": "rentals.manage", "destroy": "rentals.manage",
+        "from_inventory": "rentals.manage",
     }
+
+    @action(detail=False, methods=["post"], url_path="from-inventory")
+    def from_inventory(self, request):
+        """
+        Rent out a laptop that's in Inventory: one unit of the chosen
+        variant leaves that shop's sale stock (quantity - 1) and becomes a
+        rental asset, identified by its own serial number. Body:
+        {"stock": <Stock row id>, "serial_number": "...", "asset_tag": ""}.
+        """
+        payload = AssetFromInventorySerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        stock = payload.validated_data["stock"]
+        variant, product = stock.variant, stock.variant.product
+        asset_data = RentalAssetSerializer(data={
+            "asset_tag": payload.validated_data.get("asset_tag", ""),
+            "serial_number": payload.validated_data["serial_number"],
+            "brand": product.brand if product.brand and product.brand != "\u2014" else product.model_name.split()[0],
+            "model_name": f"{product.model_name} ({variant.spec})"[:80],
+        })
+        asset_data.is_valid(raise_exception=True)
+        with transaction.atomic():
+            taken = Stock.objects.filter(pk=stock.pk, quantity__gt=0).update(quantity=F("quantity") - 1)
+            if not taken:
+                raise ValidationError({"stock": f"No {product.display_name} ({variant.spec}) left in stock at {stock.stock_point.name}."})
+            asset = asset_data.save(variant=variant, source_stock_point=stock.stock_point)
+        return Response(RentalAssetSerializer(asset).data, status=201)
 
     def perform_update(self, serializer):
         asset = self.get_object()

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Plus, Trash2, X } from "lucide-react";
+import { Package, Plus, Trash2, X } from "lucide-react";
 
 import { api } from "../../lib/api";
 import { C } from "../../lib/theme";
@@ -17,6 +17,13 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
   const [lines, setLines] = useState([{ asset_id: "", monthly_fee: "" }]);
   const [assetDraft, setAssetDraft] = useState(emptyAsset);
   const [showAssetForm, setShowAssetForm] = useState(false);
+  // "Rent out from inventory": laptops in shop stock, loaded on demand
+  const [showInventory, setShowInventory] = useState(false);
+  const [stockRows, setStockRows] = useState(null);
+  const [stockQuery, setStockQuery] = useState("");
+  const [stockId, setStockId] = useState("");
+  const [invSerial, setInvSerial] = useState("");
+  const [invTag, setInvTag] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [existing, setExisting] = useState(null); // an already-registered asset matching the draft
@@ -86,6 +93,44 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
     }
   };
 
+  const openInventory = async () => {
+    setShowInventory((v) => !v);
+    setShowAssetForm(false);
+    if (stockRows) return;
+    try {
+      const products = await api.getAll("/products/");
+      // one row per (variant, shop) that actually has units on the shelf
+      setStockRows(products.flatMap((p) => p.variants.flatMap((v) => v.stock
+        .filter((s) => s.quantity > 0)
+        .map((s) => ({ id: s.id, label: `${p.display_name} · ${v.spec}`, code: v.code, shop: s.stock_point_name || s.stock_point, qty: s.quantity, location: s.location })))));
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const takeFromInventory = async () => {
+    if (!stockId || !invSerial.trim()) {
+      setError("Pick the item and enter the serial number printed on this unit.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const asset = await api.post("/rental-assets/from-inventory/", { stock: Number(stockId), serial_number: invSerial.trim(), asset_tag: invTag.trim() });
+      setStockRows((rows) => rows.map((r) => (r.id === Number(stockId) ? { ...r, qty: r.qty - 1 } : r)).filter((r) => r.qty > 0));
+      selectAsset(asset);
+      setShowInventory(false);
+      setStockId("");
+      setInvSerial("");
+      setInvTag("");
+    } catch (requestError) {
+      const body = requestError.body || {};
+      setError(Object.entries(body).filter(([k]) => k !== "existing_asset").map(([, v]) => [].concat(v).join(" ")).join(" ") || requestError.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const submit = async (event) => {
     event.preventDefault();
     const selectedLines = lines.filter((line) => line.asset_id);
@@ -120,15 +165,40 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
           <label className="text-xs" style={{ color: C.inkSoft }}>Start date<input type="date" value={start} onChange={(event) => setStart(event.target.value)} className="mt-1 w-full bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} /></label>
           <label className="text-xs" style={{ color: C.inkSoft }}>Tenure (months)<input type="number" min="1" value={tenureMonths} onChange={(event) => setTenureMonths(event.target.value)} className="mt-1 w-full bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} /></label>
         </div>
-        <div className="mt-5 flex items-center justify-between"><Eyebrow>Devices · {selectedCount >= 2 ? "Bulk" : "Single"}</Eyebrow><button type="button" onClick={() => setShowAssetForm((value) => !value)} className="flex items-center gap-1 text-xs" style={{ color: C.orange }}><Plus size={12} /> Register new asset</button></div>
+        <div className="mt-5 flex items-center justify-between"><Eyebrow>Devices · {selectedCount >= 2 ? "Bulk" : "Single"}</Eyebrow><div className="flex items-center gap-3"><button type="button" onClick={openInventory} className="flex items-center gap-1 text-xs" style={{ color: C.orange, fontWeight: 600 }}><Package size={12} /> Rent out from inventory</button><button type="button" onClick={() => { setShowAssetForm((value) => !value); setShowInventory(false); }} className="flex items-center gap-1 text-xs" style={{ color: C.orange }}><Plus size={12} /> Register device not in inventory</button></div></div>
+        {showInventory && (
+          <div className="mt-2 space-y-2 p-3" style={{ backgroundColor: C.slip2 }}>
+            <p className="text-xs" style={{ color: C.inkSoft }}>Pick a laptop that's in stock. One unit leaves that shop's sale stock and joins the rental fleet.</p>
+            {!stockRows ? <p className="text-xs" style={{ color: C.inkSoft }}>Loading inventory…</p> : (
+              <>
+                <input value={stockQuery} onChange={(e) => setStockQuery(e.target.value)} placeholder="Search product, spec or shop" className="w-full bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} />
+                <select value={stockId} onChange={(e) => setStockId(e.target.value)} size={Math.min(6, Math.max(2, stockRows.length))} className="w-full bg-transparent p-1 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }}>
+                  {stockRows
+                    .filter((r) => !stockQuery.trim() || `${r.label} ${r.code} ${r.shop}`.toLowerCase().includes(stockQuery.trim().toLowerCase()))
+                    .map((r) => <option key={r.id} value={r.id}>{r.label} — {r.shop} ({r.qty} in stock{r.location ? `, ${r.location}` : ""})</option>)}
+                </select>
+                {!stockRows.length && <p className="text-xs" style={{ color: C.carbon }}>Nothing is in stock in Inventory right now.</p>}
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <label className="text-xs" style={{ display: "block", color: C.inkSoft }}>Serial number of this unit *<input value={invSerial} onChange={(e) => setInvSerial(e.target.value)} placeholder="from the label under the laptop" className="mt-1 w-full bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} /></label>
+                  <label className="text-xs" style={{ display: "block", color: C.inkSoft }}>Asset tag (optional)<input value={invTag} onChange={(e) => setInvTag(e.target.value)} placeholder="blank = generate AST-####" className="mt-1 w-full bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} /></label>
+                </div>
+                <button type="button" disabled={busy} onClick={takeFromInventory} className="w-full p-2 text-xs" style={{ backgroundColor: C.carbon, color: C.onAccent }}>{busy ? "Taking from stock…" : "Take 1 from stock and add to this agreement"}</button>
+              </>
+            )}
+          </div>
+        )}
         {showAssetForm && <div className="mt-2 grid gap-2 p-3 sm:grid-cols-2" style={{ backgroundColor: C.slip2 }}>
-          {[["asset_tag", "Asset tag (blank = auto)"], ["serial_number", "Serial number"], ["brand", "Brand"], ["model_name", "Model"]].map(([key, label]) => <input key={key} value={assetDraft[key]} onChange={(event) => setAssetDraft((draft) => ({ ...draft, [key]: event.target.value }))} placeholder={label} className="bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} />)}
+          {[["asset_tag", "Asset tag (optional)", "Unique sticker ID, e.g. AST-0042 — blank = generate"], ["serial_number", "Serial number *", "From the label under the laptop"], ["brand", "Brand *", "e.g. Apple"], ["model_name", "Model *", "e.g. MacBook Air M2 2022"]].map(([key, label, hint]) => (
+            <label key={key} className="text-xs" style={{ display: "block", color: C.inkSoft }}>{label}
+              <input value={assetDraft[key]} onChange={(event) => setAssetDraft((draft) => ({ ...draft, [key]: event.target.value }))} placeholder={hint} className="mt-1 w-full bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} />
+            </label>
+          ))}
           <button type="button" disabled={busy} onClick={addAsset} className="p-2 text-xs sm:col-span-2" style={{ backgroundColor: C.carbon, color: C.onAccent }}>Save asset and select it</button>
           {existing && existing.status === "available" && (
             <button type="button" onClick={() => selectAsset(existing)} className="p-2 text-xs sm:col-span-2" style={{ border: `1px solid ${C.green}`, color: C.green, fontWeight: 600 }}>Use {existing.asset_tag} on this agreement</button>
           )}
         </div>}
-        <div className="mt-2 space-y-2">{lines.map((line, index) => <div key={index} className="grid grid-cols-[1fr_130px_32px] gap-2"><select value={line.asset_id} onChange={(event) => updateLine(index, "asset_id", event.target.value)} className="bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }}><option value="">Choose available asset</option>{availableAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.asset_tag} · {asset.brand} {asset.model_name} · {asset.serial_number}</option>)}</select><input type="number" min="0" value={line.monthly_fee} onChange={(event) => updateLine(index, "monthly_fee", event.target.value)} placeholder="₹ / month" className="bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} /><button type="button" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, position) => position !== index))}><Trash2 size={15} /></button></div>)}</div>
+        <div className="mt-2 space-y-2">{lines.map((line, index) => <div key={index} className="grid grid-cols-[1fr_130px_32px] gap-2"><select value={line.asset_id} onChange={(event) => updateLine(index, "asset_id", event.target.value)} className="bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }}><option value="">{availableAssets.length ? "Choose an available rental device" : "No free rental devices — rent one out from inventory above"}</option>{availableAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.asset_tag} · {asset.brand} {asset.model_name} · {asset.serial_number}</option>)}</select><input type="number" min="0" value={line.monthly_fee} onChange={(event) => updateLine(index, "monthly_fee", event.target.value)} placeholder="₹ / month" className="bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} /><button type="button" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, position) => position !== index))}><Trash2 size={15} /></button></div>)}</div>
         <button type="button" onClick={() => setLines((current) => [...current, { asset_id: "", monthly_fee: "" }])} className="mt-2 flex items-center gap-1 text-xs" style={{ color: C.orange }}><Plus size={12} /> Add another device</button>
         <label className="mt-4 block text-xs" style={{ color: C.inkSoft }}>Terms (optional)<textarea value={terms} onChange={(event) => setTerms(event.target.value)} rows={3} className="mt-1 w-full resize-none bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} /></label>
         <ErrorNote message={error} />

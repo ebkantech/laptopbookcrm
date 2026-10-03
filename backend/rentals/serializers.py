@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from catalog.models import Stock
 from parties.models import Party
 
 from .models import Rental, RentalApproval, RentalAsset, RentalEvent, RentalIssue, RentalLine
@@ -86,10 +87,10 @@ class RentalAssetSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = RentalAsset
-        fields = ["id", "asset_tag", "serial_number", "brand", "model_name", "status", "created_at"]
+        fields = ["id", "asset_tag", "serial_number", "brand", "model_name", "status", "created_at", "variant", "source_stock_point"]
         # Availability is a workflow state. It can only change when an
         # agreement is approved, rejected, cancelled, or closed.
-        read_only_fields = ["status", "created_at"]
+        read_only_fields = ["status", "created_at", "variant", "source_stock_point"]
         # uniqueness is checked case-insensitively in validate() instead,
         # with a message that says where the existing asset is
         validators = []
@@ -119,6 +120,15 @@ class RentalAssetSerializer(serializers.ModelSerializer):
         for key in ("asset_tag", "serial_number", "brand", "model_name"):
             if key in attrs:
                 attrs[key] = attrs[key].strip()
+        tag = attrs.get("asset_tag")
+        if tag and not any(ch.isdigit() for ch in tag):
+            # "laptop", "dell"... -- a tag identifies one physical unit
+            raise serializers.ValidationError({
+                "asset_tag": (
+                    f'"{tag}" is not an asset tag -- the tag is the unique ID on this unit\'s sticker '
+                    "(e.g. AST-0042). Leave it blank to generate one."
+                ),
+            })
         if attrs.get("serial_number"):
             self._duplicate("serial_number", attrs["serial_number"], "Serial number")
         if attrs.get("asset_tag"):
@@ -212,3 +222,10 @@ class PublicRentalApprovalSerializer(serializers.Serializer):
             "items": snapshot.get("items", []),
             "total_monthly_fee": snapshot.get("total_monthly_fee", 0),
         }
+
+
+class AssetFromInventorySerializer(serializers.Serializer):
+    """Take one unit off a shop's sale stock and register it for rent."""
+    stock = serializers.PrimaryKeyRelatedField(queryset=Stock.objects.select_related("variant__product", "stock_point"))
+    serial_number = serializers.CharField(max_length=80, trim_whitespace=True)
+    asset_tag = serializers.CharField(max_length=48, required=False, allow_blank=True, trim_whitespace=True)
