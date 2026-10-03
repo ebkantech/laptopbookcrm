@@ -40,7 +40,7 @@ class RentalApprovalWorkflowTests(TestCase):
         self.client.force_authenticate(self.user)
 
     def test_bulk_snapshot_is_immutable_and_customer_approval_rents_all_assets(self):
-        approval, approval_url = issue_approval_link(self.rental, self.user)
+        approval, approval_url, _ = issue_approval_link(self.rental, self.user)
         raw_token = approval_url.rsplit("/", 1)[-1]
 
         self.assertEqual(approval.snapshot["rental_type"], "bulk")
@@ -76,8 +76,8 @@ class RentalApprovalWorkflowTests(TestCase):
         self.assertTrue(self.rental.events.filter(event_type=RentalEvent.APPROVAL_DECIDED).exists())
 
     def test_new_link_revokes_the_previous_pending_link(self):
-        first, first_url = issue_approval_link(self.rental, self.user)
-        second, _ = issue_approval_link(self.rental, self.user)
+        first, first_url, _ = issue_approval_link(self.rental, self.user)
+        second, _, _ = issue_approval_link(self.rental, self.user)
         first.refresh_from_db()
 
         self.assertEqual(first.status, RentalApproval.REVOKED)
@@ -127,7 +127,7 @@ class RentalApprovalWorkflowTests(TestCase):
         self.assertEqual(available.status, RentalAsset.AVAILABLE)
 
     def test_approved_changes_require_reason_and_store_json_safe_audit(self):
-        approval, approval_url = issue_approval_link(self.rental, self.user)
+        approval, approval_url, _ = issue_approval_link(self.rental, self.user)
         customer_decide(approval_url.rsplit("/", 1)[-1], "approve", consent=True)
 
         without_reason = self.client.patch(
