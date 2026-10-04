@@ -9,6 +9,10 @@ calls post_invoice_payment():
                                             account, "in", unreconciled
   No charge (nothing collected)          -> nothing
 
+Refunds (sales.services.refund_invoice) go the other way through
+post_refund(): cash refunds out of the cash book, anything else out of
+the default bank account.
+
 Each posted entry is linked to its invoice (one entry per invoice), so
 posting is idempotent and the entry can't be edited away from the
 invoice it mirrors.
@@ -63,4 +67,22 @@ def post_invoice_payment(invoice):
         account=default_bank_account(), date=date, type=BankEntry.IN, amount=invoice.total,
         particulars=f"{_particulars(invoice)} via {invoice.pay_method or 'bank'}"[:160],
         reference=invoice.payment_reference[:80], invoice=invoice,
+    )
+
+
+@transaction.atomic
+def post_refund(refund):
+    """Post money paid back on an invoice as an "out" entry."""
+    if CashEntry.objects.filter(refund=refund).exists() or BankEntry.objects.filter(refund=refund).exists():
+        return None
+    invoice = refund.invoice
+    particulars = f"Refund on {_particulars(invoice)}"
+    if refund.method == "Cash":
+        return CashEntry.objects.create(
+            date=refund.refunded_on, particulars=particulars[:160], type=CashEntry.OUT,
+            amount=refund.amount, by=refund.by, refund=refund,
+        )
+    return BankEntry.objects.create(
+        account=default_bank_account(), date=refund.refunded_on, type=BankEntry.OUT, amount=refund.amount,
+        particulars=f"{particulars} via {refund.method}"[:160], reference=refund.reference[:80], refund=refund,
     )

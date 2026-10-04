@@ -84,13 +84,18 @@ class RentalSerializer(serializers.ModelSerializer):
 class RentalAssetSerializer(serializers.ModelSerializer):
     # Optional: left blank, the next AST-#### tag is generated on create.
     asset_tag = serializers.CharField(max_length=48, required=False, allow_blank=True)
+    source_stock_point_name = serializers.CharField(source="source_stock_point.name", read_only=True, default=None)
+    returned_to_name = serializers.CharField(source="returned_to.name", read_only=True, default=None)
 
     class Meta:
         model = RentalAsset
-        fields = ["id", "asset_tag", "serial_number", "brand", "model_name", "status", "created_at", "variant", "source_stock_point"]
+        fields = [
+            "id", "asset_tag", "serial_number", "brand", "model_name", "status", "created_at", "variant",
+            "source_stock_point", "source_stock_point_name", "returned_to_stock_at", "returned_to", "returned_to_name",
+        ]
         # Availability is a workflow state. It can only change when an
         # agreement is approved, rejected, cancelled, or closed.
-        read_only_fields = ["status", "created_at", "variant", "source_stock_point"]
+        read_only_fields = ["status", "created_at", "variant", "source_stock_point", "returned_to_stock_at", "returned_to"]
         # uniqueness is checked case-insensitively in validate() instead,
         # with a message that says where the existing asset is
         validators = []

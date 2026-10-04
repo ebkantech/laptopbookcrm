@@ -106,13 +106,25 @@ class RepairTicket(models.Model):
     def original_invoice(self):
         """The invoice raised when the job was first delivered (a
         sales.Invoice with source=repair; reopen visits get their own)."""
-        return self.invoices.filter(repair_reopen__isnull=True).exclude(status="Cancelled").first()
+        return self.invoices.filter(repair_reopen__isnull=True, is_advance=False).exclude(status="Cancelled").first()
 
     @property
     def unpaid_invoice(self):
         """An invoice raised for this ticket that hasn't been paid yet --
         while one exists the ticket waits at Ready for pickup."""
-        return self.invoices.filter(status__in=("Payment link sent", "Overdue")).first()
+        return self.invoices.filter(status__in=("Payment link sent", "Overdue"), is_advance=False).first()
+
+    @property
+    def advance_invoice(self):
+        """The advance asked for when the job was booked (a sales.Invoice
+        with is_advance=True), unless it was cancelled."""
+        return self.invoices.filter(is_advance=True).exclude(status="Cancelled").first()
+
+    @property
+    def unpaid_advance(self):
+        """An advance invoice still awaiting payment -- work can't start
+        until it's paid (or cancelled)."""
+        return self.invoices.filter(is_advance=True, status__in=("Payment link sent", "Overdue")).first()
 
     @property
     def active_reopen(self):

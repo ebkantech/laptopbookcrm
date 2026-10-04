@@ -4,6 +4,7 @@ backend/.venv/
 backend/.env
 backend/db.sqlite3
 backend/media/
+backend/backups/
 backend/**/__pycache__/
 backend/**/*.pyc
 

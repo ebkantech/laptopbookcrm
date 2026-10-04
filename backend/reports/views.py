@@ -44,10 +44,10 @@ class FinancialSummaryReportView(APIView):
         range_start = date(months[0][0], months[0][1], 1)
 
         revenue_by_month = {ym: 0 for ym in months}
-        for inv in Invoice.objects.filter(status=Invoice.PAID, date__gte=range_start):
+        for inv in Invoice.objects.filter(status__in=Invoice.SETTLED, date__gte=range_start).prefetch_related("items", "refunds"):
             key = (inv.date.year, inv.date.month)
             if key in revenue_by_month:
-                revenue_by_month[key] += inv.total
+                revenue_by_month[key] += inv.net_total
 
         mark_overdue()
         outstanding_invoices = Invoice.objects.filter(status__in=Invoice.OUTSTANDING)
@@ -82,39 +82,39 @@ class SalesSummaryReportView(APIView):
 
         all_invoices = list(
             Invoice.objects.filter(source=Invoice.SALE, date__gte=range_start).exclude(status=Invoice.CANCELLED)
-            .select_related("stock_point").prefetch_related("items")
+            .select_related("stock_point").prefetch_related("items", "refunds")
         )
 
         revenue_by_month = {ym: 0 for ym in months}
         for inv in all_invoices:
-            if inv.status != Invoice.PAID:
+            if inv.status not in Invoice.SETTLED:
                 continue
             key = (inv.date.year, inv.date.month)
             if key in revenue_by_month:
-                revenue_by_month[key] += inv.total
+                revenue_by_month[key] += inv.net_total
 
         by_stock_point = []
         for sp in StockPoint.objects.all():
             sp_invoices = [i for i in all_invoices if i.stock_point_id == sp.id]
-            sp_paid = [i for i in sp_invoices if i.status == Invoice.PAID]
+            sp_paid = [i for i in sp_invoices if i.status in Invoice.SETTLED]
             sp_pending = [i for i in sp_invoices if i.status in Invoice.OUTSTANDING]
             by_stock_point.append({
                 "id": sp.slug, "name": sp.name, "kind": sp.kind,
                 "invoice_count": len(sp_invoices),
-                "revenue_paid": sum(i.total for i in sp_paid),
+                "revenue_paid": sum(i.net_total for i in sp_paid),
                 "pending": sum(i.total for i in sp_pending),
                 "units_sold": sum(item.qty for i in sp_invoices for item in i.items.all()),
             })
         by_stock_point.sort(key=lambda c: c["revenue_paid"], reverse=True)
 
-        paid_invoices = [i for i in all_invoices if i.status == Invoice.PAID]
+        paid_invoices = [i for i in all_invoices if i.status in Invoice.SETTLED]
 
         return Response({
             "monthly_revenue": [
                 {"month": month_label(y, m), "revenue": revenue_by_month[(y, m)]}
                 for (y, m) in months
             ],
-            "total_revenue_paid": sum(i.total for i in paid_invoices),
+            "total_revenue_paid": sum(i.net_total for i in paid_invoices),
             "total_invoices": len(paid_invoices),
             "by_stock_point": by_stock_point,
         })
@@ -244,17 +244,18 @@ class PartyReportView(APIView):
     required_perm = "parties.view"
 
     def get(self, request):
-        parties = list(Party.objects.prefetch_related("invoices__items"))
+        parties = list(Party.objects.prefetch_related("invoices__items", "invoices__refunds"))
 
         rows = []
         for p in parties:
-            invoices = list(p.invoices.all())
+            # what they actually paid: settled invoices less refunds
+            invoices = [i for i in p.invoices.all() if i.status in Invoice.SETTLED]
             if not invoices:
                 continue
             rows.append({
                 "id": p.id, "name": p.name, "type": p.type,
                 "invoice_count": len(invoices),
-                "total_spent": sum(i.total for i in invoices),
+                "total_spent": sum(i.net_total for i in invoices),
             })
         rows.sort(key=lambda r: r["total_spent"], reverse=True)
 

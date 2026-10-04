@@ -5,7 +5,6 @@ from django.db import transaction
 from django.utils import timezone
 
 from accounts.models import NotificationRule, Permission, Role, User
-from accounting.models import BankAccount, BankEntry, CashEntry
 from broadcast.models import Campaign, WhatsAppOrder
 from catalog.models import Part, PartStock, Product, Service, Stock, StockPoint, Variant
 from parties.models import Message, Party
@@ -24,6 +23,7 @@ PERMS = {
     "invoices.view": "View invoices",
     "invoices.create": "Create invoices & payment links",
     "invoices.settle": "Mark invoices settled",
+    "invoices.refund": "Refund paid invoices and take back returned items",
     "payments.send_link": "Send UPI payment links to customers",
     "inventory.edit": "Edit stock and product records",
     "rentals.manage": "Manage rental accounts",
@@ -46,12 +46,12 @@ ROLES = {
     "owner": ("Owner / Super Admin", list(PERMS.keys())),
     "accountant": ("Accounts", [
         "cashbook.view", "cashbook.edit", "bankbook.view", "bankbook.edit",
-        "bankbook.reconcile", "invoices.view", "invoices.settle", "reports.export",
+        "bankbook.reconcile", "invoices.view", "invoices.settle", "invoices.refund", "reports.export",
         "parties.view", "payments.send_link",
     ]),
     "manager": ("Admin", [
         "cashbook.view", "cashbook.edit", "bankbook.view", "bankbook.edit", "bankbook.reconcile",
-        "invoices.view", "invoices.create", "invoices.settle", "inventory.edit", "payments.send_link",
+        "invoices.view", "invoices.create", "invoices.settle", "invoices.refund", "inventory.edit", "payments.send_link",
         "rentals.view", "rentals.manage", "rentals.approve",
         "repairs.view", "repairs.manage", "repairs.approve",
         "broadcast.send", "warranty.manage", "portal.manage", "roles.manage", "reports.export",
@@ -412,15 +412,9 @@ class Command(BaseCommand):
             Notification.objects.create(ticket=delivered, channel="whatsapp", text="Ticket RPR-1040 created.")
             Notification.objects.create(ticket=delivered, channel="whatsapp", text="Keyboard replaced, ready for pickup.")
 
-        owner = User.objects.get(username="aman.kapoor")
-        if not CashEntry.objects.exists():
-            CashEntry.objects.create(date=date(2026, 9, 1), particulars="Opening balance", type="in", amount=42000, by=owner)
-            CashEntry.objects.create(date=date(2026, 9, 2), particulars="Cash sale, Karol Bagh", type="in", amount=18500, by=owner)
-
-        if not BankAccount.objects.exists():
-            hdfc = BankAccount.objects.create(name="HDFC Bank \u2014 Current A/c \u2022\u20224821", opening=612000)
-            BankEntry.objects.create(account=hdfc, date=date(2026, 9, 1), particulars="Opening balance", type="in", amount=612000, reconciled=True)
-            BankEntry.objects.create(account=hdfc, date=date(2026, 9, 3), particulars="NEFT \u2014 Bright Minds School", type="in", amount=209994, reconciled=True)
+        # No sample cash/bank entries: the books fill from real invoice
+        # payments and refunds (accounting.posting). An existing database
+        # can drop the old samples with `manage.py remove_demo_accounting`.
 
         if not Campaign.objects.exists():
             Campaign.objects.create(title="Diwali laptop offer \u2014 flat 12% off refurbished", channel="whatsapp", audience="All retail customers", sent=412, opened=301)

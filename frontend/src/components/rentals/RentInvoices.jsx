@@ -4,7 +4,7 @@ import { C, F, fmt, money } from "../../lib/theme";
 import { api } from "../../lib/api";
 import { ErrorNote, Eyebrow, Pill } from "../Atoms";
 
-const STATUS_COLOR = { Paid: C.green, "Payment link sent": C.amber, Overdue: C.carbon, Cancelled: C.inkSoft };
+const STATUS_COLOR = { Paid: C.green, "Payment link sent": C.amber, Overdue: C.carbon, Cancelled: C.inkSoft, Refunded: C.inkSoft };
 
 /*
  * Rent billing for one agreement. Raising an invoice bills the next
@@ -70,7 +70,7 @@ export default function RentInvoices({ rental, canRaise, onChanged }) {
               </span>
               <span className="flex items-center gap-2">
                 <span style={{ fontFamily: F.mono, color: C.ink }}>{money(inv.total)}</span>
-                <Pill color={STATUS_COLOR[inv.status] || C.inkSoft}>{inv.status === "Paid" ? `Paid ${fmt(inv.paid_on)}` : inv.status === "Overdue" || inv.status === "Cancelled" ? inv.status : "Awaiting payment"}</Pill>
+                <Pill color={STATUS_COLOR[inv.status] || C.inkSoft}>{inv.status === "Paid" ? `Paid ${fmt(inv.paid_on)}` : ["Overdue", "Cancelled", "Refunded"].includes(inv.status) ? inv.status : "Awaiting payment"}</Pill>
               </span>
             </div>
           ))}

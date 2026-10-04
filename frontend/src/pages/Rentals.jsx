@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  AlertOctagon, Camera, Check, Clock3, Copy, Link2, MessageCircle, MessageSquarePlus, Phone,
+  AlertOctagon, Camera, Check, Clock3, Copy, Laptop, Link2, MessageCircle, MessageSquarePlus, Phone,
   Plus, ShieldAlert, ShieldCheck, UserPlus, X,
 } from "lucide-react";
 import { C, F, fmt, money } from "../lib/theme";
@@ -12,6 +12,7 @@ import { PartyChatModal } from "../components/PartyThread";
 import RentalAgreementModal from "../components/rentals/RentalAgreementModal";
 import RentInvoices from "../components/rentals/RentInvoices";
 import DeviceHandoverModal from "../components/rentals/DeviceHandoverModal";
+import RentalDevicesModal from "../components/rentals/RentalDevicesModal";
 
 const BAND_COLOR = { "High risk": C.carbon, Watch: C.amber, Healthy: C.green };
 const ISSUE_STATUS_COLOR = { Open: C.carbon, "In progress": C.amber, Resolved: C.green };
@@ -141,6 +142,7 @@ export default function Rentals() {
   const [raisingFor, setRaisingFor] = useState(null);
   const [chatWith, setChatWith] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [showDevices, setShowDevices] = useState(false);
   const [approvalLink, setApprovalLink] = useState("");
   const [approvalWhatsappUrl, setApprovalWhatsappUrl] = useState("");
   const [actionError, setActionError] = useState("");
@@ -231,7 +233,10 @@ export default function Rentals() {
       <PageHeader
         title="Rental accounts"
         subtitle="New agreements awaiting action first, then live rentals by churn risk — next payment due and client-raised issues"
-        actions={can("rentals.manage") && <PillButton icon={Plus} primary onClick={() => setCreating(true)}>New rental agreement</PillButton>}
+        actions={<>
+          <PillButton icon={Laptop} onClick={() => setShowDevices(true)}>Devices</PillButton>
+          {can("rentals.manage") && <PillButton icon={Plus} primary onClick={() => setCreating(true)}>New rental agreement</PillButton>}
+        </>}
       />
 
       <ErrorNote message={actionError} />
@@ -333,6 +338,8 @@ export default function Rentals() {
         <RaiseIssueModal rentalId={raisingFor} onClose={() => setRaisingFor(null)}
           onCreated={(issue) => { patchRental(raisingFor, issue); setRaisingFor(null); }} />
       )}
+      {showDevices && <RentalDevicesModal assets={assets} canManage={can("rentals.manage")} onClose={() => setShowDevices(false)}
+        onChanged={(updated) => setAssets((list) => list.map((a) => (a.id === updated.id ? updated : a)))} />}
       {chatWith && <PartyChatModal partyId={chatWith.id} partyName={chatWith.name} onClose={() => setChatWith(null)} />}
       {rentalAction && <RentalActionModal {...rentalAction} onClose={() => setRentalAction(null)} onCompleted={(updated) => { setRentals((current) => current.map((item) => item.id === updated.id ? updated : item)); setRentalAction(null); api.getAll("/rental-assets/").then(setAssets); }} />}
       {creating && <RentalAgreementModal parties={parties} initialAssets={assets} onClose={() => setCreating(false)} onCreated={(created) => { setRentals((current) => [created, ...current]); setCreating(false); setHandoverFor(created.id); api.getAll("/rental-assets/").then(setAssets); }} />}

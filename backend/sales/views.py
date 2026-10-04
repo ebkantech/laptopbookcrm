@@ -14,14 +14,17 @@ from parties.models import Message
 
 from . import payments
 from .models import PAYMENT_METHODS, Invoice, PaymentLink
-from .services import CancelError, cancel_invoice, mark_overdue, on_invoice_paid
+from .services import CancelError, RefundError, cancel_invoice, mark_overdue, on_invoice_paid, refund_invoice
 from .serializers import InvoiceSerializer
 
 
 class InvoiceViewSet(viewsets.ModelViewSet):
     queryset = Invoice.objects.select_related(
         "party", "stock_point", "settled_by", "repair_ticket", "rental",
-    ).prefetch_related("items__variant__product", "payment_links__sent_by").all()
+    ).prefetch_related(
+        "items__variant__product", "items__refund_items", "payment_links__sent_by",
+        "refunds__by", "refunds__items__invoice_item__variant__product",
+    ).all()
     serializer_class = InvoiceSerializer
     permission_classes = [permissions.IsAuthenticated, HasPerm]
     required_perms = {
@@ -35,6 +38,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         "refresh_payment": "payments.send_link",
         "simulate_payment": "invoices.settle",
         "cancel": "invoices.create",
+        "refund": "invoices.refund",
     }
 
     def get_queryset(self):
@@ -61,7 +65,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         is required for every method except cash.
         """
         invoice = self.get_object()
-        if invoice.status == Invoice.PAID:
+        if invoice.status in Invoice.SETTLED:
             return Response({"detail": "This invoice is already marked paid."}, status=400)
         if invoice.status == Invoice.CANCELLED:
             return Response({"detail": "This invoice was cancelled."}, status=400)
@@ -104,6 +108,33 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         except CancelError as e:
             return Response({"detail": str(e)}, status=400)
         return Response(InvoiceSerializer(Invoice.objects.get(pk=invoice.pk)).data)
+
+    @action(detail=True, methods=["post"])
+    def refund(self, request, pk=None):
+        """
+        Pay money back on a paid invoice. Body: {"method", "reference",
+        "reason", "refunded_on"?, and for a sale "items": [{"item", "qty"}]
+        plus "restock" (default true), otherwise "amount"}.
+        """
+        refunded_on = request.data.get("refunded_on")
+        try:
+            refunded_on = date.fromisoformat(refunded_on) if refunded_on else None
+        except (TypeError, ValueError):
+            return Response({"detail": "refunded_on must be a date (YYYY-MM-DD)."}, status=400)
+        try:
+            refund_invoice(
+                self.get_object(), request.user,
+                method=(request.data.get("method") or "").strip(),
+                reference=request.data.get("reference") or "",
+                reason=request.data.get("reason") or "",
+                refunded_on=refunded_on,
+                items=request.data.get("items"),
+                amount=request.data.get("amount"),
+                restock=request.data.get("restock", True) not in (False, "false", "0", 0),
+            )
+        except RefundError as e:
+            return Response({"detail": str(e)}, status=400)
+        return Response(InvoiceSerializer(self.get_queryset().get(pk=pk)).data)
 
     @action(detail=True, methods=["get"], url_path="print-data")
     def print_data(self, request, pk=None):
@@ -192,7 +223,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         if refused:
             return refused
         invoice = self.get_object()
-        if invoice.status == Invoice.PAID:
+        if invoice.status in Invoice.SETTLED:
             return Response({"detail": "This invoice is already paid."}, status=400)
         if invoice.status == Invoice.CANCELLED:
             return Response({"detail": "This invoice was cancelled."}, status=400)

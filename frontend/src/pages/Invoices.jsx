@@ -9,8 +9,9 @@ import PrintableInvoice from "../components/invoices/PrintableInvoice";
 import UpiPaymentLink from "../components/invoices/UpiPaymentLink";
 import PartyPicker from "../components/invoices/PartyPicker";
 
-const STATUS_COLOR = { Paid: "#36D399", "Payment link sent": "#F5A623", Overdue: "#FB5B5B", Cancelled: "#8A8F98" };
+const STATUS_COLOR = { Paid: "#36D399", "Payment link sent": "#F5A623", Overdue: "#FB5B5B", Cancelled: "#8A8F98", Refunded: "#7C6FD8" };
 const isOutstanding = (inv) => inv.status === "Payment link sent" || inv.status === "Overdue";
+const isSettled = (inv) => inv.status === "Paid" || inv.status === "Refunded";
 // "Payment link sent" is also the default status of a brand-new unpaid
 // invoice, so only say a link was sent when one actually is open.
 const STATUS_LABEL = { "Payment link sent": "Awaiting payment" };
@@ -288,6 +289,122 @@ function CancelInvoice({ invoice, onChanged }) {
   );
 }
 
+/* Pay money back on a paid invoice. A sale is refunded by returning
+ * items (they go back into stock unless damaged); anything else by an
+ * amount. The refund goes out of the cash or bank book. */
+function RefundInvoice({ invoice, onChanged }) {
+  const [open, setOpen] = useState(false);
+  const isSale = invoice.source === "sale";
+  const [qty, setQty] = useState({});
+  const [amount, setAmount] = useState("");
+  const [restock, setRestock] = useState(true);
+  const [method, setMethod] = useState(invoice.pay_method && PAYMENT_METHODS.includes(invoice.pay_method) ? invoice.pay_method : "Cash");
+  const [reference, setReference] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const left = invoice.total - (invoice.refunded_total || 0);
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="mt-3 text-xs underline" style={{ fontFamily: F.body, color: C.carbon }}>
+        {isSale ? "Return items / refund…" : "Refund…"}
+      </button>
+    );
+  }
+  const returnable = invoice.items.filter((it) => it.qty - (it.returned_qty || 0) > 0);
+  const value = isSale ? invoice.items.reduce((sum, it) => sum + (Number(qty[it.id]) || 0) * it.price, 0) : Number(amount) || 0;
+  const field = { fontFamily: F.body, color: C.ink, background: C.slip, border: `1px solid ${C.rule}` };
+
+  const submit = async () => {
+    setError("");
+    if (value <= 0) return setError(isSale ? "Choose how many of which item are coming back." : "Enter the amount to refund.");
+    if (value > left) return setError(`Only ${money(left)} is left to refund on this invoice.`);
+    if (!reason.trim()) return setError("Say why the money is being refunded.");
+    if (method !== "Cash" && !reference.trim()) return setError(`Enter the ${REFERENCE_HINT[method]} of the refund.`);
+    setBusy(true);
+    try {
+      const body = { method, reference: reference.trim(), reason: reason.trim() };
+      if (isSale) {
+        body.items = Object.entries(qty).filter(([, q]) => Number(q) > 0).map(([item, q]) => ({ item: Number(item), qty: Number(q) }));
+        body.restock = restock;
+      } else {
+        body.amount = Number(amount);
+      }
+      onChanged(await api.post(`/invoices/${invoice.id}/refund/`, body));
+      setOpen(false);
+    } catch (e) {
+      setError(e.body?.detail || e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 p-3" style={{ border: `1px solid ${C.carbon}55`, backgroundColor: `${C.carbon}0A` }}>
+      <Eyebrow>{isSale ? "Return items & refund" : "Refund"}</Eyebrow>
+      {isSale ? (
+        <div className="mt-2 space-y-1.5">
+          {returnable.map((it) => {
+            const max = it.qty - (it.returned_qty || 0);
+            return (
+              <div key={it.id} className="flex items-center justify-between gap-2 text-xs" style={{ fontFamily: F.body, color: C.ink }}>
+                <span>{it.product_name} <span style={{ fontFamily: F.mono, color: C.inkSoft }}>· {money(it.price)} each · {max} returnable</span></span>
+                <input type="number" min={0} max={max} value={qty[it.id] ?? ""} placeholder="0" title="Quantity returned"
+                  onChange={(e) => setQty({ ...qty, [it.id]: Math.max(0, Math.min(max, Number(e.target.value.replace(/\D/g, "")) || 0)) })}
+                  className="w-16 px-2 py-1 text-right text-sm outline-none" style={{ ...field, fontFamily: F.mono }} />
+              </div>
+            );
+          })}
+          <label className="flex items-center gap-2 text-xs" style={{ display: "flex", fontFamily: F.body, color: C.ink }}>
+            <input type="checkbox" checked={restock} onChange={(e) => setRestock(e.target.checked)} />
+            Put the returned units back into stock at {invoice.stock_point_name} (untick if damaged)
+          </label>
+        </div>
+      ) : (
+        <label className="mt-2 text-xs" style={{ display: "block", fontFamily: F.body, color: C.inkSoft }}>Amount (₹) — up to {money(left)}
+          <input value={amount} onChange={(e) => setAmount(e.target.value.replace(/\D/g, ""))} className="mt-1 w-full px-2 py-1.5 text-sm outline-none" style={{ ...field, fontFamily: F.mono }} />
+        </label>
+      )}
+      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <label className="text-xs" style={{ display: "block", fontFamily: F.body, color: C.inkSoft }}>Paid back by
+          <select value={method} onChange={(e) => setMethod(e.target.value)} className="mt-1 w-full px-2 py-1.5 text-sm outline-none" style={field}>
+            {PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}
+          </select>
+        </label>
+        <label className="text-xs" style={{ display: "block", fontFamily: F.body, color: C.inkSoft }}>{REFERENCE_HINT[method]}
+          <input value={reference} maxLength={80} onChange={(e) => setReference(e.target.value)} placeholder={method === "Cash" ? "Optional" : "Required"} className="mt-1 w-full px-2 py-1.5 text-sm outline-none" style={{ ...field, fontFamily: F.mono }} />
+        </label>
+        <label className="text-xs sm:col-span-2" style={{ display: "block", fontFamily: F.body, color: C.inkSoft }}>Reason
+          <input value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} placeholder="e.g. faulty unit returned within 7 days" className="mt-1 w-full px-2 py-1.5 text-sm outline-none" style={field} />
+        </label>
+      </div>
+      <ErrorNote message={error} />
+      <div className="mt-2 flex gap-2">
+        <button onClick={submit} disabled={busy} className="px-3 py-1.5 text-xs uppercase" style={{ backgroundColor: C.carbon, color: C.onAccent, fontFamily: F.body, fontWeight: 600, opacity: busy ? 0.6 : 1 }}>
+          {busy ? "Refunding…" : `Refund ${money(value)}`}
+        </button>
+        <button onClick={() => setOpen(false)} className="text-xs underline" style={{ fontFamily: F.body, color: C.inkSoft }}>Close</button>
+      </div>
+    </div>
+  );
+}
+
+function RefundHistory({ invoice }) {
+  if (!invoice.refunds?.length) return null;
+  return (
+    <div className="mt-3 space-y-1">
+      {invoice.refunds.map((r) => (
+        <div key={r.id} className="px-3 py-2 text-xs" style={{ backgroundColor: C.slip2, fontFamily: F.body, color: C.inkSoft }}>
+          <span style={{ fontFamily: F.mono, color: C.carbon, fontWeight: 600 }}>− {money(r.amount)}</span> refunded {fmt(r.refunded_on)} via <b style={{ color: C.ink }}>{r.method}</b>
+          {r.reference && <> · ref <span style={{ fontFamily: F.mono, color: C.ink }}>{r.reference}</span></>} · by {r.by_name} — “{r.reason}”
+          {r.items.length > 0 && <div className="mt-0.5">Returned: {r.items.map((i) => `${i.qty} × ${i.label}`).join(", ")}{r.restocked ? " · back in stock" : " · not restocked"}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function InvoiceDetail({ invoice, onClose, onSettle, onChanged }) {
   const { can } = useSession();
   const [warranty, setWarranty] = useState(undefined); // undefined = loading, null = none
@@ -330,6 +447,12 @@ function InvoiceDetail({ invoice, onClose, onSettle, onChanged }) {
           <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Total</span>
           <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{money(invoice.total)}</span>
         </div>
+        {invoice.refunded_total > 0 && (
+          <div className="mt-1 flex items-center justify-between px-3 py-1 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>
+            <span style={{ fontFamily: F.body }}>Refunded {money(invoice.refunded_total)} · kept</span>
+            <span style={{ color: C.ink, fontWeight: 700 }}>{money(invoice.net_total)}</span>
+          </div>
+        )}
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <Pill color={STATUS_COLOR[invoice.status]}>{invoiceStatusLabel(invoice)}</Pill>
           {invoice.due_date && isOutstanding(invoice) && (
@@ -341,7 +464,7 @@ function InvoiceDetail({ invoice, onClose, onSettle, onChanged }) {
             Cancelled {fmt(invoice.cancelled_at)}{invoice.cancelled_by_name ? ` by ${invoice.cancelled_by_name}` : ""} — “{invoice.cancel_reason}”.
             {invoice.source === "sale" ? " The items went back into stock." : ""}
           </p>
-        ) : invoice.status === "Paid" ? (
+        ) : isSettled(invoice) ? (
           invoice.paid_on ? (
             <p className="mt-2 flex flex-wrap items-center gap-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
               <IndianRupee size={11} /> Paid {fmt(invoice.paid_on)} via <b style={{ color: C.ink }}>{invoice.pay_method}</b>
@@ -354,6 +477,8 @@ function InvoiceDetail({ invoice, onClose, onSettle, onChanged }) {
         ) : can("invoices.settle") && <RecordPayment invoice={invoice} onSettle={onSettle} />}
         {invoice.status !== "Cancelled" && <UpiPaymentLink invoice={invoice} onChanged={onChanged} />}
         {isOutstanding(invoice) && can("invoices.create") && <CancelInvoice invoice={invoice} onChanged={onChanged} />}
+        <RefundHistory invoice={invoice} />
+        {invoice.status === "Paid" && invoice.total > 0 && can("invoices.refund") && <RefundInvoice key={invoice.refunds?.length || 0} invoice={invoice} onChanged={onChanged} />}
 
         {invoice.source === "sale" && (warranty === undefined ? <div className="mt-4"><Spinner /></div> : <WarrantyCard invoice={invoice} warranty={warranty} onGranted={setWarranty} />)}
       </div>
@@ -436,7 +561,7 @@ export default function Invoices() {
           </div>
           <div className="overflow-x-auto">
             <TabBar
-              tabs={["all", "Paid", "Payment link sent", "Overdue", "Cancelled"].map((s) => ({ id: s, label: s === "all" ? "Any status" : statusLabel(s) }))}
+              tabs={["all", "Paid", "Payment link sent", "Overdue", "Refunded", "Cancelled"].map((s) => ({ id: s, label: s === "all" ? "Any status" : statusLabel(s) }))}
               value={statusFilter}
               onChange={setStatusFilter}
             />

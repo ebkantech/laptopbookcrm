@@ -177,7 +177,7 @@ function NewTicketModal({ parties, services, stockPoints, onClose, onCreate }) {
       await onCreate({
         party, brand, model_name: model.trim(), serial: serial.trim() || "—",
         stock_point: stockPointId, issue: issue.trim() || "Not specified",
-        service_ids: selected, payment, advance_paid: payment === "advance" ? advance : 0,
+        service_ids: selected, payment,
         received: new Date().toISOString().slice(0, 10),
       }, false);
     } catch (e) {
@@ -403,6 +403,14 @@ function ReopenModal({ ticket, services, onClose, onReopened }) {
 /* A repair job's invoice as seen from the Repairs module: raised here,
  * paid in Sales & Invoices, so only its status is shown. */
 function RepairInvoiceRow({ label, invoice }) {
+  if (invoice.status === "Refunded" || invoice.status === "Cancelled") {
+    return (
+      <div className="mt-2 flex items-center justify-between px-3 py-2.5" style={{ border: `1px solid ${C.rule}` }}>
+        <span className="flex items-center gap-1.5 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}><PackageCheck size={14} />{label}</span>
+        <Pill color={C.inkSoft}>{invoice.status}</Pill>
+      </div>
+    );
+  }
   const paid = invoice.status === "Paid";
   const color = paid ? C.green : C.amber;
   return (
@@ -490,6 +498,19 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
           <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Original total</span>
           <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{money(ticket.total)}</span>
         </div>
+
+        {ticket.advance_invoice && (
+          <>
+            <RepairInvoiceRow label={`Advance · ${ticket.advance_invoice.code} · ${money(ticket.advance_invoice.amount)}`} invoice={ticket.advance_invoice} />
+            {ticket.advance_invoice.status === "Paid" ? (
+              <p className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{money(ticket.advance_paid)} received — it's deducted from the final bill.</p>
+            ) : ["Payment link sent", "Overdue"].includes(ticket.advance_invoice.status) && (
+              <p className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
+                Collect the advance in Sales &amp; Invoices before work starts. Not paid by pickup? It's added to the final bill instead.
+              </p>
+            )}
+          </>
+        )}
 
         {ticket.status === "Delivered" ? (
           <>

@@ -217,14 +217,14 @@ class RentalViewSet(viewsets.ModelViewSet):
 
 
 class RentalAssetViewSet(viewsets.ModelViewSet):
-    queryset = RentalAsset.objects.all()
+    queryset = RentalAsset.objects.select_related("source_stock_point", "returned_to").all()
     serializer_class = RentalAssetSerializer
     permission_classes = [permissions.IsAuthenticated, HasPerm]
     required_perms = {
         "list": "rentals.view", "retrieve": "rentals.view",
         "create": "rentals.manage", "update": "rentals.manage",
         "partial_update": "rentals.manage", "destroy": "rentals.manage",
-        "from_inventory": "rentals.manage",
+        "from_inventory": "rentals.manage", "return_to_inventory": "rentals.manage",
     }
 
     @action(detail=False, methods=["post"], url_path="from-inventory")
@@ -239,6 +239,22 @@ class RentalAssetViewSet(viewsets.ModelViewSet):
         payload.is_valid(raise_exception=True)
         stock = payload.validated_data["stock"]
         variant, product = stock.variant, stock.variant.product
+        returned = RentalAsset.objects.filter(
+            serial_number__iexact=payload.validated_data["serial_number"].strip(),
+            status=RentalAsset.RETIRED, returned_to_stock_at__isnull=False,
+        ).first()
+        if returned:
+            # the same unit was put back on sale earlier -- bring its record
+            # (and its rental history) back instead of registering it twice
+            with transaction.atomic():
+                taken = Stock.objects.filter(pk=stock.pk, quantity__gt=0).update(quantity=F("quantity") - 1)
+                if not taken:
+                    raise ValidationError({"stock": f"No {product.display_name} ({variant.spec}) left in stock at {stock.stock_point.name}."})
+                returned.status = RentalAsset.AVAILABLE
+                returned.variant, returned.source_stock_point = variant, stock.stock_point
+                returned.returned_to_stock_at = returned.returned_to = returned.returned_by = None
+                returned.save()
+            return Response(RentalAssetSerializer(returned).data, status=201)
         asset_data = RentalAssetSerializer(data={
             "asset_tag": payload.validated_data.get("asset_tag", ""),
             "serial_number": payload.validated_data["serial_number"],
@@ -252,6 +268,34 @@ class RentalAssetViewSet(viewsets.ModelViewSet):
                 raise ValidationError({"stock": f"No {product.display_name} ({variant.spec}) left in stock at {stock.stock_point.name}."})
             asset = asset_data.save(variant=variant, source_stock_point=stock.stock_point)
         return Response(RentalAssetSerializer(asset).data, status=201)
+
+    @action(detail=True, methods=["post"], url_path="return-to-inventory")
+    def return_to_inventory(self, request, pk=None):
+        """
+        Put a free rental unit back on sale: +1 in a shop's stock of its
+        product variant, and the asset leaves the rental fleet (Retired,
+        history kept). Body: {"stock_point": id} -- defaults to the shop it
+        originally came from.
+        """
+        with transaction.atomic():
+            asset = RentalAsset.objects.select_for_update().get(pk=self.get_object().pk)
+            if asset.status not in (RentalAsset.AVAILABLE, RentalAsset.MAINTENANCE):
+                raise ValidationError({"detail": f"Only a free device can go back to inventory -- this one is {asset.get_status_display().lower()}."})
+            if not asset.variant_id:
+                raise ValidationError({"detail": "This device wasn't taken from Inventory, so there's no product to add it back to. Add the product in Inventory first, or retire the device."})
+            stock_point_id = request.data.get("stock_point") or asset.source_stock_point_id
+            stock_point = StockPoint.objects.filter(pk=stock_point_id).first() if stock_point_id else None
+            if stock_point is None:
+                raise ValidationError({"stock_point": "Choose the shop the device goes back to."})
+            updated = Stock.objects.filter(variant_id=asset.variant_id, stock_point=stock_point).update(quantity=F("quantity") + 1)
+            if not updated:
+                Stock.objects.create(variant_id=asset.variant_id, stock_point=stock_point, quantity=1)
+            asset.status = RentalAsset.RETIRED
+            asset.returned_to_stock_at = timezone.now()
+            asset.returned_to = stock_point
+            asset.returned_by = request.user
+            asset.save(update_fields=["status", "returned_to_stock_at", "returned_to", "returned_by"])
+        return Response(RentalAssetSerializer(asset).data)
 
     def perform_update(self, serializer):
         asset = self.get_object()

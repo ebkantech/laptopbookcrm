@@ -15,8 +15,9 @@ from accounts.permissions import HasPerm
 from catalog.models import Service
 from crmbook_backend.notify import notify_staff, send_email, send_whatsapp
 from sales.models import Invoice
-from sales.services import create_invoice
+from sales.services import cancel_invoice, create_invoice
 
+from .billing import advance_amount, raise_advance_invoice
 from .models import Notification, RepairOrder, RepairReopen, RepairReopenItem, RepairTicket, RepairTicketEvent
 from .serializers import (
     CreateRepairOrderSerializer,
@@ -132,6 +133,10 @@ class RepairTicketViewSet(viewsets.ModelViewSet):
         ticket.save(update_fields=["code"])
         device = f"{ticket.brand} {ticket.model_name}"
         wa_text = f"Ticket {ticket.code} created for your {device}. We'll keep you posted."
+        if ticket.payment == RepairTicket.ADVANCE:
+            advance_invoice = raise_advance_invoice(ticket, advance_amount(services))
+            if advance_invoice:
+                wa_text += f" Advance invoice {advance_invoice.code} for Rs {advance_invoice.total} has been raised."
         email_text = f"Repair ticket {ticket.code} acknowledged -- {device}, drop-off at {ticket.stock_point.name}."
         Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=wa_text)
         Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=email_text)
@@ -197,6 +202,9 @@ class RepairTicketViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Raise the invoice instead -- the ticket is marked Delivered automatically once it's paid."}, status=400)
         if ticket.unpaid_invoice:
             return Response({"detail": f"Invoice {ticket.unpaid_invoice.code} is awaiting payment -- collect it in Sales & Invoices first."}, status=400)
+        if stage == RepairTicket.IN_PROGRESS and ticket.unpaid_advance:
+            adv = ticket.unpaid_advance
+            return Response({"detail": f"Advance invoice {adv.code} (Rs {adv.total}) is awaiting payment -- collect it in Sales & Invoices, or cancel it there to start without an advance."}, status=400)
         if stage == RepairTicket.IN_PROGRESS and not ticket.has_repair_approval:
             return Response({"detail": "Final customer, Admin, or Super Admin approval is required before work starts."}, status=400)
         ticket.status = stage
@@ -237,6 +245,9 @@ class RepairTicketViewSet(viewsets.ModelViewSet):
         if target == ticket.status:
             return Response(RepairTicketSerializer(self._fresh(ticket)).data)
 
+        if target == RepairTicket.IN_PROGRESS and ticket.unpaid_advance:
+            adv = ticket.unpaid_advance
+            return Response({"detail": f"Advance invoice {adv.code} (Rs {adv.total}) is awaiting payment -- collect it in Sales & Invoices, or cancel it there to start without an advance."}, status=400)
         if target == RepairTicket.IN_PROGRESS and not ticket.has_repair_approval:
             return Response({"detail": "Finalize the repair estimate and record customer, Admin, or Super Admin approval before work starts."}, status=400)
 
@@ -297,6 +308,11 @@ class RepairTicketViewSet(viewsets.ModelViewSet):
                 lines = [{"description": line.description, "qty": line.quantity, "price": line.unit_price} for line in estimate.lines.all()]
             else:
                 lines = [{"description": svc.label, "qty": 1, "price": svc.charge} for svc in ticket.services.all()]
+            unpaid_advance = ticket.unpaid_advance
+            if unpaid_advance:
+                # never paid -- the final bill asks for the full amount instead
+                cancel_invoice(unpaid_advance, request.user, "Advance not paid -- the full amount is on the final repair bill.")
+            ticket.refresh_from_db(fields=["advance_paid"])
             if ticket.advance_paid:
                 lines.append({"description": "Less: advance received", "qty": 1, "price": -ticket.advance_paid})
             what = f"repair {ticket.code}"
@@ -462,7 +478,6 @@ class RepairOrderViewSet(viewsets.ReadOnlyModelViewSet):
 
         for device in devices:
             services = device.pop("services")
-            total = sum(service.charge for service in services)
             ticket = RepairTicket.objects.create(
                 order=order,
                 code=f"RPR-TEMP-{order.pk}-{len(order.tickets.all()) + 1}",
@@ -475,13 +490,16 @@ class RepairOrderViewSet(viewsets.ReadOnlyModelViewSet):
                 received=data["received"],
                 expected=data.get("expected"),
                 payment=data["payment"],
-                advance_paid=round(total * 0.25) if data["payment"] == RepairTicket.ADVANCE else 0,
             )
             ticket.code = f"RPR-{1044 + ticket.pk}"
             ticket.save(update_fields=["code"])
             ticket.services.set(services)
             device_label = f"{ticket.brand} {ticket.model_name}"
             wa_text = f"Ticket {ticket.code} created for your {device_label} under order {order.code}."
+            if ticket.payment == RepairTicket.ADVANCE:
+                advance_invoice = raise_advance_invoice(ticket, advance_amount(services))
+                if advance_invoice:
+                    wa_text += f" Advance invoice {advance_invoice.code} for Rs {advance_invoice.total} has been raised."
             email_text = f"Repair ticket {ticket.code} acknowledged under {order.code} -- {device_label}."
             Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=wa_text)
             Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=email_text)

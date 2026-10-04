@@ -148,6 +148,13 @@ class RentalAsset(models.Model):
     # it is and which shop's shelf it left.
     variant = models.ForeignKey("catalog.Variant", on_delete=models.SET_NULL, null=True, blank=True, related_name="rental_assets")
     source_stock_point = models.ForeignKey("catalog.StockPoint", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    # Set when a free unit was put back on sale (RentalAssetViewSet.
+    # return_to_inventory): it leaves the rental fleet (status Retired)
+    # and is +1 in that shop's stock. Renting the same serial out again
+    # from Inventory brings this record back.
+    returned_to_stock_at = models.DateTimeField(null=True, blank=True)
+    returned_to = models.ForeignKey("catalog.StockPoint", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    returned_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     class Meta:
         ordering = ["asset_tag"]
