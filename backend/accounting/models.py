@@ -17,6 +17,10 @@ class CashEntry(models.Model):
     invoice = models.OneToOneField(
         "sales.Invoice", on_delete=models.PROTECT, null=True, blank=True, related_name="cash_entry",
     )
+    # Set when the entry is a refund paid out on an invoice.
+    refund = models.OneToOneField(
+        "sales.Refund", on_delete=models.PROTECT, null=True, blank=True, related_name="cash_entry",
+    )
 
     class Meta:
         ordering = ["date", "id"]
@@ -50,6 +54,9 @@ class BankEntry(models.Model):
     reference = models.CharField(max_length=80, blank=True, help_text="UTR / UPI ref / cheque no. -- what the statement shows.")
     invoice = models.OneToOneField(
         "sales.Invoice", on_delete=models.PROTECT, null=True, blank=True, related_name="bank_entry",
+    )
+    refund = models.OneToOneField(
+        "sales.Refund", on_delete=models.PROTECT, null=True, blank=True, related_name="bank_entry",
     )
 
     class Meta:

@@ -22,15 +22,23 @@ Two independent provider switches, same shape as notify.py's WhatsApp one:
                 in the Razorpay dashboard pointing at
                 /api/payments/razorpay-webhook/ for "payment_link.paid".
 
-  UPI_LOOKUP_PROVIDER=sandbox | none       (default sandbox)
+  UPI_LOOKUP_PROVIDER=sandbox | cashfree | none   (default sandbox)
     Razorpay cannot tell whether a mobile number has UPI -- that needs a
-    separate mobile-to-UPI lookup service. Until one is chosen and wired
-    in here, "none" reports the check as not possible (status "unknown")
-    and the staff member must confirm with the customer; that
-    confirmation is stored on the PaymentLink.
-    sandbox -- valid-looking Indian mobile numbers count as UPI-linked,
-               except ones ending in 0, so the "not linked, ask for
-               another number" path can be tried in development.
+    separate mobile-to-UPI lookup service.
+    cashfree -- Cashfree Secure ID "UPI ID from mobile number"
+                (verification API). Needs CASHFREE_CLIENT_ID and
+                CASHFREE_CLIENT_SECRET from the Cashfree Secure ID
+                dashboard; CASHFREE_ENV=production|sandbox (default
+                production). Each lookup is billed by Cashfree.
+    none     -- no lookup: the check reports "unknown" and the staff
+                member must confirm with the customer; that confirmation
+                is stored on the PaymentLink.
+    sandbox  -- valid-looking Indian mobile numbers count as UPI-linked,
+                except ones ending in 0, so the "not linked, ask for
+                another number" path can be tried in development.
+    If a real lookup fails (network, credentials, credit), the check
+    falls back to "unknown" -- staff confirm by hand; a link is never
+    blocked by the lookup service being down.
 """
 import base64
 import hashlib
@@ -40,6 +48,7 @@ import logging
 import os
 import urllib.error
 import urllib.request
+import uuid
 
 from django.utils import timezone
 
@@ -82,10 +91,53 @@ def check_upi_linked(phone10):
             "status": LINKED if linked else NOT_LINKED,
             "reason": None if linked else "No UPI account found for this number (sandbox rule: numbers ending in 0).",
         }
+    if provider == "cashfree":
+        return _cashfree_upi_lookup(phone10)
     return {
         "status": UNKNOWN,
         "reason": "Automatic UPI check isn't set up -- confirm with the customer that this number has UPI (e.g. GPay/PhonePe/Paytm).",
     }
+
+
+_CONFIRM = "confirm with the customer that this number has UPI (e.g. GPay/PhonePe/Paytm)."
+
+
+def _cashfree_upi_lookup(phone10):
+    client_id = os.environ.get("CASHFREE_CLIENT_ID")
+    client_secret = os.environ.get("CASHFREE_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        return {"status": UNKNOWN, "reason": f"UPI lookup isn't configured (CASHFREE_CLIENT_ID / CASHFREE_CLIENT_SECRET) -- {_CONFIRM}"}
+    base = "https://sandbox.cashfree.com" if os.environ.get("CASHFREE_ENV") == "sandbox" else "https://api.cashfree.com"
+    path = os.environ.get("CASHFREE_UPI_LOOKUP_PATH", "/verification/upi/mobile")
+    req = urllib.request.Request(
+        f"{base}{path}",
+        data=json.dumps({"verification_id": f"crm{uuid.uuid4().hex[:24]}", "mobile_number": phone10}).encode(),
+        method="POST",
+        headers={"x-client-id": client_id, "x-client-secret": client_secret, "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        logger.error("[UPI lookup:cashfree] HTTP %s %s", e.code, e.read().decode(errors="replace")[:300])
+        return {"status": UNKNOWN, "reason": f"The UPI lookup service returned an error -- {_CONFIRM}"}
+    except (urllib.error.URLError, TimeoutError, ValueError) as e:
+        logger.error("[UPI lookup:cashfree] %s", e)
+        return {"status": UNKNOWN, "reason": f"The UPI lookup service couldn't be reached -- {_CONFIRM}"}
+    return _read_cashfree_lookup(body, phone10)
+
+
+def _read_cashfree_lookup(body, phone10):
+    """Interpret Cashfree's answer: a VPA (or VALID) means linked,
+    INVALID / no UPI found means not linked, anything else is unknown."""
+    status = str(body.get("status") or "").upper()
+    vpa = body.get("vpa") or (body.get("additional_vpas") or [None])[0]
+    logger.info("[UPI lookup:cashfree] phone=%s status=%s has_vpa=%s", mask(phone10), status, bool(vpa))
+    if vpa or status in ("VALID", "SUCCESS"):
+        return {"status": LINKED, "reason": None}
+    if status in ("INVALID", "NOT_FOUND", "NO_VPA_FOUND"):
+        return {"status": NOT_LINKED, "reason": "No UPI account was found for this number."}
+    return {"status": UNKNOWN, "reason": f"The UPI lookup couldn't confirm this number ({status or 'no answer'}) -- {_CONFIRM}"}
 
 
 # ------------------------------------------------------------------ #

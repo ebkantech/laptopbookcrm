@@ -114,7 +114,7 @@ class DashboardView(APIView):
         if can_sales:
             # -- invoices: date range + channel both apply here --
             mark_overdue()
-            all_invoices = Invoice.objects.exclude(status=Invoice.CANCELLED).select_related("stock_point").prefetch_related("items")
+            all_invoices = Invoice.objects.exclude(status=Invoice.CANCELLED).select_related("stock_point").prefetch_related("items", "refunds")
             if date_from:
                 all_invoices = all_invoices.filter(date__gte=date_from)
             if date_to:
@@ -127,8 +127,9 @@ class DashboardView(APIView):
             # Sales & Invoices, so pending collections cover all of them;
             # "sales revenue" and the channel breakdown stay product sales.
             sale_invoices = [i for i in all_invoices if i.source == Invoice.SALE]
-            revenue_paid = [i for i in sale_invoices if i.status == Invoice.PAID]
-            revenue_paid_total = sum(i.total for i in revenue_paid)
+            # revenue is what was kept: paid invoices less any refunds
+            revenue_paid = [i for i in sale_invoices if i.status in Invoice.SETTLED]
+            revenue_paid_total = sum(i.net_total for i in revenue_paid)
             pending = [i for i in all_invoices if i.status in Invoice.OUTSTANDING]
             pending_total = sum(i.total for i in pending)
 
@@ -141,12 +142,12 @@ class DashboardView(APIView):
             stock_points = StockPoint.objects.filter(slug=channel_slug) if channel_slug else StockPoint.objects.all()
             for sp in stock_points:
                 sp_invoices = [i for i in sale_invoices if i.stock_point_id == sp.id]
-                sp_paid = [i for i in sp_invoices if i.status == Invoice.PAID]
+                sp_paid = [i for i in sp_invoices if i.status in Invoice.SETTLED]
                 sp_pending = [i for i in sp_invoices if i.status in Invoice.OUTSTANDING]
                 channel_sales.append({
                     "id": sp.slug, "name": sp.name, "kind": sp.kind,
                     "invoice_count": len(sp_invoices),
-                    "revenue_paid": sum(i.total for i in sp_paid),
+                    "revenue_paid": sum(i.net_total for i in sp_paid),
                     "pending": sum(i.total for i in sp_pending),
                     "units_sold": sum(item.qty for i in sp_invoices for item in i.items.all()),
                 })
@@ -169,8 +170,8 @@ class DashboardView(APIView):
             months = _last_n_months(6)
             range_start = date(months[0][0], months[0][1], 1)
             by_month = {source: defaultdict(int) for source, _ in Invoice.SOURCE_CHOICES}
-            for inv in Invoice.objects.filter(status=Invoice.PAID, date__gte=range_start).prefetch_related("items"):
-                by_month[inv.source][(inv.date.year, inv.date.month)] += inv.total
+            for inv in Invoice.objects.filter(status__in=Invoice.SETTLED, date__gte=range_start).prefetch_related("items", "refunds"):
+                by_month[inv.source][(inv.date.year, inv.date.month)] += inv.net_total
             response["monthly_revenue"] = [
                 {
                     "month": f"{MONTH_ABBR[m]} {y}",
@@ -184,7 +185,7 @@ class DashboardView(APIView):
         if can_repairs:
             # repair income: the repair-sourced invoices in the shared ledger,
             # kept separate from product sales revenue
-            repair_invoices = Invoice.objects.filter(source=Invoice.REPAIR).exclude(status=Invoice.CANCELLED).prefetch_related("items")
+            repair_invoices = Invoice.objects.filter(source=Invoice.REPAIR).exclude(status=Invoice.CANCELLED).prefetch_related("items", "refunds")
             if date_from:
                 repair_invoices = repair_invoices.filter(date__gte=date_from)
             if date_to:
@@ -192,7 +193,7 @@ class DashboardView(APIView):
             if channel_slug:
                 repair_invoices = repair_invoices.filter(stock_point__slug=channel_slug)
             response.update({
-                "repair_revenue_paid": sum(ri.total for ri in repair_invoices.filter(status=Invoice.PAID)),
+                "repair_revenue_paid": sum(ri.net_total for ri in repair_invoices.filter(status__in=Invoice.SETTLED)),
                 "repair_invoice_count": repair_invoices.count(),
             })
 

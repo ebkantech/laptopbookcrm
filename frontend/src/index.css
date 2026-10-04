@@ -170,3 +170,10 @@ body { background: #F3EEE2; } /* VantageCRM 26X -- Vantage Daybook theme, keep i
     box-shadow: none !important;
   }
 }
+
+/* Bootstrap's reboot sets label{display:inline-block}, and as unlayered
+   CSS it beats Tailwind's (layered) utilities, so "block"/"flex"/"grid"
+   on a <label> silently did nothing. Roll a label's display back to the
+   layered styles: a Tailwind display class now applies, and a label
+   without one gets the browser default. */
+label { display: revert-layer; }

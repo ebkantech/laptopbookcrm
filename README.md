@@ -29,6 +29,18 @@ python manage.py createsuperuser  # optional -- seed_demo already makes
 python manage.py runserver
 ```
 
+Maintenance commands (run from `backend/`):
+
+```bash
+python manage.py backup                        # database + uploaded photos -> backend/backups (or BACKUP_DIR), keeps 14
+python manage.py remove_demo_accounting --dry-run   # list the sample cash/bank entries from seed_demo
+python manage.py remove_demo_accounting        # ...and remove them, so the books show only real money
+python manage.py post_invoice_payments         # post paid invoices recorded before auto-posting existed
+```
+
+Schedule `backup` daily (Windows Task Scheduler / cron) and point `BACKUP_DIR`
+at another disk or a synced folder.
+
 API root: `http://127.0.0.1:8000/api/`
 Admin: `http://127.0.0.1:8000/admin/`
 

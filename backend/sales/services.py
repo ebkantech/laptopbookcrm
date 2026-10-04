@@ -104,7 +104,7 @@ def cancel_invoice(invoice, user, reason):
     invoice = Invoice.objects.select_for_update().get(pk=invoice.pk)
     if invoice.status == Invoice.CANCELLED:
         raise CancelError("This invoice is already cancelled.")
-    if invoice.status == Invoice.PAID:
+    if invoice.status in Invoice.SETTLED:
         raise CancelError("A paid invoice can't be cancelled -- it needs a refund instead.")
     if invoice.source == Invoice.SALE:
         for item in invoice.items.filter(variant__isnull=False):
@@ -128,3 +128,106 @@ def cancel_invoice(invoice, user, reason):
     invoice.cancelled_at = timezone.now()
     invoice.save(update_fields=update)
     return invoice
+
+
+class RefundError(Exception):
+    pass
+
+
+@transaction.atomic
+def refund_invoice(invoice, user, *, method, reference="", reason="", refunded_on=None, items=None, amount=None, restock=True):
+    """
+    Pay money back on a paid invoice.
+      Sale    -> items: [{"item": InvoiceItem id, "qty": n}] being returned;
+                 the refund is their value, and with restock=True the
+                 units go back on the shelf they were sold from.
+      Others  -> amount: rupees to pay back (repair goodwill, rent, or a
+                 repair advance returned).
+    Refunds can add up to the invoice total, never more; once the whole
+    total is refunded the invoice becomes Refunded. The refund is posted
+    out of the cash or bank book.
+    """
+    from accounting.posting import post_refund
+    from catalog.models import Stock
+
+    from .models import PAYMENT_METHODS, Invoice, Refund, RefundItem
+
+    invoice = Invoice.objects.select_for_update().get(pk=invoice.pk)
+    if invoice.status != Invoice.PAID:
+        if invoice.status == Invoice.REFUNDED:
+            raise RefundError("This invoice has already been refunded in full.")
+        raise RefundError("Only a paid invoice can be refunded -- cancel an unpaid one instead.")
+    if invoice.total <= 0:
+        raise RefundError("Nothing was collected on this invoice, so there's nothing to refund.")
+    reason = (reason or "").strip()
+    reference = (reference or "").strip()
+    if not reason:
+        raise RefundError("Give a reason for the refund.")
+    if method not in PAYMENT_METHODS:
+        raise RefundError(f"Refund method must be one of: {', '.join(PAYMENT_METHODS)}.")
+    if method != "Cash" and not reference:
+        raise RefundError("Enter the refund reference (UPI/UTR, cheque or transaction number).")
+    if len(reference) > 80:
+        raise RefundError("The reference must be 80 characters or fewer.")
+    refunded_on = refunded_on or timezone.localdate()
+    if refunded_on > timezone.localdate():
+        raise RefundError("The refund date can't be in the future.")
+    if refunded_on < (invoice.paid_on or invoice.date):
+        raise RefundError("The refund date can't be before the invoice was paid.")
+
+    returned = []
+    if invoice.source == Invoice.SALE:
+        lines = {item.id: item for item in invoice.items.all()}
+        wanted = {}
+        for row in items or []:
+            try:
+                item_id, qty = int(row["item"]), int(row["qty"])
+            except (KeyError, TypeError, ValueError):
+                raise RefundError("Each returned item needs an item and a quantity.")
+            if qty <= 0:
+                continue
+            if item_id not in lines:
+                raise RefundError("That item isn't on this invoice.")
+            wanted[item_id] = wanted.get(item_id, 0) + qty
+        if not wanted:
+            raise RefundError("Choose the items being returned and how many.")
+        for item_id, qty in wanted.items():
+            item = lines[item_id]
+            already = sum(r.qty for r in item.refund_items.all())
+            if qty > item.qty - already:
+                left = item.qty - already
+                raise RefundError(f"{item.label}: only {left} left to return on this invoice." if left else f"{item.label} has already been returned.")
+            returned.append((item, qty))
+        amount = sum(item.price * qty for item, qty in returned)
+    else:
+        try:
+            amount = int(amount)
+        except (TypeError, ValueError):
+            raise RefundError("Enter the amount to refund.")
+    if amount <= 0:
+        raise RefundError("The refund amount must be more than zero.")
+    left = invoice.total - invoice.refunded_total
+    if amount > left:
+        raise RefundError(f"Only ₹{left} is left to refund on this invoice.")
+
+    restock = bool(restock and returned)
+    refund = Refund.objects.create(
+        invoice=invoice, amount=amount, method=method, reference=reference, reason=reason[:200],
+        refunded_on=refunded_on, restocked=restock, by=user,
+    )
+    for item, qty in returned:
+        RefundItem.objects.create(refund=refund, invoice_item=item, qty=qty)
+        if restock and item.variant_id:
+            updated = Stock.objects.filter(variant_id=item.variant_id, stock_point_id=invoice.stock_point_id).update(quantity=F("quantity") + qty)
+            if not updated:
+                Stock.objects.create(variant_id=item.variant_id, stock_point_id=invoice.stock_point_id, quantity=qty)
+    if amount == left:
+        invoice.status = Invoice.REFUNDED
+        invoice.save(update_fields=["status"])
+    post_refund(refund)
+
+    if invoice.is_advance and invoice.repair_ticket_id:
+        from repairs.billing import on_repair_advance_refunded
+
+        on_repair_advance_refunded(invoice, refund)
+    return refund

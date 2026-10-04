@@ -17,11 +17,17 @@ class Invoice(models.Model):
     SALE, REPAIR, RENTAL = "sale", "repair", "rental"
     SOURCE_CHOICES = [(SALE, "Sale"), (REPAIR, "Repair"), (RENTAL, "Rental")]
 
-    PAID, LINK_SENT, OVERDUE, CANCELLED = "Paid", "Payment link sent", "Overdue", "Cancelled"
-    STATUS_CHOICES = [(PAID, "Paid"), (LINK_SENT, "Payment link sent"), (OVERDUE, "Overdue"), (CANCELLED, "Cancelled")]
+    PAID, LINK_SENT, OVERDUE, CANCELLED, REFUNDED = "Paid", "Payment link sent", "Overdue", "Cancelled", "Refunded"
+    STATUS_CHOICES = [
+        (PAID, "Paid"), (LINK_SENT, "Payment link sent"), (OVERDUE, "Overdue"),
+        (CANCELLED, "Cancelled"), (REFUNDED, "Refunded"),
+    ]
     # Still owed: everything that's neither paid nor cancelled. Use this,
     # never "status != Paid", so cancelled invoices don't count as owed.
     OUTSTANDING = (LINK_SENT, OVERDUE)
+    # Paid in full or part -- may carry refunds. A fully refunded invoice
+    # moves to Refunded; a part-refunded one stays Paid.
+    SETTLED = (PAID, REFUNDED)
 
     RECURRING_CHOICES = [("weekly", "Weekly"), ("monthly", "Monthly"), ("6-month", "Every 6 months")]
 
@@ -37,6 +43,9 @@ class Invoice(models.Model):
         "repairs.RepairReopen", on_delete=models.PROTECT, null=True, blank=True, related_name="invoice",
         help_text="Set for the bill of a reopened (follow-up) repair visit.",
     )
+    # A repair advance: collected up front when the ticket is booked and
+    # deducted on the final repair bill (repairs.billing).
+    is_advance = models.BooleanField(default=False)
     rental = models.ForeignKey(
         "rentals.Rental", on_delete=models.PROTECT, null=True, blank=True, related_name="invoices",
     )
@@ -77,6 +86,16 @@ class Invoice(models.Model):
     @property
     def total(self):
         return sum(item.qty * item.price for item in self.items.all())
+
+    @property
+    def refunded_total(self):
+        return sum(r.amount for r in self.refunds.all())
+
+    @property
+    def net_total(self):
+        """What the business kept: the total less anything refunded.
+        Revenue figures use this for paid invoices."""
+        return self.total - self.refunded_total
 
 
 class InvoiceItem(models.Model):
@@ -133,3 +152,34 @@ class PaymentLink(models.Model):
 
     def __str__(self):
         return f"{self.invoice.code} → ******{self.phone[-4:]} ({self.status})"
+
+
+class Refund(models.Model):
+    """
+    Money paid back on a paid invoice -- a product return, or a partial
+    refund (a repair/rent goodwill amount, an advance returned). A sale
+    refund names the lines and quantities returned; those units can go
+    back on the shelf. Posted out of the cash or bank book
+    (accounting.posting.post_refund).
+    """
+    invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="refunds")
+    amount = models.PositiveIntegerField()
+    method = models.CharField(max_length=40)
+    reference = models.CharField(max_length=80, blank=True)
+    reason = models.CharField(max_length=200)
+    refunded_on = models.DateField()
+    restocked = models.BooleanField(default=False, help_text="Returned units were put back into stock.")
+    by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="refunds_recorded")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+
+    def __str__(self):
+        return f"Refund of {self.amount} on {self.invoice.code}"
+
+
+class RefundItem(models.Model):
+    refund = models.ForeignKey(Refund, on_delete=models.CASCADE, related_name="items")
+    invoice_item = models.ForeignKey(InvoiceItem, on_delete=models.PROTECT, related_name="refund_items")
+    qty = models.PositiveIntegerField()

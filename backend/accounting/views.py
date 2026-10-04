@@ -10,7 +10,7 @@ from .serializers import BankAccountSerializer, BankEntrySerializer, CashEntrySe
 
 
 class CashEntryViewSet(viewsets.ModelViewSet):
-    queryset = CashEntry.objects.select_related("by", "invoice").all()
+    queryset = CashEntry.objects.select_related("by", "invoice", "refund__invoice").all()
     serializer_class = CashEntrySerializer
     permission_classes = [permissions.IsAuthenticated, HasPerm]
     required_perms = {
@@ -35,12 +35,14 @@ def _refuse_if_posted(entry):
     """Entries posted from an invoice payment mirror that invoice."""
     if entry.invoice_id:
         raise ValidationError({"detail": f"This entry was posted from invoice {entry.invoice.code} and can't be changed here."})
+    if entry.refund_id:
+        raise ValidationError({"detail": f"This entry is a refund on invoice {entry.refund.invoice.code} and can't be changed here."})
 
 
 class BankAccountViewSet(viewsets.ModelViewSet):
     """Bank accounts: rename, set the opening balance, choose the default
     account invoice payments are posted to. No deleting -- entries hang off it."""
-    queryset = BankAccount.objects.prefetch_related("entries__invoice").all().order_by("id")
+    queryset = BankAccount.objects.prefetch_related("entries__invoice", "entries__refund__invoice").all().order_by("id")
     serializer_class = BankAccountSerializer
     permission_classes = [permissions.IsAuthenticated, HasPerm]
     http_method_names = ["get", "post", "patch", "head", "options"]
@@ -80,7 +82,7 @@ class BankEntryViewSet(viewsets.ModelViewSet):
     }
 
     def get_queryset(self):
-        qs = super().get_queryset().select_related("invoice")
+        qs = super().get_queryset().select_related("invoice", "refund__invoice")
         account = self.request.query_params.get("account")
         if account:
             qs = qs.filter(account_id=account)

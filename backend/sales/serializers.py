@@ -3,7 +3,7 @@ from django.db.models import F
 from rest_framework import serializers
 
 from catalog.models import Stock
-from .models import Invoice, InvoiceItem, PaymentLink
+from .models import Invoice, InvoiceItem, PaymentLink, Refund
 from .services import create_invoice
 
 
@@ -12,11 +12,15 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
     # Kept as product_name for existing callers: the line's label, i.e.
     # the product for a sale line or the service/rent description.
     product_name = serializers.CharField(source="label", read_only=True)
+    returned_qty = serializers.SerializerMethodField()
 
     class Meta:
         model = InvoiceItem
-        fields = ["id", "variant", "variant_code", "product_name", "description", "qty", "price"]
+        fields = ["id", "variant", "variant_code", "product_name", "description", "qty", "price", "returned_qty"]
         read_only_fields = ["description"]
+
+    def get_returned_qty(self, obj):
+        return sum(r.qty for r in obj.refund_items.all()) if obj.pk else 0
 
     def get_variant_code(self, obj):
         return obj.variant.code if obj.variant_id else None
@@ -41,6 +45,21 @@ class PaymentLinkSerializer(serializers.ModelSerializer):
         return obj.sent_by.get_full_name() or obj.sent_by.username
 
 
+class RefundSerializer(serializers.ModelSerializer):
+    by_name = serializers.SerializerMethodField()
+    items = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Refund
+        fields = ["id", "amount", "method", "reference", "reason", "refunded_on", "restocked", "by_name", "created_at", "items"]
+
+    def get_by_name(self, obj):
+        return obj.by.get_full_name() or obj.by.username
+
+    def get_items(self, obj):
+        return [{"label": ri.invoice_item.label, "qty": ri.qty} for ri in obj.items.all()]
+
+
 class InvoiceSerializer(serializers.ModelSerializer):
     items = InvoiceItemSerializer(many=True)
     party_name = serializers.CharField(source="party.name", read_only=True)
@@ -50,6 +69,9 @@ class InvoiceSerializer(serializers.ModelSerializer):
     payment_links = PaymentLinkSerializer(many=True, read_only=True)
     source_label = serializers.CharField(source="get_source_display", read_only=True)
     reference = serializers.SerializerMethodField()
+    refunds = RefundSerializer(many=True, read_only=True)
+    refunded_total = serializers.IntegerField(read_only=True)
+    net_total = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Invoice
@@ -58,20 +80,22 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "date", "status", "pay_method", "paid_on", "payment_reference", "settled_by_name",
             "recurring_interval", "recurring_next", "repair_ticket", "rental", "period_start", "period_end",
             "due_date", "cancel_reason", "cancelled_at", "cancelled_by_name",
-            "items", "total", "payment_links",
+            "items", "total", "payment_links", "is_advance", "refunds", "refunded_total", "net_total",
         ]
         # Payment details are only ever written by the settle action, so
         # every settlement goes through its validation and audit fields;
         # repair/rental links are only ever set by those modules.
         read_only_fields = [
             "code", "source", "paid_on", "payment_reference", "repair_ticket", "rental", "period_start", "period_end",
-            "cancel_reason", "cancelled_at", "status",
+            "cancel_reason", "cancelled_at", "status", "is_advance",
         ]
 
     def get_reference(self, obj):
         """What this invoice was raised for, in words, e.g. the repair
         ticket or the rental agreement and month."""
         if obj.source == Invoice.REPAIR and obj.repair_ticket_id:
+            if obj.is_advance:
+                return f"Advance for repair {obj.repair_ticket.code}"
             return f"Repair {obj.repair_ticket.code}" + (" (follow-up visit)" if obj.repair_reopen_id else "")
         if obj.source == Invoice.RENTAL and obj.rental_id:
             label = obj.rental.agreement_code or f"Rental #{obj.rental_id}"
