@@ -1,13 +1,13 @@
 import os
 
+from django.core.wsgi import get_wsgi_application
+from workers import wsgi
+
 os.environ.setdefault(
     "DJANGO_SETTINGS_MODULE",
     "crmbook_backend.settings",
 )
 
-from django.core.wsgi import get_wsgi_application
-from workers import wsgi
+app = get_wsgi_application()
 
-application = get_wsgi_application()
-
-Default = wsgi.entrypoint(application)
+Default = wsgi.entrypoint(app)
