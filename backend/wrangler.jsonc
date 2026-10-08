@@ -1,0 +1,9 @@
+{
+  "$schema": "https://www.schemastore.org/wrangler.json",
+  "name": "laptopbookcrm-backend",
+  "main": "src/entry.py",
+  "compatibility_date": "2026-10-08",
+  "compatibility_flags": [
+    "python_workers"
+  ]
+}
