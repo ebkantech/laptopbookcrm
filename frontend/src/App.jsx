@@ -138,7 +138,7 @@ function Shell() {
               <p className="text-lg" style={{ fontFamily: F.display, fontWeight: 800, color: "#FFFFFF", letterSpacing: "-0.01em" }}>{APP_NAME}</p>
               <span className="text-[10px]" style={{ fontFamily: F.mono, fontWeight: 700, color: C.sidebarActiveText, border: `1.5px solid ${C.sidebarActive}`, padding: "1px 6px", letterSpacing: "0.05em", backgroundColor: `${C.sidebarActive}55` }}>{APP_VERSION}</span>
             </div>
-            <p className="mt-1 pl-9 text-xs" style={{ fontFamily: F.body, color: C.sidebarTextDim }}>Vantage Computers</p>
+            
           </div>
           <nav className="mt-8 space-y-5 px-3">
             {groups.map((group) => (
