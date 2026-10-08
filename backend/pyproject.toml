@@ -18,3 +18,20 @@ dev = [
     "workers-py",
     "workers-runtime-sdk",
 ]
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+    "crmbook_backend*",
+    "accounts*",
+    "accounting*",
+    "broadcast*",
+    "catalog*",
+    "dashboard*",
+    "parties*",
+    "portal*",
+    "rentals*",
+    "repairs*",
+    "reports*",
+    "sales*",
+    "warranty*"
+]
