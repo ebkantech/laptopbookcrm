@@ -8,3 +8,6 @@ python-dotenv>=1.0,<2.0
 # Windows/local development simple while Render and similar PaaS services can
 # use the same dependency without a separate client-library build step.
 psycopg[binary]>=3.1.8,<4.0
+gunicorn
+dj-database-url
+whitenoise
