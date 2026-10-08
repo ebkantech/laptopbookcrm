@@ -1,6 +1,6 @@
 {
   "$schema": "https://www.schemastore.org/wrangler.json",
-  "name": "laptopbookcrm-backend",
+  "name": "laptopbookcrm",
   "main": "src/entry.py",
   "compatibility_date": "2026-10-08",
   "compatibility_flags": [
