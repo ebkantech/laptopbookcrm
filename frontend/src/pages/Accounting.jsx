@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ArrowDownCircle, ArrowUpCircle, FileText, Landmark, Plus, Settings2, Wallet, X } from "lucide-react";
-import { C, F, fmt, money } from "../lib/theme";
+import { C, F, fmt, money, todayISO } from "../lib/theme";
 import { api } from "../lib/api";
 import { useSession } from "../context/SessionContext";
 import { Eyebrow, Locked, Pill, PillButton, Spinner, ErrorNote, StatCard, TabBar } from "../components/Atoms";
@@ -20,9 +20,9 @@ function NewCashEntry({ onClose, onAdd }) {
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(4,9,18,0.7)" }}>
       <div className="w-full max-w-sm p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}>
-        <div className="flex items-center justify-between"><Eyebrow>New cash entry</Eyebrow><button onClick={onClose}><X size={16} style={{ color: C.inkSoft }} /></button></div>
+        <div className="flex items-center justify-between"><Eyebrow>New cash entry</Eyebrow><button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={16} style={{ color: C.inkSoft }} /></button></div>
         <div className="mt-4 space-y-3">
-          <div className="flex" style={{ border: `1px solid ${C.rule}` }}>
+          <div className="flex overflow-hidden rounded-xl" style={{ border: `1px solid ${C.rule}` }}>
             {["in", "out"].map((t) => (
               <button key={t} onClick={() => setType(t)} className="flex flex-1 items-center justify-center gap-1.5 py-2 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, color: type === t ? (t === "in" ? C.green : C.carbon) : C.inkSoft, backgroundColor: type === t ? C.slip2 : "transparent" }}>
                 {t === "in" ? <ArrowDownCircle size={13} /> : <ArrowUpCircle size={13} />} Cash {t}
@@ -32,7 +32,7 @@ function NewCashEntry({ onClose, onAdd }) {
           <input value={particulars} onChange={(e) => setParticulars(e.target.value)} placeholder="Particulars" className="w-full bg-transparent px-3 py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
           <input value={amount} onChange={(e) => setAmount(e.target.value.replace(/\D/g, ""))} placeholder="Amount (₹)" className="w-full bg-transparent px-3 py-2 text-sm outline-none" style={{ fontFamily: F.mono, color: C.ink, border: `1px solid ${C.rule}` }} />
         </div>
-        <button onClick={() => { if (particulars.trim() && +amount > 0) onAdd({ particulars: particulars.trim(), type, amount: +amount, date: new Date().toISOString().slice(0, 10) }); }}
+        <button onClick={() => { if (particulars.trim() && +amount > 0) onAdd({ particulars: particulars.trim(), type, amount: +amount, date: todayISO() }); }}
           className="mt-4 w-full py-2.5 text-xs uppercase" style={{ backgroundColor: C.stamp, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em" }}>
           Add entry
         </button>
@@ -45,9 +45,11 @@ function CashBook() {
   const { can } = useSession();
   const [entries, setEntries] = useState(null);
   const [adding, setAdding] = useState(false);
+  const [loadError, setLoadError] = useState("");
 
-  useEffect(() => { api.getAll("/cash-entries/").then(setEntries); }, []);
+  useEffect(() => { api.getAll("/cash-entries/").then(setEntries).catch((e) => setLoadError(e.message || "Couldn't load the cash book.")); }, []);
   if (!can("cashbook.view")) return <Locked label="Your role doesn't include cash book access." />;
+  if (loadError) return <ErrorNote message={loadError} />;
   if (!entries) return <Spinner />;
 
   let running = 0;
@@ -58,7 +60,9 @@ function CashBook() {
 
   const add = async (payload) => {
     const e = await api.post("/cash-entries/", payload);
-    setEntries((l) => [...l, e]);
+    // Keep the server's date/id order so a back-dated entry lands in the
+    // right place and the running balance stays correct.
+    setEntries((l) => [...l, e].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id - b.id)));
     setAdding(false);
   };
 
@@ -105,7 +109,7 @@ function NewBankEntry({ account, onClose, onAdd }) {
   const [particulars, setParticulars] = useState("");
   const [amount, setAmount] = useState("");
   const [reference, setReference] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(todayISO());
   const [error, setError] = useState("");
   const save = async () => {
     if (!particulars.trim() || !(+amount > 0)) return setError("Enter the particulars and an amount.");
@@ -118,10 +122,10 @@ function NewBankEntry({ account, onClose, onAdd }) {
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(4,9,18,0.7)" }}>
       <div className="w-full max-w-sm p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}>
-        <div className="flex items-center justify-between"><Eyebrow>New entry · {account.name}</Eyebrow><button onClick={onClose}><X size={16} style={{ color: C.inkSoft }} /></button></div>
+        <div className="flex items-center justify-between"><Eyebrow>New entry · {account.name}</Eyebrow><button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={16} style={{ color: C.inkSoft }} /></button></div>
         <p className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>For money that isn't an invoice payment — rent, salaries, supplier payments, bank charges. Invoice payments are posted automatically.</p>
         <div className="mt-4 space-y-3">
-          <div className="flex" style={{ border: `1px solid ${C.rule}` }}>
+          <div className="flex overflow-hidden rounded-xl" style={{ border: `1px solid ${C.rule}` }}>
             {[["in", "Credit (money in)"], ["out", "Debit (money out)"]].map(([t, label]) => (
               <button key={t} onClick={() => setType(t)} className="flex flex-1 items-center justify-center gap-1.5 py-2 text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: type === t ? (t === "in" ? C.green : C.carbon) : C.inkSoft, backgroundColor: type === t ? C.slip2 : "transparent" }}>
                 {t === "in" ? <ArrowDownCircle size={13} /> : <ArrowUpCircle size={13} />} {label}
@@ -157,7 +161,7 @@ function AccountSettings({ account, onClose, onSaved }) {
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(4,9,18,0.7)" }}>
       <div className="w-full max-w-sm p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}>
-        <div className="flex items-center justify-between"><Eyebrow>{account ? "Bank account settings" : "Add bank account"}</Eyebrow><button onClick={onClose}><X size={16} style={{ color: C.inkSoft }} /></button></div>
+        <div className="flex items-center justify-between"><Eyebrow>{account ? "Bank account settings" : "Add bank account"}</Eyebrow><button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={16} style={{ color: C.inkSoft }} /></button></div>
         <div className="mt-4 space-y-3">
           <label className="text-xs" style={{ display: "block", color: C.inkSoft }}>Account name<input value={name} onChange={(e) => setName(e.target.value)} placeholder="HDFC Bank — Current A/c ••4821" className="mt-1 w-full px-3 py-2 text-sm outline-none" style={fieldStyle} /></label>
           <label className="text-xs" style={{ display: "block", color: C.inkSoft }}>Opening balance (₹)<input value={opening} onChange={(e) => setOpening(e.target.value.replace(/\D/g, ""))} className="mt-1 w-full px-3 py-2 text-sm outline-none" style={{ ...fieldStyle, fontFamily: F.mono }} /></label>

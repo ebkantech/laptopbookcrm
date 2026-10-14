@@ -1,13 +1,10 @@
 /*
- * VantageCRM 26X -- "Vantage Daybook" theme. Redesigned from the earlier
- * dark "Night Grid" look to a warm, paper-toned working surface, after a
- * reference screenshot (a housing-society management app called "Kosh"):
- * a warm cream content area, white cards with soft shadows instead of
- * neon glows, a deep forest-charcoal sidebar with a sage-green active-item
- * pill, and a single warm-orange hero accent for primary actions. Every
- * page in the app reads these same tokens, so this file is the one place
- * that reskins the whole thing -- individual pages should keep consuming
- * `C`/`F` rather than hardcoding a hex value.
+ * VantageCRM 26X -- Refined Modern Professional theme. A cool, quiet
+ * working surface and a focused cobalt accent give the existing product
+ * a clearer enterprise identity while preserving its page structure.
+ *
+ * The same values are exposed as CSS custom properties (--cb-*) at the
+ * top of src/index.css for stylesheet rules -- keep the two in sync.
  *
  * `frontend/src/lib/pilotTheme.js` re-exports this file: it was the
  * scratch file used to design this palette against a single pilot page
@@ -19,31 +16,31 @@ export const APP_VERSION = "26X";
 export const APP_FULL_NAME = `${APP_NAME} ${APP_VERSION}`;
 
 export const C = {
-  ink: "#23281F",          // primary text -- near-black warm charcoal, for legibility on cream/white
-  inkSoft: "#83806C",      // secondary text / metadata -- muted warm taupe
-  paper: "#F3EEE2",        // app background -- warm cream, never a stark white or dark navy
+  ink: "#172033",
+  inkSoft: "#667085",
+  paper: "#F4F6F9",
   slip: "#FFFFFF",         // card / panel surface -- clean white, one step up from paper
-  slip2: "#F7F3EA",        // nested / inset surface -- a soft warm off-white
-  deep: "#16211C",         // sidebar & top-bar surface -- deep forest-charcoal
-  rule: "#E7E0CF",         // hairlines & borders -- warm sand, clean and unobtrusive
-  ruleStrong: "#D8CFB8",   // heavier border for emphasis panels / headers
-  stamp: "#E17A2D",        // THE hero accent -- warm orange: primary CTAs, active tab indicators
-  carbon: "#C0473A",       // Overdue / Payment failed -- muted brick red
-  green: "#2F6B4A",        // Available / Ready for pickup / approved -- sage green
-  amber: "#C98A22",        // Out with customer / warning -- warm ochre
-  blue: "#4C6FA0",         // Booked future / Reserved -- muted slate blue
-  orange: "#E17A2D",       // kept as an alias of `stamp` so every existing "brand accent" usage (tab indicators, CTA fills, StatCard stripes) picks up the same warm orange rather than a second competing color
-  onAccent: "#FFFFFF",     // text placed on top of a solid orange/green fill
-  onAccentLight: "#23281F", // text placed on top of a light surface where onAccent (white) would be illegible
+  slip2: "#F8FAFC",
+  deep: "#172033",
+  rule: "#E3E8F0",
+  ruleStrong: "#CBD3E1",
+  stamp: "#3157D5",
+  carbon: "#C83C4A",
+  green: "#16845B",
+  amber: "#B7791F",
+  blue: "#1686A8",
+  orange: "#3157D5",
+  onAccent: "#FFFFFF",
+  onAccentLight: "#172033",
 
   // Sidebar-only tokens -- the sidebar is its own dark surface sitting
   // next to an otherwise light app, so it needs its own text/accent
   // scale rather than reusing ink/inkSoft (tuned for light backgrounds).
-  sidebarActive: "#2F6B4A",      // active nav item's filled pill
+  sidebarActive: "#3157D5",
   sidebarActiveText: "#FFFFFF",
-  sidebarText: "#C9D3C7",        // default (inactive) nav label color
-  sidebarTextDim: "#7C8C81",     // section headings, muted rows
-  sidebarHover: "#22302A",       // hover backing for an inactive row
+  sidebarText: "#C9D1E0",
+  sidebarTextDim: "#929DB1",
+  sidebarHover: "#252D3C",
 };
 
 export const F = {
@@ -72,6 +69,13 @@ export const money = (n) =>
 
 export const compact = (n) =>
   "₹" + new Intl.NumberFormat("en-IN", { notation: "compact", maximumFractionDigits: 1 }).format(n || 0);
+
+/* Today's date as YYYY-MM-DD in the user's local timezone. toISOString()
+   is UTC, which in India gives yesterday's date before 5:30 AM. */
+export const todayISO = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
 
 export const fmt = (d) =>
   d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";

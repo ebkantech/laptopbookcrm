@@ -71,6 +71,8 @@ function NotificationBell() {
     <div className="relative" ref={boxRef}>
       <button
         onClick={() => setOpen((v) => !v)}
+        aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}
+        aria-expanded={open}
         className="relative flex h-9 w-9 items-center justify-center rounded-full"
         style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}
       >
@@ -86,7 +88,7 @@ function NotificationBell() {
       </button>
       {open && (
         <div
-          className="absolute right-0 top-11 z-30 max-h-96 w-80 overflow-y-auto"
+          className="absolute right-0 top-11 z-30 max-h-96 w-80 max-w-[calc(100vw-2rem)] overflow-y-auto"
           data-panel
           style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}
         >
@@ -149,12 +151,12 @@ export default function PageHeader({ title, subtitle, actions }) {
   const { me } = useSession();
 
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <p style={{ fontFamily: F.display, fontWeight: 700, fontSize: 24, color: C.ink }}>{title}</p>
-        {subtitle && <p className="mt-1 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>{subtitle}</p>}
+    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+      <div className="min-w-0 flex-1 basis-64">
+        <h1 className="text-[22px] leading-tight tracking-tight sm:text-[26px]" style={{ fontFamily: F.display, fontWeight: 800, color: C.ink }}>{title}</h1>
+        {subtitle && <p className="mt-1.5 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>{subtitle}</p>}
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
         {actions}
         <NotificationBell />
         <button className="flex h-9 w-9 items-center justify-center rounded-full" style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}>

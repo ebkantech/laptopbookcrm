@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 from rest_framework.exceptions import MethodNotAllowed, ValidationError
 
 from accounts.permissions import HasPerm
+from crmbook_backend.notify import whatsapp_provider
 from catalog.models import Stock, StockPoint
 
 from .billing import RentBillingError, raise_rent_invoice
@@ -24,6 +25,7 @@ from .serializers import (
     RentalAssetSerializer,
     RentalIssueSerializer,
     RentalSerializer,
+    StaffRentalApprovalHistorySerializer,
     StaffRentalApprovalSerializer,
 )
 from .services import (
@@ -32,6 +34,7 @@ from .services import (
     close_agreement,
     customer_decide,
     issue_approval_link,
+    send_approval_link_whatsapp,
 )
 
 
@@ -62,8 +65,10 @@ class RentalViewSet(viewsets.ModelViewSet):
         "create": "rentals.manage", "update": "rentals.manage",
         "partial_update": "rentals.manage", "destroy": "rentals.manage",
         "create_agreement": "rentals.manage", "approval_link": "rentals.manage",
+        "approval_link_send_whatsapp": "rentals.manage",
         "approve_on_behalf": "rentals.approve", "cancel": "rentals.manage",
         "close": "rentals.manage", "raise_invoice": "rentals.manage",
+        "approval_history": "rentals.view",
     }
 
     def get_queryset(self):
@@ -172,7 +177,30 @@ class RentalViewSet(viewsets.ModelViewSet):
             "whatsapp_url": whatsapp_url,
             "expires_at": approval.expires_at,
             "expires_in_hours": 24,
+            "version": approval.version,
+            "rental": RentalSerializer(self._fresh(approval.rental)).data,
+            # "meta_cloud" when the link can also be sent through the
+            # WhatsApp API (approval-link/send-whatsapp/), else "console"
+            "whatsapp_provider": whatsapp_provider(),
         })
+
+    @action(detail=True, methods=["post"], url_path="approval-link/send-whatsapp")
+    def approval_link_send_whatsapp(self, request, pk=None):
+        """Send the link staff just generated through the WhatsApp provider.
+        Body: {"approval_url": "<the link from approval-link/>"}. The
+        response says exactly what happened -- "sent" only when Meta
+        accepted the message and returned its id."""
+        delivery = send_approval_link_whatsapp(self.get_object(), request.data.get("approval_url"), request.user)
+        return Response({"whatsapp_delivery": delivery})
+
+    @action(detail=True, methods=["get"], url_path="approval-history")
+    def approval_history(self, request, pk=None):
+        rental = (
+            Rental.objects.select_related("party")
+            .prefetch_related("approvals__requested_by", "approvals__decided_by", "events__actor", "events__approval")
+            .get(pk=self.get_object().pk)
+        )
+        return Response(StaffRentalApprovalHistorySerializer(rental).data)
 
     @action(detail=True, methods=["post"], url_path="approve-on-behalf")
     def approve_on_behalf(self, request, pk=None):

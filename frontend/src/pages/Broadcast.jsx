@@ -40,7 +40,7 @@ export default function Broadcast() {
       {can("broadcast.send") ? (
         <div className="mt-6 p-4" data-panel style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip }}>
           <Eyebrow>New campaign</Eyebrow>
-          <textarea value={title} onChange={(e) => setTitle(e.target.value)} rows={2} placeholder="e.g. New arrival: ThinkPad T14 refurbished stock, limited units"
+          <textarea aria-label="Campaign message" value={title} onChange={(e) => setTitle(e.target.value)} rows={2} placeholder="e.g. New arrival: ThinkPad T14 refurbished stock, limited units"
             className="mt-2 w-full resize-none bg-transparent px-3 py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <TabBar
@@ -48,7 +48,7 @@ export default function Broadcast() {
               value={channel}
               onChange={setChannel}
             />
-            <select value={audience} onChange={(e) => setAudience(e.target.value)} className="flex-1 min-w-[180px] bg-transparent px-3 py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}>
+            <select aria-label="Audience" value={audience} onChange={(e) => setAudience(e.target.value)} className="flex-1 min-w-[180px] bg-transparent px-3 py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}>
               <option>All retail customers</option><option>Dealers</option><option>Rentals ending in 30 days</option><option>Wishlist — Apple</option><option>Cold — no purchase in 90 days</option>
             </select>
             <PillButton icon={Send} primary onClick={send}>Send</PillButton>
@@ -58,8 +58,9 @@ export default function Broadcast() {
         <div className="mt-6"><Locked label="Your role doesn't include broadcast sending." /></div>
       )}
 
-      <Eyebrow>Recent campaigns</Eyebrow>
+      <div className="mt-8"><Eyebrow>Recent campaigns</Eyebrow></div>
       <div className="mt-3 space-y-2">
+        {!campaigns.length && <p className="rounded-xl px-4 py-6 text-center text-sm" style={{ fontFamily: F.body, color: C.inkSoft, border: `1px dashed ${C.ruleStrong}` }}>No campaigns sent yet.</p>}
         {campaigns.map((b) => (
           <div key={b.id} data-panel className="flex flex-wrap items-center justify-between gap-3 px-4 py-3" style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip }}>
             <div className="min-w-0 flex-1">
@@ -74,6 +75,7 @@ export default function Broadcast() {
 
       <p className="mt-8 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.14em", color: C.inkSoft }}>Incoming WhatsApp orders</p>
       <div className="mt-3 space-y-2">
+        {!orders.length && <p className="rounded-xl px-4 py-6 text-center text-sm" style={{ fontFamily: F.body, color: C.inkSoft, border: `1px dashed ${C.ruleStrong}` }}>No incoming WhatsApp orders.</p>}
         {orders.map((w) => (
           <div key={w.id} data-panel className="flex flex-wrap items-start justify-between gap-3 px-4 py-3" style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip }}>
             <div className="min-w-0 flex-1">

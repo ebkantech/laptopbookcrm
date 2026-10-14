@@ -28,3 +28,38 @@ class OTPVerifyThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view):
         ident = self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class OTPResendThrottle(SimpleRateThrottle):
+    """Per-IP cap on portal "send me a new code" requests (each one sends an email)."""
+    scope = "otp_resend"
+
+    def get_cache_key(self, request, view):
+        ident = self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class OTPResendInviteThrottle(SimpleRateThrottle):
+    """
+    Per-invitation cap on resends, keyed by the link token, so one
+    customer's inbox can't be flooded from many IPs. The short per-code
+    cooldown (PORTAL_OTP_RESEND_COOLDOWN_SECONDS) is enforced separately
+    in portal.services.resend_otp.
+    """
+    scope = "otp_resend_invite"
+
+    def get_cache_key(self, request, view):
+        token = str(request.data.get("token") or "").strip().lower()[:64]
+        if not token:
+            return None
+        return self.cache_format % {"scope": self.scope, "ident": token}
+
+
+class PortalPdfThrottle(SimpleRateThrottle):
+    """Caps invoice-PDF generation per signed-in portal customer (each one renders a PDF server-side)."""
+    scope = "portal_pdf"
+
+    def get_cache_key(self, request, view):
+        party = getattr(request, "party", None)
+        ident = f"party-{party.pk}" if party else self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}

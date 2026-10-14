@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Check, IndianRupee, Mail, Plus, Printer, Repeat2, ShieldCheck, X } from "lucide-react";
-import { C, F, fmt, money } from "../lib/theme";
+import { C, F, fmt, money, todayISO } from "../lib/theme";
 import { api } from "../lib/api";
 import { useSession } from "../context/SessionContext";
 import { Eyebrow, ErrorNote, Pill, PillButton, SearchInput, Spinner, TabBar } from "../components/Atoms";
@@ -62,7 +62,7 @@ function NewInvoiceModal({ products, stockPoints, onClose, onCreate }) {
     setBusy(true);
     try {
       await onCreate({
-        party, stock_point: stockPoint, date: new Date().toISOString().slice(0, 10),
+        party, stock_point: stockPoint, date: todayISO(),
         items: filled.map((l) => ({ variant: +l.variantId, qty: +l.qty, price: +l.price })),
       });
     } catch (e) {
@@ -76,8 +76,8 @@ function NewInvoiceModal({ products, stockPoints, onClose, onCreate }) {
   const field = { fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}`, background: C.slip };
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(4,9,18,0.7)" }}>
-      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto p-6" data-panel style={{ backgroundColor: C.slip, border: `2px solid ${C.ruleStrong || C.rule}`, boxShadow: "0 10px 30px rgba(0,0,0,0.5)" }}>
-        <div className="flex items-center justify-between"><span className="text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.14em", color: C.inkSoft }}>New sale invoice</span><button onClick={onClose}><X size={16} style={{ color: C.inkSoft }} /></button></div>
+      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto p-6" data-panel style={{ backgroundColor: C.slip }}>
+        <div className="flex items-center justify-between"><span className="text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.14em", color: C.inkSoft }}>New sale invoice</span><button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={16} style={{ color: C.inkSoft }} /></button></div>
 
         <div className="mt-4 space-y-3">
           <div className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
@@ -121,7 +121,7 @@ function NewInvoiceModal({ products, stockPoints, onClose, onCreate }) {
             <p className="mt-1 text-[11px]" style={{ fontFamily: F.body, color: C.inkSoft }}>The unit price starts at the list price — change it to give a discount.</p>
           </div>
 
-          <div className="flex items-center justify-between px-3 py-2" style={{ backgroundColor: C.slip2 }}>
+          <div className="flex items-center justify-between px-3 py-2 rounded-xl" style={{ backgroundColor: C.slip2 }}>
             <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Total</span>
             <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{money(total)}</span>
           </div>
@@ -186,7 +186,7 @@ function WarrantyCard({ invoice, warranty, onGranted }) {
   }
 
   return (
-    <div className="mt-4 p-3" data-panel style={{ border: `2px solid ${C.green}`, backgroundColor: `${C.green}14`, boxShadow: "0 6px 18px rgba(0,0,0,0.35)" }}>
+    <div className="mt-4 p-3" data-panel style={{ border: `1px solid ${C.green}66`, backgroundColor: `${C.green}10`, boxShadow: "none" }}>
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1.5 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.08em", color: C.inkSoft }}>
           <ShieldCheck size={13} style={{ color: C.green }} /> Warranty terms & conditions
@@ -208,7 +208,7 @@ function WarrantyCard({ invoice, warranty, onGranted }) {
 function RecordPayment({ invoice, onSettle }) {
   const [method, setMethod] = useState("UPI");
   const [reference, setReference] = useState("");
-  const [paidOn, setPaidOn] = useState(new Date().toISOString().slice(0, 10));
+  const [paidOn, setPaidOn] = useState(todayISO());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -236,7 +236,7 @@ function RecordPayment({ invoice, onSettle }) {
           </select>
         </label>
         <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Paid on
-          <input type="date" value={paidOn} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setPaidOn(e.target.value)} className="mt-1 w-full px-2 py-1.5 text-sm outline-none" style={{ ...field, fontFamily: F.mono }} />
+          <input type="date" value={paidOn} max={todayISO()} onChange={(e) => setPaidOn(e.target.value)} className="mt-1 w-full px-2 py-1.5 text-sm outline-none" style={{ ...field, fontFamily: F.mono }} />
         </label>
         <label className="block text-xs sm:col-span-2" style={{ fontFamily: F.body, color: C.inkSoft }}>{REFERENCE_HINT[method]}
           <input value={reference} maxLength={80} onChange={(e) => setReference(e.target.value)} placeholder={method === "Cash" ? "Optional" : "Required"} className="mt-1 w-full px-2 py-1.5 text-sm outline-none" style={{ ...field, fontFamily: F.mono }} />
@@ -419,7 +419,7 @@ function InvoiceDetail({ invoice, onClose, onSettle, onChanged }) {
 
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(4,9,18,0.7)" }} onClick={onClose}>
-      <div className="max-h-[88vh] w-full max-w-lg overflow-y-auto p-6" data-panel style={{ backgroundColor: C.slip, border: `2px solid ${C.ruleStrong || C.rule}`, boxShadow: "0 10px 30px rgba(0,0,0,0.5)" }} onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[88vh] w-full max-w-lg overflow-y-auto p-6" data-panel style={{ backgroundColor: C.slip }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between">
           <div>
             <p style={{ fontFamily: F.display, fontWeight: 700, fontSize: 18, color: C.ink }}>{invoice.code}</p>
@@ -430,20 +430,20 @@ function InvoiceDetail({ invoice, onClose, onSettle, onChanged }) {
             <button onClick={() => setPrinting(true)} className="flex items-center gap-1 px-2 py-1 text-xs" style={{ border: `1px solid ${C.rule}`, fontFamily: F.body, fontWeight: 600, color: C.ink }}>
               <Printer size={12} /> Print
             </button>
-            <button onClick={onClose}><X size={18} style={{ color: C.inkSoft }} /></button>
+            <button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={18} style={{ color: C.inkSoft }} /></button>
           </div>
         </div>
 
         <div className="mt-4 space-y-1.5">
           {invoice.items.map((it) => (
-            <div key={it.id} className="flex items-center justify-between px-3 py-2" style={{ backgroundColor: C.slip2 }}>
+            <div key={it.id} className="flex items-center justify-between px-3 py-2 rounded-xl" style={{ backgroundColor: C.slip2 }}>
               <span className="text-sm" style={{ fontFamily: F.body, color: C.ink }}>{it.product_name} <span style={{ fontFamily: F.mono, color: C.inkSoft, fontSize: 11 }}>{it.qty} × {money(it.price)}</span></span>
               <span className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{money(it.price * it.qty)}</span>
             </div>
           ))}
         </div>
 
-        <div className="mt-3 flex items-center justify-between px-3 py-2" data-panel style={{ border: `2px solid ${C.rule}` }}>
+        <div className="mt-3 flex items-center justify-between px-3 py-2" data-panel style={{ boxShadow: "none" }}>
           <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Total</span>
           <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{money(invoice.total)}</span>
         </div>
@@ -552,10 +552,14 @@ export default function Invoices() {
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
       <div className="px-5 pt-6 sm:px-8">
-        <PageHeader title="Sales & Invoices" subtitle="Every invoice — sales, repairs and rentals — and every payment, in one place" />
+        <PageHeader
+          title="Sales & Invoices"
+          subtitle="Every invoice — sales, repairs and rentals — and every payment, in one place"
+          actions={can("invoices.create") && <PillButton icon={Plus} primary onClick={() => setAdding(true)}>New sale invoice</PillButton>}
+        />
       </div>
       <header className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-8">
-        <div className="flex flex-col gap-2">
+        <div className="flex min-w-0 max-w-full flex-col gap-2">
           <div className="overflow-x-auto">
             <TabBar tabs={SOURCE_TABS.map((t) => ({ id: t.id, label: `${t.label} (${count(t.id)})` }))} value={source} onChange={setSource} />
           </div>
@@ -567,14 +571,11 @@ export default function Invoices() {
             />
           </div>
         </div>
-        {can("invoices.create") && (
-          <PillButton icon={Plus} primary onClick={() => setAdding(true)}>New sale invoice</PillButton>
-        )}
       </header>
 
       <div className="flex flex-wrap items-center gap-3 px-5 pb-4 sm:px-8">
-        <SearchInput value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by invoice code, customer, ticket or agreement" />
-        <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
+        <SearchInput value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by invoice code, customer, ticket or agreement" className="basis-full sm:basis-0" />
+        <span className="text-xs" aria-live="polite" style={{ fontFamily: F.body, color: C.inkSoft }}>
           To collect: <b style={{ fontFamily: F.mono, color: C.ink }}>{money(awaiting.reduce((sum, inv) => sum + inv.total, 0))}</b> across {awaiting.length} invoice{awaiting.length !== 1 ? "s" : ""}
         </span>
       </div>
@@ -582,7 +583,21 @@ export default function Invoices() {
       <div className="flex-1 overflow-y-auto px-5 pb-4 sm:px-8">
         <div className="flex flex-col gap-2.5">
           {visibleInvoices.map((inv) => (
-            <div key={inv.id} data-listcard onClick={() => setOpenInvoice(inv)} className="flex flex-wrap items-center gap-3 px-5 py-3.5 cursor-pointer">
+            <div
+              key={inv.id}
+              data-listcard
+              role="button"
+              tabIndex={0}
+              aria-label={`Open invoice ${inv.code}`}
+              onClick={() => setOpenInvoice(inv)}
+              onKeyDown={(e) => {
+                if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+                  e.preventDefault();
+                  setOpenInvoice(inv);
+                }
+              }}
+              className="flex cursor-pointer flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3.5 sm:px-5"
+            >
               <div className="min-w-[140px] flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 600, color: C.ink }}>{inv.code}</span>
@@ -594,17 +609,17 @@ export default function Invoices() {
                 </p>
               </div>
               <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{inv.stock_point_name}</span>
-              <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 600, color: C.ink, minWidth: 96, textAlign: "right" }}>{money(inv.total)}</span>
+              <span className="text-sm sm:min-w-24 sm:text-right" style={{ fontFamily: F.mono, fontWeight: 600, color: C.ink }}>{money(inv.total)}</span>
               <Pill color={STATUS_COLOR[inv.status]}>{invoiceStatusLabel(inv)}</Pill>
               {isOutstanding(inv) && can("invoices.settle") && (
-                <button onClick={(e) => { e.stopPropagation(); setOpenInvoice(inv); }} className="flex items-center gap-1 px-2 py-1 text-xs" style={{ border: `1px solid ${C.green}`, color: C.green, fontFamily: F.body, fontWeight: 600 }}>
+                <button type="button" onClick={(e) => { e.stopPropagation(); setOpenInvoice(inv); }} className="flex items-center gap-1 rounded-full px-3 py-1.5 text-xs" style={{ border: `1px solid ${C.green}66`, backgroundColor: `${C.green}0D`, color: C.green, fontFamily: F.body, fontWeight: 700 }}>
                   <IndianRupee size={11} /> Record payment
                 </button>
               )}
             </div>
           ))}
           {!visibleInvoices.length && (
-            <p className="px-3 py-10 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>
+            <p className="rounded-2xl px-4 py-12 text-center text-sm" style={{ fontFamily: F.body, color: C.inkSoft, border: `1px dashed ${C.ruleStrong}` }}>
               {invoices.length ? "No invoices match these filters." : "No invoices yet."}
             </p>
           )}

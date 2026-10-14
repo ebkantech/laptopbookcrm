@@ -3,7 +3,7 @@ import {
   Check, Cpu, IndianRupee, LayoutGrid, List, MapPinned, PackageCheck, Plus,
   Terminal, Truck, Wrench, X,
 } from "lucide-react";
-import { C, F, money } from "../lib/theme";
+import { C, F, money, todayISO } from "../lib/theme";
 import { api } from "../lib/api";
 import { useSession } from "../context/SessionContext";
 import { Locked, Pill, PillButton, Spinner, ErrorNote, Eyebrow, TabBar } from "../components/Atoms";
@@ -99,7 +99,7 @@ function QuickAddParty({ onClose, onAdded }) {
     try {
       const party = await api.post("/parties/", {
         name: name.trim(), type, customer_classification: classification, phone: phone.trim(), email: email.trim(),
-        joined: new Date().toISOString().slice(0, 10),
+        joined: todayISO(),
       });
       onAdded(party);
     } catch (e) {
@@ -113,7 +113,7 @@ function QuickAddParty({ onClose, onAdded }) {
     <div className="mt-2 p-3" data-panel style={{ border: `1px solid ${C.stamp}`, backgroundColor: `${C.stamp}0A` }}>
       <div className="flex items-center justify-between">
         <Eyebrow>New customer</Eyebrow>
-        <button onClick={onClose}><X size={14} style={{ color: C.inkSoft }} /></button>
+        <button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={14} style={{ color: C.inkSoft }} /></button>
       </div>
       <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" className="bg-transparent px-2 py-1.5 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
@@ -169,7 +169,7 @@ function NewTicketModal({ parties, services, stockPoints, onClose, onCreate }) {
       if (entryType === "bulk") {
         await onCreate({
           party, stock_point: stockPointId, payment,
-          received: new Date().toISOString().slice(0, 10),
+          received: todayISO(),
           devices: bulkDevices.map((device) => ({ ...device, model_name: device.model_name.trim(), serial: device.serial.trim(), issue: device.issue.trim() })),
         }, true);
         return;
@@ -178,7 +178,7 @@ function NewTicketModal({ parties, services, stockPoints, onClose, onCreate }) {
         party, brand, model_name: model.trim(), serial: serial.trim() || "—",
         stock_point: stockPointId, issue: issue.trim() || "Not specified",
         service_ids: selected, payment,
-        received: new Date().toISOString().slice(0, 10),
+        received: todayISO(),
       }, false);
     } catch (e) {
       setError(e.message);
@@ -190,7 +190,7 @@ function NewTicketModal({ parties, services, stockPoints, onClose, onCreate }) {
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(4,9,18,0.7)" }}>
       <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}>
-        <div className="flex items-center justify-between"><Eyebrow>New repair ticket</Eyebrow><button onClick={onClose}><X size={16} style={{ color: C.inkSoft }} /></button></div>
+        <div className="flex items-center justify-between"><Eyebrow>New repair ticket</Eyebrow><button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={16} style={{ color: C.inkSoft }} /></button></div>
 
         <div className="mt-4 grid grid-cols-2" style={{ border: `1px solid ${C.rule}` }}>
           {[["single", "Single · 1 device"], ["bulk", "Bulk · 2+ devices"]].map(([value, label]) => <button key={value} type="button" onClick={() => setEntryType(value)} className="py-2 text-xs uppercase" style={{ backgroundColor: entryType === value ? C.stamp : "transparent", color: entryType === value ? C.onAccent : C.inkSoft, fontWeight: 600 }}>{label}</button>)}
@@ -250,13 +250,13 @@ function NewTicketModal({ parties, services, stockPoints, onClose, onCreate }) {
           <button type="button" onClick={() => setBulkDevices((current) => [...current, blankDevice()])} className="flex w-full items-center justify-center gap-1 py-2 text-xs uppercase" style={{ border: `1px dashed ${C.stamp}`, color: C.stamp }}><Plus size={13} /> Add another device</button>
         </div>}
 
-        <div className="mt-4 flex" style={{ border: `1px solid ${C.rule}` }}>
+        <div className="mt-4 flex overflow-hidden rounded-xl" style={{ border: `1px solid ${C.rule}` }}>
           {[["advance", "25% advance"], ["full", "Pay on delivery"]].map(([k, label]) => (
             <button key={k} onClick={() => setPayment(k)} className="flex-1 py-2 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, color: payment === k ? C.onAccent : C.inkSoft, backgroundColor: payment === k ? C.stamp : "transparent" }}>{label}</button>
           ))}
         </div>
 
-        <div className="mt-3 flex items-center justify-between px-3 py-2" style={{ backgroundColor: C.slip2 }}>
+        <div className="mt-3 flex items-center justify-between px-3 py-2 rounded-xl" style={{ backgroundColor: C.slip2 }}>
           <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Estimated total{payment === "advance" ? " · advance due now" : ""}</span>
           <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{money(total)}{payment === "advance" && total > 0 ? ` (${money(advance)} now)` : ""}</span>
         </div>
@@ -335,7 +335,7 @@ function ReopenModal({ ticket, services, onClose, onReopened }) {
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}>
         <div className="flex items-center justify-between">
           <Eyebrow>Reopen ticket -- device came back</Eyebrow>
-          <button onClick={onClose}><X size={16} style={{ color: C.inkSoft }} /></button>
+          <button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={16} style={{ color: C.inkSoft }} /></button>
         </div>
 
         {ticket.warranty_active ? (
@@ -386,7 +386,7 @@ function ReopenModal({ ticket, services, onClose, onReopened }) {
           })}
         </div>
 
-        <div className="mt-3 flex items-center justify-between px-3 py-2" style={{ backgroundColor: C.slip2 }}>
+        <div className="mt-3 flex items-center justify-between px-3 py-2 rounded-xl" style={{ backgroundColor: C.slip2 }}>
           <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Total for this visit</span>
           <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{money(total)}</span>
         </div>
@@ -450,7 +450,7 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
             </div>
             <p className="mt-1 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{ticket.party_name} · {ticket.brand} {ticket.model_name} · {ticket.serial}</p>
           </div>
-          <button onClick={onClose}><X size={18} style={{ color: C.inkSoft }} /></button>
+          <button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={18} style={{ color: C.inkSoft }} /></button>
         </div>
 
         <div className="mt-5"><StageStepper status={ticket.status} /></div>
@@ -487,7 +487,7 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
         <p className="mt-5 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.14em", color: C.inkSoft }}>Original work order</p>
         <div className="mt-2 space-y-1.5">
           {ticket.services.map((s) => (
-            <div key={s.id} className="flex items-center justify-between px-3 py-2" style={{ backgroundColor: C.slip2 }}>
+            <div key={s.id} className="flex items-center justify-between px-3 py-2 rounded-xl" style={{ backgroundColor: C.slip2 }}>
               <span className="flex items-center gap-2 text-sm" style={{ fontFamily: F.body, color: C.ink }}>{s.label}{s.part && <span style={{ fontFamily: F.mono, color: C.inkSoft, fontSize: 11 }}>· {s.part.name}</span>}</span>
               <span className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{money(s.charge)}</span>
             </div>
@@ -555,7 +555,7 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
         <p className="mt-6 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.14em", color: C.inkSoft }}>Customer notifications</p>
         <div className="mt-2 space-y-2">
           {ticket.notifications.map((n) => (
-            <div key={n.id} className="px-3 py-2" style={{ backgroundColor: C.slip2 }}>
+            <div key={n.id} className="px-3 py-2 rounded-xl" style={{ backgroundColor: C.slip2 }}>
               <p className="text-xs" style={{ fontFamily: F.body, color: C.ink }}>{n.text}</p>
               <p className="text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{n.channel} · {new Date(n.at).toLocaleString()}</p>
             </div>
@@ -771,7 +771,7 @@ export default function Repairs() {
                   <p className="mt-0.5 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{t.party_name} · {t.brand} {t.model_name}</p>
                 </div>
                 <span className="flex items-center gap-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}><MapPinned size={12} />{t.stock_point_name}</span>
-                <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 600, color: C.ink, minWidth: 80, textAlign: "right" }}>{money(t.total)}</span>
+                <span className="text-sm sm:min-w-20 sm:text-right" style={{ fontFamily: F.mono, fontWeight: 600, color: C.ink }}>{money(t.total)}</span>
                 <Pill color={STAGE_COLOR[t.status]}>{t.status}</Pill>
               </button>
             ))}

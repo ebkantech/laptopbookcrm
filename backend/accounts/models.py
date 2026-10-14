@@ -71,6 +71,7 @@ class NotificationRule(models.Model):
         ("repair_ticket_created", "New repair ticket"),
         ("low_negative_feedback", "Low-rated customer feedback (2 stars or fewer)"),
         ("rental_approved", "Customer approved a rental agreement"),
+        ("rental_changes_requested", "Customer requested changes to a rental agreement"),
         ("repair_approved", "Customer approved a repair estimate"),
         ("payment_received", "A payment was recorded (invoice or repair bill settled)"),
     ]

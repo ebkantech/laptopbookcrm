@@ -34,6 +34,7 @@ export function SessionProvider({ children }) {
   };
 
   const logout = () => {
+    window.history.replaceState({}, "", "/");
     api.logout();
     setMe(null);
   };

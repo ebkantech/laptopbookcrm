@@ -7,9 +7,7 @@ import { portalApi } from "./lib/portalApi";
 
 /* ------------------------------------------------------------------ *
  *  Login -- a portal link (/portal/<token>) plus the OTP sent
- *  separately to the customer's phone. Two different channels, so
- *  someone with only the link (e.g. it leaked over shared WhatsApp)
- *  still can't get in without the phone too.
+ *  separately to the customer's verified email address.
  * ------------------------------------------------------------------ */
 function PortalLogin({ token, onLoggedIn }) {
   const [status, setStatus] = useState("checking"); // checking | ready | invalid
@@ -40,8 +38,8 @@ function PortalLogin({ token, onLoggedIn }) {
   };
 
   return (
-    <div className="flex h-screen w-full items-center justify-center" style={{ backgroundColor: C.paper }}>
-      <div className="w-full max-w-sm p-8" style={{ border: `2px solid ${C.ruleStrong}`, backgroundColor: C.slip, boxShadow: "0 12px 32px rgba(0,0,0,0.5)" }}>
+    <div className="cb-shell flex min-h-screen w-full items-center justify-center px-4 py-8" style={{ backgroundColor: C.paper }}>
+      <div className="w-full max-w-sm p-6 sm:p-8" data-panel style={{ backgroundColor: C.slip, boxShadow: "var(--cb-shadow-modal)" }}>
         <div className="flex items-center gap-2">
           <ShieldCheck size={16} style={{ color: C.stamp }} />
           <span className="text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 700, letterSpacing: "0.18em", color: C.orange }}>{APP_NAME} {APP_VERSION}</span>
@@ -54,14 +52,14 @@ function PortalLogin({ token, onLoggedIn }) {
         {status === "invalid" && (
           <div className="mt-4 px-3 py-2" style={{ backgroundColor: `${C.carbon}14`, border: `1px solid ${C.carbon}` }}>
             <p className="text-sm" style={{ fontFamily: F.body, color: C.ink }}>{error || "This link is no longer valid."}</p>
-            <p className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Ask us for a new one over WhatsApp.</p>
+            <p className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Ask a staff member to send a fresh portal link.</p>
           </div>
         )}
 
         {status === "ready" && (
           <>
             <p className="mt-3 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>
-              Hi {info.party_name}, enter the code we sent to your phone ending in {info.masked_phone}.
+              Enter the code sent to {info.masked_email}.
             </p>
             <input
               value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
@@ -129,7 +127,7 @@ function LocationPrompt({ accessLogId }) {
 /* ------------------------------------------------------------------ * Dashboard */
 function Section({ title, icon: Icon, children }) {
   return (
-    <div className="mt-4 p-4" style={{ border: `2px solid ${C.rule}`, backgroundColor: C.slip, boxShadow: "0 4px 14px rgba(0,0,0,0.35)" }}>
+    <div className="mt-4 p-4" data-panel style={{ backgroundColor: C.slip }}>
       <p className="flex items-center gap-1.5 text-sm" style={{ fontFamily: F.body, fontWeight: 600, color: C.ink }}><Icon size={14} style={{ color: C.stamp }} />{title}</p>
       <div className="mt-2">{children}</div>
     </div>
@@ -187,13 +185,13 @@ function PortalDashboard({ party, accessLogId, onLogout }) {
   }, []);
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: C.paper }}>
-      <header className="flex items-center justify-between px-5 py-4" style={{ borderBottom: `1px solid ${C.rule}`, backgroundColor: C.deep }}>
+    <div className="cb-shell min-h-screen" style={{ backgroundColor: C.paper }}>
+      <header className="flex items-center justify-between gap-3 px-5 py-4" style={{ backgroundColor: C.deep }}>
         <div>
           <p className="text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 700, letterSpacing: "0.14em", color: C.orange }}>{APP_NAME} {APP_VERSION}</p>
-          <p className="text-sm" style={{ fontFamily: F.display, fontWeight: 600, color: C.ink }}>Hi, {party.name}</p>
+          <p className="truncate text-sm" style={{ fontFamily: F.display, fontWeight: 600, color: "#FFFFFF" }}>Hi, {party.name}</p>
         </div>
-        <button onClick={onLogout} className="flex items-center gap-1.5 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}><LogOut size={13} /> Sign out</button>
+        <button type="button" onClick={onLogout} className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs hover:bg-white/10" style={{ fontFamily: F.body, fontWeight: 600, color: C.sidebarText }}><LogOut size={13} /> Sign out</button>
       </header>
 
       <div className="mx-auto max-w-lg px-5 py-6">
@@ -201,7 +199,7 @@ function PortalDashboard({ party, accessLogId, onLogout }) {
 
         <Section title="Your rental" icon={Repeat2}>
           {!rentals ? <p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Loading\u2026</p> : rentals.length ? rentals.map((r) => (
-            <div key={r.id} className="mb-2 px-3 py-2" style={{ backgroundColor: C.slip2 }}>
+            <div key={r.id} className="mb-2 px-3 py-2 rounded-xl" style={{ backgroundColor: C.slip2 }}>
               <p className="text-sm" style={{ fontFamily: F.body, fontWeight: 600, color: C.ink }}>{r.product_label}</p>
               <p className="text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{money(r.monthly_fee)}/mo \u00b7 {r.months_paid}/{r.tenure_months} months paid</p>
               <p className="mt-1 flex items-center gap-1 text-xs" style={{ fontFamily: F.mono, color: r.next_payment_overdue ? C.carbon : C.inkSoft }}>
@@ -213,7 +211,7 @@ function PortalDashboard({ party, accessLogId, onLogout }) {
 
         <Section title="Invoices" icon={FileText}>
           {!invoices ? <p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Loading\u2026</p> : invoices.length ? invoices.map((i) => (
-            <div key={i.id} className="mb-1.5 flex items-center justify-between px-3 py-2" style={{ backgroundColor: C.slip2 }}>
+            <div key={i.id} className="mb-1.5 flex items-center justify-between px-3 py-2 rounded-xl" style={{ backgroundColor: C.slip2 }}>
               <span className="text-xs" style={{ fontFamily: F.mono, color: C.ink }}>{i.code} \u00b7 {fmt(i.date)}</span>
               <span className="text-xs" style={{ fontFamily: F.mono, fontWeight: 600, color: C.ink }}>{money(i.total)} \u00b7 {i.status}</span>
             </div>
@@ -222,7 +220,7 @@ function PortalDashboard({ party, accessLogId, onLogout }) {
 
         <Section title="Repairs" icon={Wrench}>
           {!repairs ? <p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Loading\u2026</p> : repairs.tickets.length ? repairs.tickets.map((t) => (
-            <div key={t.id} className="mb-1.5 px-3 py-2" style={{ backgroundColor: C.slip2 }}>
+            <div key={t.id} className="mb-1.5 px-3 py-2 rounded-xl" style={{ backgroundColor: C.slip2 }}>
               <p className="text-xs" style={{ fontFamily: F.mono, color: C.ink }}>{t.code} \u00b7 {t.brand} {t.model_name} \u00b7 {t.status}</p>
             </div>
           )) : <p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>No repair tickets on file.</p>}
@@ -230,7 +228,7 @@ function PortalDashboard({ party, accessLogId, onLogout }) {
 
         <Section title="Warranty" icon={ShieldCheck}>
           {!warranties ? <p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Loading\u2026</p> : warranties.length ? warranties.map((w) => (
-            <div key={w.id} className="mb-1.5 px-3 py-2" style={{ backgroundColor: C.slip2 }}>
+            <div key={w.id} className="mb-1.5 px-3 py-2 rounded-xl" style={{ backgroundColor: C.slip2 }}>
               <p className="text-xs" style={{ fontFamily: F.body, color: C.ink }}>{w.item_label}</p>
               <p className="text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{fmt(w.start_date)} \u2192 {fmt(w.end_date)} \u00b7 {w.status}</p>
             </div>
@@ -248,9 +246,15 @@ function PortalDashboard({ party, accessLogId, onLogout }) {
 export default function PortalApp({ token }) {
   const [party, setParty] = useState(undefined); // undefined = checking, null = need login
   const [accessLogId, setAccessLogId] = useState(null);
+  const [inviteToken, setInviteToken] = useState(token);
 
   useEffect(() => {
-    if (portalApi.hasSession()) {
+    if (token) {
+      // Every invite URL is a fresh authorization challenge. Never reuse a
+      // portal session from another customer or previously opened invite.
+      portalApi.clearSession();
+      setParty(null);
+    } else if (portalApi.hasSession()) {
       // returning session (not a fresh link click) -- no new access
       // log entry gets created here, since that only happens at the
       // actual OTP-verify moment; a resumed session has nothing fresh
@@ -259,19 +263,19 @@ export default function PortalApp({ token }) {
     } else {
       setParty(null);
     }
-  }, []);
+  }, [token]);
 
-  const logout = () => { portalApi.clearSession(); setParty(null); setAccessLogId(null); };
-  const onLoggedIn = (p, logId) => { setParty(p); setAccessLogId(logId); };
+  const logout = () => { portalApi.clearSession(); window.history.replaceState({}, "", "/portal"); setInviteToken(null); setParty(null); setAccessLogId(null); };
+  const onLoggedIn = (p, logId) => { window.history.replaceState({}, "", "/portal"); setInviteToken(null); setParty(p); setAccessLogId(logId); };
 
-  if (party === undefined) return <div className="flex h-screen items-center justify-center" style={{ backgroundColor: C.paper }} />;
+  if (party === undefined) return <div className="cb-shell flex h-screen items-center justify-center" style={{ backgroundColor: C.paper }} />;
   if (party) return <PortalDashboard party={party} accessLogId={accessLogId} onLogout={logout} />;
-  if (!token) {
+  if (!inviteToken) {
     return (
-      <div className="flex h-screen w-full items-center justify-center px-6 text-center" style={{ backgroundColor: C.paper }}>
+      <div className="cb-shell flex h-screen w-full items-center justify-center px-6 text-center" style={{ backgroundColor: C.paper }}>
         <p className="text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>Your session has ended. Please use the link we sent you to sign back in.</p>
       </div>
     );
   }
-  return <PortalLogin token={token} onLoggedIn={onLoggedIn} />;
+  return <PortalLogin token={inviteToken} onLoggedIn={onLoggedIn} />;
 }

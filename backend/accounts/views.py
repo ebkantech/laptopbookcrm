@@ -1,4 +1,7 @@
+from django.http import JsonResponse
 from django.utils import timezone
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.http import require_GET
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -16,6 +19,13 @@ from .serializers import (
     UserSerializer,
 )
 from .throttling import LoginRateThrottle
+
+
+@require_GET
+@ensure_csrf_cookie
+def csrf_cookie(request):
+    """Set Django's CSRF cookie for clients using SessionAuthentication."""
+    return JsonResponse({"detail": "CSRF cookie set."})
 
 
 class StaffTokenObtainPairSerializer(TokenObtainPairSerializer):

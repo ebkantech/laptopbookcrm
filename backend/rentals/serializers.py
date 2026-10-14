@@ -38,6 +38,7 @@ class RentalSerializer(serializers.ModelSerializer):
     total_monthly_fee = serializers.IntegerField(read_only=True)
     lines = serializers.SerializerMethodField()
     approval_status = serializers.SerializerMethodField()
+    open_change_request = serializers.SerializerMethodField()
     rent_invoices = serializers.SerializerMethodField()
     next_billing_period = serializers.SerializerMethodField()
 
@@ -47,7 +48,7 @@ class RentalSerializer(serializers.ModelSerializer):
             "id", "party", "party_name", "product_label", "monthly_fee", "start",
             "tenure_months", "months_paid", "late_count", "tickets", "last_payment",
             "agreement_code", "status", "terms", "rental_type", "total_monthly_fee", "lines", "approval_status",
-            "next_payment_date", "next_payment_overdue",
+            "open_change_request", "next_payment_date", "next_payment_overdue",
             "churn_score", "churn_band", "issues", "open_issue_count",
             "rent_invoices", "next_billing_period",
         ]
@@ -79,6 +80,99 @@ class RentalSerializer(serializers.ModelSerializer):
     def get_approval_status(self, obj):
         approval = obj.approvals.order_by("-version").first()
         return approval.effective_status if approval else "not_sent"
+
+    def get_open_change_request(self, obj):
+        approval = open_change_request(obj)
+        if not approval:
+            return None
+        return {"version": approval.version, "message": approval.reason, "requested_at": approval.decided_at}
+
+
+def open_change_request(rental):
+    """The customer's change request staff still have to act on: the
+    latest link ended with one, and no newer link or final outcome since."""
+    if rental.status not in (Rental.DRAFT, Rental.PENDING_APPROVAL):
+        return None
+    approvals = list(rental.approvals.all())
+    latest = max(approvals, key=lambda a: a.version) if approvals else None
+    return latest if latest and latest.status == RentalApproval.CHANGES_REQUESTED else None
+
+
+def _user_name(user):
+    return (user.get_full_name() or user.username) if user else None
+
+
+class StaffRentalApprovalHistorySerializer(serializers.Serializer):
+    """Staff-only view of every approval link and audit event for one
+    agreement. Never includes the token or its hash."""
+
+    def to_representation(self, rental):
+        approvals = sorted(rental.approvals.all(), key=lambda a: a.version)
+        open_request = open_change_request(rental)
+        versions = [a.version for a in approvals]
+        rows = []
+        for approval in approvals:
+            row = {
+                "id": approval.id,
+                "version": approval.version,
+                "status": approval.effective_status,
+                "source": approval.source,
+                "source_label": approval.get_source_display() if approval.source else None,
+                "created_at": approval.created_at,
+                "expires_at": approval.expires_at,
+                "decided_at": approval.decided_at,
+                "requested_by": _user_name(approval.requested_by),
+                "decided_by": _user_name(approval.decided_by),
+                "reason": approval.reason,
+                "decided_ip": approval.decided_ip,
+                "decided_user_agent": approval.decided_user_agent,
+                "total_monthly_fee": approval.snapshot.get("total_monthly_fee"),
+                "item_count": len(approval.snapshot.get("items", [])),
+            }
+            if approval.status == RentalApproval.CHANGES_REQUESTED:
+                newer = [v for v in versions if v > approval.version]
+                row["change_request"] = {
+                    "open": open_request is not None and open_request.pk == approval.pk,
+                    "answered_by_version": newer[0] if newer else None,
+                }
+            rows.append(row)
+
+        timeline = [
+            {
+                "id": event.id,
+                "type": event.event_type,
+                "label": event.get_event_type_display(),
+                "at": event.at,
+                "actor": _user_name(event.actor),
+                "approval_version": event.approval.version if event.approval else None,
+                "metadata": event.metadata,
+            }
+            for event in rental.events.all()
+        ]
+        # Expiry is lazy (no row is written when the clock runs out), so
+        # add it to the timeline here for staff.
+        for approval in approvals:
+            if approval.effective_status == RentalApproval.EXPIRED and approval.expires_at:
+                timeline.append({
+                    "id": f"expired-{approval.id}", "type": "approval_link_expired", "label": "Approval link expired",
+                    "at": approval.expires_at, "actor": None, "approval_version": approval.version, "metadata": {},
+                })
+        timeline.sort(key=lambda e: e["at"])
+        return {
+            "rental": {
+                "id": rental.id,
+                "agreement_code": rental.agreement_code,
+                "status": rental.status,
+                "status_label": rental.get_status_display(),
+                "party_name": rental.party.name,
+            },
+            "approvals": list(reversed(rows)),
+            "open_change_request": (
+                {"version": open_request.version, "message": open_request.reason, "requested_at": open_request.decided_at}
+                if open_request else None
+            ),
+            "timeline": timeline,
+        }
 
 
 class RentalAssetSerializer(serializers.ModelSerializer):
@@ -199,17 +293,27 @@ class StaffRentalApprovalSerializer(serializers.Serializer):
 
 
 class PublicRentalApprovalDecisionSerializer(serializers.Serializer):
-    decision = serializers.ChoiceField(choices=["approve", "reject"])
+    decision = serializers.ChoiceField(choices=["approve", "reject", "request_changes"])
     consent = serializers.BooleanField(required=False, default=False)
-    reason = serializers.CharField(required=False, allow_blank=True, max_length=500)
+    # trimmed before the length check; for request_changes it is the
+    # customer's (required) change request -- see services.customer_request_changes
+    reason = serializers.CharField(required=False, allow_blank=True, max_length=500, trim_whitespace=True)
+
+    def validate(self, attrs):
+        if attrs["decision"] == "request_changes" and not attrs.get("reason"):
+            raise serializers.ValidationError({"reason": "Tell us what you would like changed."})
+        return attrs
 
 
 class PublicRentalApprovalSerializer(serializers.Serializer):
     def to_representation(self, approval):
         snapshot = approval.snapshot
         customer = snapshot.get("customer") or {}
+        changes_requested = approval.status == RentalApproval.CHANGES_REQUESTED
         return {
             "status": approval.effective_status,
+            # the customer's own words, echoed back so they can see what they sent
+            "change_request": approval.reason if changes_requested else None,
             "source": approval.source,
             "decided_at": approval.decided_at.isoformat() if approval.decided_at else None,
             "expires_at": approval.expires_at.isoformat() if approval.expires_at else None,

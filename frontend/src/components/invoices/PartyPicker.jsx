@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Check, Plus, Search, X } from "lucide-react";
-import { C, F } from "../../lib/theme";
+import { C, F, todayISO } from "../../lib/theme";
 import { api } from "../../lib/api";
 import { useSession } from "../../context/SessionContext";
 import { ErrorNote, Spinner } from "../Atoms";
+import { announcePartyChanged, PARTY_CHANGED_EVENT } from "../../lib/partyEvents";
 
 const field = { fontFamily: F.body, color: C.ink, background: C.slip, border: `1px solid ${C.rule}` };
 const digits = (s) => (s || "").replace(/\D/g, "");
@@ -23,7 +24,19 @@ export default function PartyPicker({ value, onChange }) {
 
   useEffect(() => {
     api.getAll("/parties/").then(setParties).catch((e) => setLoadError(e.message));
-  }, []);
+    const syncParty = (event) => {
+      const { party, id, deleted } = event.detail || {};
+      setParties((list) => {
+        if (!list) return list;
+        if (deleted) return list.filter((item) => item.id !== id);
+        if (!party) return list;
+        return [...list.filter((item) => item.id !== party.id), party].sort((a, b) => a.name.localeCompare(b.name));
+      });
+      if (deleted && id === value) onChange(null);
+    };
+    window.addEventListener(PARTY_CHANGED_EVENT, syncParty);
+    return () => window.removeEventListener(PARTY_CHANGED_EVENT, syncParty);
+  }, [value, onChange]);
 
   if (loadError) return <ErrorNote message={loadError} />;
   if (!parties) return <Spinner label="Loading customers…" />;
@@ -33,6 +46,7 @@ export default function PartyPicker({ value, onChange }) {
   const onCreated = (party) => {
     setParties((list) => [...list, party].sort((a, b) => a.name.localeCompare(b.name)));
     onChange(party.id);
+    announcePartyChanged(party);
     setAdding(false);
     setQuery("");
   };
@@ -99,6 +113,7 @@ function NewCustomerForm({ initialName, parties, onCancel, onCreated, onUseExist
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   // Same mobile number already on file -> almost certainly the same
   // customer; offer them instead of creating a duplicate.
@@ -107,28 +122,39 @@ function NewCustomerForm({ initialName, parties, onCancel, onCreated, onUseExist
 
   const save = async () => {
     setError("");
-    if (!form.name.trim()) return setError("Enter the customer's name.");
-    if (digits(form.phone).length < 10) return setError("Enter a 10-digit mobile number.");
+    const cleaned = Object.fromEntries(Object.entries(form).map(([k, v]) => [k, v.trim()]));
+    const nextErrors = {};
+    if (!cleaned.name) nextErrors.name = "Enter the customer's name.";
+    const phoneDigits = digits(cleaned.phone);
+    if (phoneDigits.length < 10 || phoneDigits.length > 15) nextErrors.phone = "Enter a valid phone number with 10 to 15 digits.";
+    if (!cleaned.type) nextErrors.type = "Choose a customer type.";
+    if (!cleaned.city) nextErrors.city = "Enter the customer's city.";
+    if (!cleaned.email) nextErrors.email = "Enter the customer's email address.";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleaned.email)) nextErrors.email = "Enter a valid email address.";
+    setFieldErrors(nextErrors);
+    if (Object.keys(nextErrors).length) return;
     if (existing && !window.confirm(`${existing.name} already has this number. Create a separate customer anyway?`)) return;
     setBusy(true);
     try {
       const party = await api.post("/parties/", {
-        ...Object.fromEntries(Object.entries(form).map(([k, v]) => [k, v.trim()])),
-        joined: new Date().toISOString().slice(0, 10),
+        ...cleaned,
+        joined: todayISO(),
       });
       onCreated(party);
     } catch (e) {
       const body = e.body || {};
-      const fieldErrors = Object.entries(body).filter(([k]) => k !== "detail").map(([k, v]) => `${k}: ${[].concat(v).join(" ")}`);
-      setError(fieldErrors.join(" · ") || body.detail || e.message);
+      const apiFieldErrors = Object.fromEntries(Object.entries(body).filter(([k]) => k !== "detail").map(([k, v]) => [k, [].concat(v).join(" ") ]));
+      setFieldErrors(apiFieldErrors);
+      setError(body.detail || (!Object.keys(apiFieldErrors).length ? e.message : "Please correct the highlighted fields."));
     } finally {
       setBusy(false);
     }
   };
 
   const input = (label, key, props = {}) => (
-    <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{label}
-      <input value={form[key]} onChange={set(key)} className="mt-1 w-full px-2 py-1.5 text-sm outline-none" style={field} {...props} />
+    <label className="block min-w-0 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{label}
+      <input required={key !== "gstin"} aria-invalid={!!fieldErrors[key]} value={form[key]} onChange={(e) => { set(key)(e); setFieldErrors((old) => ({ ...old, [key]: "" })); }} className="mt-1 w-full px-2 py-1.5 text-sm outline-none" style={{ ...field, borderColor: fieldErrors[key] ? C.carbon : C.rule }} {...props} />
+      {fieldErrors[key] && <span className="mt-1 block text-[11px]" style={{ color: C.carbon }}>{fieldErrors[key]}</span>}
     </label>
   );
 
@@ -136,18 +162,19 @@ function NewCustomerForm({ initialName, parties, onCancel, onCreated, onUseExist
     <div className="p-3" style={{ border: `1px solid ${C.stamp}` }}>
       <div className="flex items-center justify-between">
         <span className="text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em", color: C.inkSoft }}>New customer</span>
-        <button onClick={onCancel}><X size={14} style={{ color: C.inkSoft }} /></button>
+        <button type="button" onClick={onCancel} aria-label="Cancel" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={14} style={{ color: C.inkSoft }} /></button>
       </div>
       <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
         {input("Name *", "name", { autoFocus: true })}
         {input("Mobile *", "phone", { placeholder: "98xxxxxxxx", inputMode: "tel" })}
-        <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Type
-          <select value={form.type} onChange={set("type")} className="mt-1 w-full px-2 py-1.5 text-sm outline-none" style={field}>
+        <label className="block min-w-0 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Type *
+          <select required aria-invalid={!!fieldErrors.type} value={form.type} onChange={(e) => { set("type")(e); setFieldErrors((old) => ({ ...old, type: "" })); }} className="mt-1 w-full px-2 py-1.5 text-sm outline-none" style={{ ...field, borderColor: fieldErrors.type ? C.carbon : C.rule }}>
             <option>Retail</option><option>Dealer</option><option>Rental</option>
           </select>
+          {fieldErrors.type && <span className="mt-1 block text-[11px]" style={{ color: C.carbon }}>{fieldErrors.type}</span>}
         </label>
-        {input("City", "city")}
-        {input("Email", "email", { type: "email" })}
+        {input("City *", "city")}
+        {input("Email *", "email", { type: "email" })}
         {input("GSTIN", "gstin", { placeholder: "Business customers only" })}
       </div>
       {existing && (

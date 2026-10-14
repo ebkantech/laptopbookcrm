@@ -13,6 +13,7 @@ from crmbook_backend.notify import notify_staff
 from parties.models import Message
 
 from . import payments
+from .documents import invoice_document
 from .models import PAYMENT_METHODS, Invoice, PaymentLink
 from .services import CancelError, RefundError, cancel_invoice, mark_overdue, on_invoice_paid, refund_invoice
 from .serializers import InvoiceSerializer
@@ -140,40 +141,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     def print_data(self, request, pk=None):
         """Everything the printable invoice needs in one call: seller and
         branch details, buyer details, and line items with HSN."""
-        invoice = self.get_object()
-        sp, party = invoice.stock_point, invoice.party
-        items = []
-        for n, item in enumerate(invoice.items.all(), start=1):
-            variant = item.variant
-            items.append({
-                "n": n,
-                "description": item.description or variant.product.display_name,
-                "spec": variant.spec if variant else "",
-                "code": variant.code if variant else "",
-                "hsn": variant.product.hsn if variant else "",
-                "qty": item.qty,
-                "rate": item.price,
-                "amount": item.qty * item.price,
-            })
-        return Response({
-            "invoice": InvoiceSerializer(invoice).data,
-            "reference": InvoiceSerializer(invoice).data["reference"],
-            "seller": {
-                "name": settings.BUSINESS_NAME,
-                "branch": sp.name,
-                "address": sp.address,
-                "phone": sp.phone or settings.BUSINESS_PHONE,
-                "email": settings.BUSINESS_EMAIL,
-                "gstin": sp.gstin or settings.BUSINESS_GSTIN,
-            },
-            "buyer": {
-                "name": party.name, "phone": party.phone, "email": party.email,
-                "gstin": party.gstin, "city": party.city,
-            },
-            "items": items,
-            "total_qty": sum(i["qty"] for i in items),
-            "total": sum(i["amount"] for i in items),
-        })
+        return Response(invoice_document(self.get_object()))
 
     # -------------------------------------------------------------- #
     #  UPI payment links -- see sales/payments.py for the whole flow.

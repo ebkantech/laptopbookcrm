@@ -1,44 +1,75 @@
 @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&family=Public+Sans:wght@400;500;600;700&display=swap');
 
+/* ------------------------------------------------------------------ *
+ * VantageCRM "Daybook" design tokens. lib/theme.js holds the same
+ * values for inline styles -- change both together.
+ * ------------------------------------------------------------------ */
+:root {
+  /* colour */
+  --cb-ink: #172033;
+  --cb-ink-soft: #667085;
+  --cb-ink-faint: #98A2B3;
+  --cb-paper: #F4F6F9;
+  --cb-surface: #FFFFFF;
+  --cb-inset: #F8FAFC;
+  --cb-rule: #E3E8F0;
+  --cb-rule-strong: #CBD3E1;
+  --cb-accent: #3157D5;
+  --cb-accent-ring: rgba(49, 87, 213, 0.2);
+  --cb-green: #16845B;
+  --cb-red: #C83C4A;
+
+  /* type */
+  --cb-font-display: 'Archivo', 'Inter Tight', ui-sans-serif, system-ui, sans-serif;
+  --cb-font-body: 'Public Sans', ui-sans-serif, system-ui, sans-serif;
+  --cb-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* shape */
+  --cb-radius-sm: 7px;
+  --cb-radius-md: 9px;
+  --cb-radius-lg: 13px;
+  --cb-radius-xl: 17px;
+  --cb-radius-pill: 999px;
+
+  /* elevation */
+  --cb-shadow-1: 0 1px 2px rgba(23, 32, 51, 0.04);
+  --cb-shadow-2: 0 1px 2px rgba(23, 32, 51, 0.035), 0 8px 22px -12px rgba(23, 32, 51, 0.16);
+  --cb-shadow-3: 0 2px 6px rgba(23, 32, 51, 0.06), 0 18px 36px -16px rgba(23, 32, 51, 0.2);
+  --cb-shadow-modal: 0 24px 64px -18px rgba(18, 22, 35, 0.38);
+
+  /* motion */
+  --cb-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --cb-fast: 140ms;
+  --cb-base: 200ms;
+}
+
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
-body { background: #F3EEE2; } /* VantageCRM 26X -- Vantage Daybook theme, keep in sync with lib/theme.js C.paper */
+body {
+  background: var(--cb-paper);
+  color: var(--cb-ink);
+  font-family: var(--cb-font-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+::selection { background: rgba(49, 87, 213, 0.18); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
 
-.cb-shell { background: transparent; }
-/* Vantage Daybook: clean, moderately rounded surfaces -- a paper-ledger
-   feel, not a printed sticker sheet or a live-tracking console. */
-.cb-shell button, .cb-shell input, .cb-shell select, .cb-shell textarea,
-.cb-shell [data-panel], .cb-shell [data-pill], .cb-shell [data-row] { border-radius: 8px; }
-.cb-shell [data-pill] { border-radius: 999px; }
-.cb-shell [data-donut] { border-radius: 999px; }
-.cb-shell ::placeholder { color: #A6A28C; }
-.cb-shell select { color-scheme: light; }
-
-/* Clean 1px hairline borders everywhere -- no heavy black brutalist
-   strokes in this theme, definition comes from the surface step
-   (paper -> slip -> slip2) plus these quiet dividers. */
-.cb-shell [data-panel] { border: 1px solid #E7E0CF; }
-.cb-shell input, .cb-shell select, .cb-shell textarea { border: 1px solid #E7E0CF; }
-
-/* Tabular numbers wherever a value lines up in a column -- fares,
-   deposits, timers. Apply data-num to the cell. */
-.cb-shell [data-num] { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
-
 /* ------------------------------------------------------------------ *
  * Animated gradient background -- three soft, low-opacity glow blobs
- * behind the oil-slick base, evoking a live map/telemetry surface
- * without literally drawing one. Fixed + full-viewport, z-index -1.
+ * behind the paper base. Fixed + full-viewport, z-index -1.
  * ------------------------------------------------------------------ */
 .cb-gradient-bg {
   position: fixed;
   inset: 0;
   z-index: -1;
   overflow: hidden;
-  background: linear-gradient(180deg, #F6F2E8 0%, #F3EEE2 100%);
+  background: linear-gradient(180deg, #F8FAFC 0%, #F4F6F9 100%);
 }
 .cb-blob {
   position: absolute;
@@ -50,19 +81,19 @@ body { background: #F3EEE2; } /* VantageCRM 26X -- Vantage Daybook theme, keep i
 .cb-blob-1 {
   width: 46vw; height: 46vw; min-width: 420px; min-height: 420px;
   top: -12%; left: -8%;
-  background: radial-gradient(circle, #E17A2D 0%, transparent 70%);
+  background: radial-gradient(circle, #8FA8F5 0%, transparent 70%);
   animation: cb-drift-1 26s ease-in-out infinite;
 }
 .cb-blob-2 {
   width: 40vw; height: 40vw; min-width: 380px; min-height: 380px;
   bottom: -14%; right: -6%;
-  background: radial-gradient(circle, #2F6B4A 0%, transparent 70%);
+  background: radial-gradient(circle, #8CC9B2 0%, transparent 70%);
   animation: cb-drift-2 32s ease-in-out infinite;
 }
 .cb-blob-3 {
   width: 34vw; height: 34vw; min-width: 320px; min-height: 320px;
   top: 30%; left: 55%;
-  background: radial-gradient(circle, #4C6FA0 0%, transparent 70%);
+  background: radial-gradient(circle, #91C9DC 0%, transparent 70%);
   animation: cb-drift-3 38s ease-in-out infinite;
 }
 @keyframes cb-drift-1 {
@@ -78,78 +109,165 @@ body { background: #F3EEE2; } /* VantageCRM 26X -- Vantage Daybook theme, keep i
   50% { transform: translate(-5%, 6%) scale(1.1); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cb-blob { animation: none !important; }
+  .cb-blob { animation: none; }
 }
-
-.cb-shell [data-panel] {
-  box-shadow: 0 1px 2px rgba(35,40,31,0.04), 0 10px 24px -12px rgba(35,40,31,0.12);
-  transition: box-shadow 200ms ease, transform 200ms ease, border-color 200ms ease;
-}
-.cb-shell button { transition: filter 150ms ease, transform 150ms ease, box-shadow 150ms ease, opacity 150ms ease; }
-.cb-shell button:hover:not(:disabled) { filter: brightness(0.97); }
-.cb-shell button:active:not(:disabled) { transform: translateY(1px); }
-.cb-shell a { text-decoration: none; }
-
-/* Focus: a clean warm-orange ring -- visible for keyboard nav, never a
-   hard offset block. */
-.cb-shell input:focus, .cb-shell select:focus, .cb-shell textarea:focus,
-.cb-shell button:focus-visible, .cb-shell a[data-nav]:focus-visible {
-  outline: none; border-color: #E17A2D !important; box-shadow: 0 0 0 3px rgba(225,122,45,0.22);
-}
-
-.cb-shell [data-row]:hover { background-color: rgba(47,107,74,0.06); }
-/* Selected-row convention: a persistent sage-green left rail, readable
-   at a glance in a dense list. */
-.cb-shell [data-row][data-selected="true"] { border-left: 3px solid #2F6B4A; }
 
 /* ------------------------------------------------------------------ *
- * List cards -- Inventory, Parties, and Sales & Invoices render each
- * list row as its own elevated rounded card (instead of a flat
- * hairline-divided row) after the "Kosh" reference cards: white
- * surface, generous radius, a soft resting shadow that lifts on
- * hover/focus. Apply data-listcard to the row container; components
- * still set their own padding/layout via className.
+ * Component layer. Everything here sits in Tailwind's `components`
+ * layer, so a utility class on an element (rounded-full, border-0,
+ * px-6...) still wins, and inline styles win over both -- no
+ * !important needed.
  * ------------------------------------------------------------------ */
-.cb-shell [data-listcard] {
-  border-radius: 18px !important;
-  border: 1px solid #E7E0CF;
-  background: #FFFFFF;
-  box-shadow: 0 1px 2px rgba(35,40,31,0.04), 0 8px 20px -10px rgba(35,40,31,0.10);
-  transition: box-shadow 200ms ease, transform 200ms ease, border-color 200ms ease;
-}
-.cb-shell [data-listcard]:hover {
-  box-shadow: 0 4px 10px rgba(35,40,31,0.06), 0 16px 32px -12px rgba(35,40,31,0.16);
-  transform: translateY(-1px);
-  border-color: #D8CFB8;
-}
-.cb-shell [data-listcard][data-selected="true"] {
-  border-color: #2F6B4A;
-  box-shadow: 0 0 0 2px rgba(47,107,74,0.20), 0 8px 20px -10px rgba(35,40,31,0.10);
+@layer components {
+  /* Surfaces ------------------------------------------------------ */
+  .cb-shell :is(button, input, select, textarea, [data-row]) { border-radius: var(--cb-radius-md); }
+  .cb-shell [data-panel] {
+    border: 1px solid var(--cb-rule);
+    border-radius: var(--cb-radius-lg);
+    box-shadow: var(--cb-shadow-2);
+    transition: box-shadow var(--cb-base) var(--cb-ease), border-color var(--cb-base) var(--cb-ease);
+  }
+  /* Modals. Every page builds a dialog the same way: a fixed full-screen
+     overlay whose direct child is a data-panel. Style that pattern once
+     here instead of in each page. */
+  .cb-shell .fixed.inset-0:has(> [data-panel]) {
+    backdrop-filter: blur(3px);
+    animation: cb-fade var(--cb-base) var(--cb-ease);
+  }
+  .cb-shell .fixed.inset-0 > [data-panel],
+  .cb-shell [role="dialog"][data-panel] {
+    border-radius: var(--cb-radius-xl);
+    box-shadow: var(--cb-shadow-modal);
+    animation: cb-pop var(--cb-base) var(--cb-ease);
+  }
+  .cb-shell :is([data-pill], [data-donut]) { border-radius: var(--cb-radius-pill); }
+
+  /* List cards: one elevated row per record (Inventory, Parties,
+     Invoices, Repairs...). Lifts slightly on hover. */
+  .cb-shell [data-listcard] {
+    border: 1px solid var(--cb-rule);
+    border-radius: var(--cb-radius-lg);
+    background: var(--cb-surface);
+    box-shadow: var(--cb-shadow-1);
+    transition: box-shadow var(--cb-base) var(--cb-ease), transform var(--cb-base) var(--cb-ease), border-color var(--cb-base) var(--cb-ease);
+  }
+  .cb-shell [data-listcard]:hover {
+    box-shadow: var(--cb-shadow-3);
+    border-color: var(--cb-rule-strong);
+    transform: translateY(-1px);
+  }
+  .cb-shell [data-listcard][data-selected="true"] {
+    border-color: var(--cb-green);
+    box-shadow: 0 0 0 2px var(--cb-accent-ring), var(--cb-shadow-1);
+  }
+  .cb-shell [data-row]:hover { background-color: rgba(49, 87, 213, 0.045); }
+  .cb-shell [data-row][data-selected="true"] { border-left: 3px solid var(--cb-accent); }
+
+  /* Search box: a pill with the focus ring on the whole pill. The inner
+     input stays bare (components/Atoms.jsx: SearchInput). */
+  .cb-shell [data-searchbox] {
+    border: 1px solid var(--cb-rule);
+    border-radius: var(--cb-radius-pill);
+    background: var(--cb-surface);
+    box-shadow: var(--cb-shadow-1);
+    transition: box-shadow var(--cb-base) var(--cb-ease), border-color var(--cb-base) var(--cb-ease);
+  }
+  .cb-shell [data-searchbox]:focus-within {
+    border-color: var(--cb-accent);
+    box-shadow: 0 0 0 3px var(--cb-accent-ring);
+  }
+  .cb-shell [data-searchbox] input { border: 0; padding-inline: 0; }
+
+  /* Form controls -------------------------------------------------- */
+  .cb-shell :is(input, select, textarea) {
+    border: 1px solid var(--cb-rule);
+    color: var(--cb-ink);
+    transition: border-color var(--cb-fast) var(--cb-ease), box-shadow var(--cb-fast) var(--cb-ease);
+  }
+  .cb-shell :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"]), select, textarea):not([data-bare]) {
+    padding-inline: 0.75rem;
+  }
+  .cb-shell :is(input, select, textarea):hover:not(:disabled, :focus, [data-bare]) { border-color: var(--cb-rule-strong); }
+  .cb-shell select { color-scheme: light; cursor: pointer; }
+  .cb-shell ::placeholder { color: var(--cb-ink-faint); opacity: 1; }
+  .cb-shell :is(input, select, textarea):disabled { opacity: 0.6; cursor: not-allowed; }
+  .cb-shell :is(input[type="checkbox"], input[type="radio"]) { accent-color: var(--cb-accent); width: 1rem; height: 1rem; cursor: pointer; }
+
+  /* Fields that sit inside their own bordered wrapper (dashboard
+     filters): the wrapper draws the border and the ring. */
+  .cb-shell [data-bare] { border: 0; box-shadow: none; }
+  .cb-shell [data-field]:focus-within {
+    border-color: var(--cb-accent);
+    box-shadow: 0 0 0 3px var(--cb-accent-ring);
+  }
+
+  /* Buttons -------------------------------------------------------- */
+  :is(button, [role="button"], summary, label[for]):not(:disabled) { cursor: pointer; }
+  .cb-shell button {
+    transition: filter var(--cb-fast) var(--cb-ease), transform var(--cb-fast) var(--cb-ease),
+      box-shadow var(--cb-fast) var(--cb-ease), background-color var(--cb-fast) var(--cb-ease),
+      color var(--cb-fast) var(--cb-ease), opacity var(--cb-fast) var(--cb-ease);
+  }
+  .cb-shell button:hover:not(:disabled) { filter: brightness(0.97); }
+  .cb-shell button:active:not(:disabled) { transform: translateY(1px); }
+  .cb-shell button:disabled { cursor: not-allowed; }
+  .cb-shell a { text-decoration: none; color: inherit; }
+
+  /* Tables (Accounting, Settings permission matrix). Replaces the three
+     Bootstrap table classes these pages use. */
+  .table { width: 100%; border-collapse: collapse; caption-side: bottom; }
+  .table > :not(caption) > * > * { background-color: transparent; }
+  .table-sm > :not(caption) > * > * { padding: 0.375rem 0.5rem; }
+  .table tbody tr { transition: background-color var(--cb-fast) var(--cb-ease); }
+  .table tbody tr:hover { background-color: rgba(49, 87, 213, 0.04); }
+
+  /* Status pill base (Atoms.jsx Pill). */
+  .badge { white-space: nowrap; line-height: 1.25; vertical-align: middle; }
+
+  /* Loading spinner (Atoms.jsx Spinner). */
+  .spinner-border {
+    display: inline-block;
+    width: 1.5rem;
+    height: 1.5rem;
+    border: 0.2em solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: cb-spin 0.75s linear infinite;
+    vertical-align: -0.125em;
+  }
+  .spinner-border-sm { width: 1rem; height: 1rem; border-width: 0.18em; }
 }
 
-/* ------------------------------------------------------------------ *
- * Search box -- a pill-shaped surface of its own (not just a bottom
- * hairline), with a soft resting shadow and a warm-orange focus ring
- * on the whole pill (not just the bare input) when a keyboard user
- * tabs in or clicks anywhere in it. Apply data-searchbox to the
- * wrapping div; the inner <input> stays borderless (see
- * components/Atoms.jsx: SearchInput).
- * ------------------------------------------------------------------ */
-.cb-shell [data-searchbox] {
-  border-radius: 999px !important;
-  border: 1px solid #E7E0CF;
-  background: #FFFFFF;
-  box-shadow: 0 1px 2px rgba(35,40,31,0.04), 0 6px 16px -8px rgba(35,40,31,0.08);
-  transition: box-shadow 200ms ease, border-color 200ms ease;
-}
-.cb-shell [data-searchbox]:focus-within {
-  border-color: #E17A2D;
-  box-shadow: 0 0 0 3px rgba(225,122,45,0.18), 0 6px 16px -8px rgba(35,40,31,0.08);
+@keyframes cb-spin { to { transform: rotate(360deg); } }
+@keyframes cb-fade { from { opacity: 0; } }
+@keyframes cb-pop { from { opacity: 0; transform: translateY(8px) scale(0.985); } }
+
+/* Focus: one clear ring for keyboard users. An outline draws over any
+   inline border, so it needs no !important. */
+/* Input focus: remove inner outline, keep one outer focus ring */
+.cb-shell :is(input, select, textarea):focus-visible:not([data-bare]),
+.cb-shell :is(input, select, textarea):focus:not([data-bare]) {
+  outline: none;
+  box-shadow: none;
+  border-color: var(--cb-accent);
 }
 
+/* Wrapper-based fields: keep the focus ring on the wrapper */
+.cb-shell [data-field]:focus-within {
+  border-color: var(--cb-accent);
+  box-shadow: 0 0 0 3px var(--cb-accent-ring);
+}
+.cb-shell :is(button, a, [tabindex]):focus-visible {
+  outline: 2px solid var(--cb-accent);
+  outline-offset: 2px;
+}
+.cb-shell [data-bare]:focus { outline: none; }
+
+/* Thin, quiet scrollbars for the scroll areas inside the app shell. */
+.cb-shell * { scrollbar-width: thin; scrollbar-color: var(--cb-rule-strong) transparent; }
+
 /* ------------------------------------------------------------------ *
- * Print scope -- when the label printer's "Print sticker" button
- * fires window.print(), only the label itself should reach paper.
+ * Print scope.
  * ------------------------------------------------------------------ */
 /* Printable sales invoice (components/invoices/PrintableInvoice.jsx). */
 #print-invoice-root { display: none; }
@@ -162,6 +280,7 @@ body { background: #F3EEE2; } /* VantageCRM 26X -- Vantage Daybook theme, keep i
   #print-invoice-root > div { padding: 0 !important; }
 }
 
+/* Label sticker printed from the page itself (#print-label-area). */
 @media print {
   body * { visibility: hidden; }
   #print-label-area, #print-label-area * { visibility: visible; }
@@ -170,10 +289,3 @@ body { background: #F3EEE2; } /* VantageCRM 26X -- Vantage Daybook theme, keep i
     box-shadow: none !important;
   }
 }
-
-/* Bootstrap's reboot sets label{display:inline-block}, and as unlayered
-   CSS it beats Tailwind's (layered) utilities, so "block"/"flex"/"grid"
-   on a <label> silently did nothing. Roll a label's display back to the
-   layered styles: a Tailwind display class now applies, and a label
-   without one gets the browser default. */
-label { display: revert-layer; }
