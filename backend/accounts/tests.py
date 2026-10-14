@@ -1,4 +1,4 @@
-from django.test import TestCase
+from django.test import Client, TestCase, override_settings
 
 from accounts.models import NotificationRule, PermissionDeniedLog, Role, StaffNotification
 from crmbook_backend.notify import notify_staff
@@ -53,6 +53,21 @@ class RoleAndUserTests(TestCase):
         self.staff.get("/api/notification-rules/")
         log = PermissionDeniedLog.objects.get(user=self.staff_user)
         self.assertEqual((log.required_perm, log.method), ("roles.manage", "GET"))
+
+    @override_settings(CSRF_TRUSTED_ORIGINS=["http://localhost:5173", "http://127.0.0.1:5173"])
+    def test_session_api_bootstraps_and_enforces_csrf_for_vite_origin(self):
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.admin_user)
+        csrf = client.get("/api/auth/csrf/")
+        self.assertEqual(csrf.status_code, 200)
+        token = csrf.cookies["csrftoken"].value
+        self.assertEqual(client.post("/api/auth/csrf/", HTTP_X_CSRFTOKEN=token).status_code, 405)
+
+        payload = {"slug": "csrf-role", "label": "CSRF role", "permission_codes": ["roles.manage"]}
+        blocked = client.post("/api/roles/", payload, content_type="application/json", HTTP_ORIGIN="http://localhost:5173")
+        self.assertEqual(blocked.status_code, 403)
+        accepted = client.post("/api/roles/", payload, content_type="application/json", HTTP_ORIGIN="http://localhost:5173", HTTP_X_CSRFTOKEN=token)
+        self.assertEqual(accepted.status_code, 201, accepted.content)
 
 
 class StaffNotificationTests(TestCase):

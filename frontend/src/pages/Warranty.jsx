@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Phone, Plus, Search, ShieldCheck, X } from "lucide-react";
-import { C, F, fmt } from "../lib/theme";
+import { C, F, fmt, todayISO } from "../lib/theme";
 import { api } from "../lib/api";
+import { PARTY_CHANGED_EVENT } from "../lib/partyEvents";
 import { useSession } from "../context/SessionContext";
-import { Eyebrow, ErrorNote, Locked, Pill, PillButton, Spinner, TabBar } from "../components/Atoms";
+import { Eyebrow, ErrorNote, Pill, PillButton, Spinner, TabBar } from "../components/Atoms";
 import PageHeader from "../components/PageHeader";
 
 const SECTION_COLOR = { Sales: C.stamp, Repair: C.amber, Rental: C.blue, Other: C.inkSoft };
@@ -16,7 +17,7 @@ function NewWarrantyModal({ parties, onClose, onCreated }) {
   const [invoiceId, setInvoiceId] = useState("");
   const [ticketId, setTicketId] = useState("");
   const [itemLabel, setItemLabel] = useState("");
-  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [startDate, setStartDate] = useState(todayISO());
   const [endDate, setEndDate] = useState("");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
@@ -30,7 +31,7 @@ function NewWarrantyModal({ parties, onClose, onCreated }) {
   }, [partyId, section]);
 
   const applyDefaultTerm = (days) => {
-    const start = startDate || new Date().toISOString().slice(0, 10);
+    const start = startDate || todayISO();
     const d = new Date(start);
     d.setDate(d.getDate() + days);
     setEndDate(d.toISOString().slice(0, 10));
@@ -65,7 +66,7 @@ function NewWarrantyModal({ parties, onClose, onCreated }) {
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}>
         <div className="flex items-center justify-between">
           <Eyebrow>New warranty</Eyebrow>
-          <button onClick={onClose}><X size={16} style={{ color: C.inkSoft }} /></button>
+          <button type="button" onClick={onClose} aria-label="Close new warranty"><X size={16} style={{ color: C.inkSoft }} /></button>
         </div>
 
         <label className="mt-4 block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Customer
@@ -74,7 +75,7 @@ function NewWarrantyModal({ parties, onClose, onCreated }) {
           </select>
         </label>
 
-        <div className="mt-3 flex" style={{ border: `1px solid ${C.rule}` }}>
+        <div className="mt-3 flex overflow-hidden rounded-xl" style={{ border: `1px solid ${C.rule}` }}>
           {["Sales", "Repair", "Rental", "Other"].map((s) => (
             <button key={s} onClick={() => setSection(s)} className="flex-1 py-2 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, color: section === s ? C.onAccent : C.inkSoft, backgroundColor: section === s ? SECTION_COLOR[s] : "transparent" }}>{s}</button>
           ))}
@@ -112,7 +113,7 @@ function NewWarrantyModal({ parties, onClose, onCreated }) {
           <input value={itemLabel} onChange={(e) => setItemLabel(e.target.value)} placeholder="e.g. Dell Latitude 5420, or Rental equipment protection" className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
         </label>
 
-        <div className="mt-3 grid grid-cols-2 gap-3">
+        <div className="mt-3 grid grid-cols-1 gap-3 min-[400px]:grid-cols-2">
           <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Start date
             <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.mono, color: C.ink, border: `1px solid ${C.rule}` }} />
           </label>
@@ -120,9 +121,9 @@ function NewWarrantyModal({ parties, onClose, onCreated }) {
             <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.mono, color: C.ink, border: `1px solid ${C.rule}` }} />
           </label>
         </div>
-        <div className="mt-2 flex gap-2">
+        <div className="mt-2 flex flex-wrap gap-2">
           {[["90 days", 90], ["6 months", 182], ["1 year", 365]].map(([label, days]) => (
-            <button key={label} onClick={() => applyDefaultTerm(days)} className="px-2 py-1 text-xs" style={{ border: `1px solid ${C.rule}`, fontFamily: F.body, color: C.inkSoft }}>{label}</button>
+            <button key={label} onClick={() => applyDefaultTerm(days)} type="button" className="rounded-full px-3 py-1 text-xs" style={{ border: `1px solid ${C.rule}`, fontFamily: F.body, fontWeight: 600, color: C.inkSoft }}>{label}</button>
           ))}
         </div>
 
@@ -160,6 +161,17 @@ export default function Warranty() {
   }, []);
 
   useEffect(() => {
+    const syncParty = (event) => {
+      const { party, id, deleted } = event.detail || {};
+      setParties((current) => deleted
+        ? current.filter((item) => item.id !== id)
+        : party ? [...current.filter((item) => item.id !== party.id), party].sort((a, b) => a.name.localeCompare(b.name)) : current);
+    };
+    window.addEventListener(PARTY_CHANGED_EVENT, syncParty);
+    return () => window.removeEventListener(PARTY_CHANGED_EVENT, syncParty);
+  }, []);
+
+  useEffect(() => {
     const t = setTimeout(() => load(phone), 300);
     return () => clearTimeout(t);
   }, [phone]);
@@ -178,16 +190,16 @@ export default function Warranty() {
       />
 
       {flash && (
-        <div className="mt-3 flex items-center gap-2 px-3 py-2" style={{ backgroundColor: `${C.green}14`, border: `1px solid ${C.green}` }}>
+        <div role="status" className="mt-3 flex items-center gap-2 rounded-xl px-3 py-2" style={{ backgroundColor: `${C.green}14`, border: `1px solid ${C.green}55` }}>
           <ShieldCheck size={13} style={{ color: C.green }} />
           <span className="text-xs" style={{ fontFamily: F.body, color: C.ink }}>{flash}</span>
         </div>
       )}
 
-      <div className="mt-5 flex min-w-0 items-center gap-2" style={{ borderBottom: `1px solid ${C.rule}`, maxWidth: 360 }}>
-        <Phone size={15} style={{ color: C.inkSoft }} />
-        <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Search by mobile number"
-          className="w-full bg-transparent py-1.5 text-sm outline-none" style={{ fontFamily: F.mono, color: C.ink }} />
+      <div data-searchbox className="mt-5 flex w-full max-w-md min-w-0 items-center gap-2 px-4 py-2.5">
+        <Phone size={15} style={{ color: C.inkSoft, flexShrink: 0 }} />
+        <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Search by mobile number" aria-label="Search by mobile number"
+          inputMode="tel" className="w-full min-w-0 bg-transparent text-sm outline-none" style={{ fontFamily: F.body, color: C.ink }} />
       </div>
 
       <div className="mt-4 overflow-x-auto">
@@ -216,7 +228,13 @@ export default function Warranty() {
             <Pill color={STATUS_COLOR[w.status]}>{w.status}</Pill>
           </div>
         ))}
-        {!rows.length && <p className="px-2 py-10 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>No warranty records match this view.</p>}
+        {!rows.length && (
+          <div className="flex flex-col items-center gap-2 rounded-2xl px-4 py-12 text-center" style={{ border: `1px dashed ${C.ruleStrong}` }}>
+            <Search size={20} style={{ color: C.inkSoft }} />
+            <p className="text-sm" style={{ fontFamily: F.body, fontWeight: 600, color: C.ink }}>No warranty records match this view</p>
+            <p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Try another mobile number or section.</p>
+          </div>
+        )}
       </div>
 
       {adding && (

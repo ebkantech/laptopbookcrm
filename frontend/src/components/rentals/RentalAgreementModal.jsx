@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Package, Plus, Trash2, X } from "lucide-react";
 
 import { api } from "../../lib/api";
-import { C } from "../../lib/theme";
+import { C, todayISO } from "../../lib/theme";
 import { ErrorNote, Eyebrow } from "../Atoms";
 
 
@@ -11,7 +11,7 @@ const emptyAsset = { asset_tag: "", serial_number: "", brand: "", model_name: ""
 export default function RentalAgreementModal({ parties, initialAssets, onCreated, onClose }) {
   const [assets, setAssets] = useState(initialAssets);
   const [party, setParty] = useState("");
-  const [start, setStart] = useState(new Date().toISOString().slice(0, 10));
+  const [start, setStart] = useState(todayISO());
   const [tenureMonths, setTenureMonths] = useState("1");
   const [terms, setTerms] = useState("");
   const [lines, setLines] = useState([{ asset_id: "", monthly_fee: "" }]);
@@ -159,7 +159,7 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto p-4" style={{ backgroundColor: "rgba(4,9,18,0.72)" }} onClick={onClose}>
       <form onSubmit={submit} className="my-auto w-full max-w-2xl p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }} onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-start justify-between gap-3"><div><Eyebrow>New rental agreement</Eyebrow><p className="mt-1 text-xs" style={{ color: C.inkSoft }}>One device becomes Single; two or more become Bulk automatically. Next you'll record each device's condition, photos, accessories and warranty for the customer to approve.</p></div><button type="button" onClick={onClose}><X size={17} /></button></div>
+        <div className="flex items-start justify-between gap-3"><div><Eyebrow>New rental agreement</Eyebrow><p className="mt-1 text-xs" style={{ color: C.inkSoft }}>One device becomes Single; two or more become Bulk automatically. Next you'll record each device's condition, photos, accessories and warranty for the customer to approve.</p></div><button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={17} /></button></div>
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
           <label className="text-xs" style={{ color: C.inkSoft }}>Customer<select value={party} onChange={(event) => setParty(event.target.value)} className="mt-1 w-full bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }}><option value="">Choose customer</option>{parties.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.customer_classification || "individual"}</option>)}</select></label>
           <label className="text-xs" style={{ color: C.inkSoft }}>Start date<input type="date" value={start} onChange={(event) => setStart(event.target.value)} className="mt-1 w-full bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} /></label>
@@ -167,7 +167,7 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
         </div>
         <div className="mt-5 flex items-center justify-between"><Eyebrow>Devices · {selectedCount >= 2 ? "Bulk" : "Single"}</Eyebrow><div className="flex items-center gap-3"><button type="button" onClick={openInventory} className="flex items-center gap-1 text-xs" style={{ color: C.orange, fontWeight: 600 }}><Package size={12} /> Rent out from inventory</button><button type="button" onClick={() => { setShowAssetForm((value) => !value); setShowInventory(false); }} className="flex items-center gap-1 text-xs" style={{ color: C.orange }}><Plus size={12} /> Register device not in inventory</button></div></div>
         {showInventory && (
-          <div className="mt-2 space-y-2 p-3" style={{ backgroundColor: C.slip2 }}>
+          <div className="mt-2 space-y-2 p-3 rounded-xl" style={{ backgroundColor: C.slip2 }}>
             <p className="text-xs" style={{ color: C.inkSoft }}>Pick a laptop that's in stock. One unit leaves that shop's sale stock and joins the rental fleet.</p>
             {!stockRows ? <p className="text-xs" style={{ color: C.inkSoft }}>Loading inventory…</p> : (
               <>
@@ -187,7 +187,7 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
             )}
           </div>
         )}
-        {showAssetForm && <div className="mt-2 grid gap-2 p-3 sm:grid-cols-2" style={{ backgroundColor: C.slip2 }}>
+        {showAssetForm && <div className="mt-2 grid gap-2 p-3 sm:grid-cols-2 rounded-xl" style={{ backgroundColor: C.slip2 }}>
           {[["asset_tag", "Asset tag (optional)", "Unique sticker ID, e.g. AST-0042 — blank = generate"], ["serial_number", "Serial number *", "From the label under the laptop"], ["brand", "Brand *", "e.g. Apple"], ["model_name", "Model *", "e.g. MacBook Air M2 2022"]].map(([key, label, hint]) => (
             <label key={key} className="text-xs" style={{ display: "block", color: C.inkSoft }}>{label}
               <input value={assetDraft[key]} onChange={(event) => setAssetDraft((draft) => ({ ...draft, [key]: event.target.value }))} placeholder={hint} className="mt-1 w-full bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} />

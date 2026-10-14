@@ -54,7 +54,7 @@ export default function RentalDevicesModal({ assets, canManage, onClose, onChang
       <div className="max-h-[88vh] w-full max-w-2xl overflow-y-auto p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <Eyebrow>Rental devices ({assets.length - retiredCount})</Eyebrow>
-          <button onClick={onClose}><X size={16} style={{ color: C.inkSoft }} /></button>
+          <button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={16} style={{ color: C.inkSoft }} /></button>
         </div>
         <p className="mt-1 text-xs" style={small}>A free device that came from Inventory can go back on sale — it's added to that shop's stock and leaves the rental fleet.</p>
         {note && <p className="mt-2 text-xs" style={{ fontFamily: F.body, color: C.green }}>{note}</p>}
@@ -64,7 +64,7 @@ export default function RentalDevicesModal({ assets, canManage, onClose, onChang
           {shown.map((a) => {
             const free = ["available", "maintenance"].includes(a.status);
             return (
-              <div key={a.id} className="px-3 py-2" style={{ backgroundColor: C.slip2 }}>
+              <div key={a.id} className="px-3 py-2 rounded-xl" style={{ backgroundColor: C.slip2 }}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm" style={{ fontFamily: F.body, color: C.ink }}>
                     <b style={{ fontFamily: F.mono }}>{a.asset_tag}</b> · {a.brand} {a.model_name}

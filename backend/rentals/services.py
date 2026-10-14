@@ -10,7 +10,7 @@ from django.db.models import Max
 from django.utils import timezone
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 
-from crmbook_backend.notify import notify_staff
+from crmbook_backend.notify import notify_staff, send_whatsapp, whatsapp_provider, whatsapp_template
 from .models import Rental, RentalApproval, RentalAsset, RentalEvent, RentalLine
 
 
@@ -148,7 +148,8 @@ def issue_approval_link(rental, user):
     _expire_pending_links(rental, now)
     rental.approvals.filter(status=RentalApproval.PENDING).update(status=RentalApproval.REVOKED)
     snapshot = _snapshot(rental)
-    version = (rental.approvals.aggregate(value=Max("version"))["value"] or 0) + 1
+    previous = rental.approvals.order_by("-version").first()
+    version = (previous.version if previous else 0) + 1
     raw_token = secrets.token_urlsafe(32)
     approval = RentalApproval.objects.create(
         rental=rental,
@@ -161,10 +162,93 @@ def issue_approval_link(rental, user):
     rental.status = Rental.PENDING_APPROVAL
     rental.save(update_fields=["status"])
     approval_url = build_approval_url(raw_token)
-    agreement_label = rental.agreement_code or f"RENTAL-{rental.pk}"
-    message = f"Hello {rental.party.name}, please review your rental agreement {agreement_label}. This secure link is valid for 24 hours: {approval_url}"
-    _record_event(rental, RentalEvent.APPROVAL_LINK_CREATED, actor=user, approval=approval, metadata={"version": version, "expires_at": approval.expires_at.isoformat(), "channel": "whatsapp"})
+    message = approval_link_message(rental, approval_url)
+    metadata = {"version": version, "expires_at": approval.expires_at.isoformat(), "channel": "whatsapp"}
+    if previous and previous.status == RentalApproval.CHANGES_REQUESTED:
+        # this link is staff's answer to the customer's change request
+        metadata["responds_to_change_request_version"] = previous.version
+    _record_event(rental, RentalEvent.APPROVAL_LINK_CREATED, actor=user, approval=approval, metadata=metadata)
     return approval, approval_url, build_whatsapp_url(rental.party.phone, message)
+
+
+def _agreement_label(rental):
+    return rental.agreement_code or f"RENTAL-{rental.pk}"
+
+
+def approval_link_message(rental, approval_url):
+    """The customer-facing text for an approval link -- shared by the
+    manual wa.me link and the WhatsApp API send so both say the same."""
+    return (
+        f"Hello {rental.party.name}, please review your rental agreement {_agreement_label(rental)}. "
+        f"This secure link is valid for 24 hours: {approval_url}"
+    )
+
+
+def send_approval_link_whatsapp(rental, approval_url, user):
+    """
+    Send an approval link staff already hold through the configured
+    WhatsApp provider (Meta Cloud API when WHATSAPP_PROVIDER=meta_cloud).
+
+    Only the token's hash is stored, so the link can't be rebuilt here --
+    instead the link staff got from issue_approval_link() is passed back
+    and checked: its token must hash to THIS rental's current, unexpired,
+    still-pending approval. Nothing new is issued (no second token or
+    approval row), and staff can't use this to send arbitrary text.
+
+    Uses the approved template WHATSAPP_TEMPLATE_RENTAL_APPROVAL when
+    configured (body {{1}} customer name, {{2}} agreement code, {{3}} link);
+    otherwise the free-text message, which Meta only accepts inside the
+    customer's 24-hour service window.
+
+    The result is recorded on the link's "approval link created" audit
+    event; a second send of an already-accepted link is refused so a
+    double click can't message the customer twice.
+    """
+    raw_token = (approval_url or "").rstrip("/").rsplit("/", 1)[-1]
+    if not raw_token or len(raw_token) > 200:
+        raise ValidationError({"detail": "That isn't an approval link for this agreement."})
+    with transaction.atomic():
+        approval = (
+            RentalApproval.objects.select_for_update().select_related("rental__party")
+            .filter(rental=rental, token_hash=approval_token_hash(raw_token)).first()
+        )
+        if not approval:
+            raise ValidationError({"detail": "That isn't an approval link for this agreement."})
+        if approval.effective_status != RentalApproval.PENDING:
+            raise ValidationError({"detail": "This approval link is no longer active -- generate a new one."})
+        event = (
+            RentalEvent.objects.select_for_update()
+            .filter(rental=rental, approval=approval, event_type=RentalEvent.APPROVAL_LINK_CREATED)
+            .order_by("-id").first()
+        )
+        previous = (event.metadata or {}).get("whatsapp_api") if event else None
+        if previous and previous.get("status") == "sent":
+            raise RentalApprovalConflict("This link was already sent through WhatsApp.")
+
+        rental = approval.rental
+        party = rental.party
+        template = whatsapp_template("rental_approval", [party.name, _agreement_label(rental), build_approval_url(raw_token)])
+        result = send_whatsapp(party.phone, approval_link_message(rental, build_approval_url(raw_token)), template=template)
+        delivery = {
+            "status": result.get("status"),
+            "provider": whatsapp_provider(),
+            "provider_id": result.get("provider_id"),
+            "template": template["name"] if template else None,
+            "reason": result.get("reason"),
+            "error_code": result.get("error_code"),
+            "at": timezone.now().isoformat(),
+            "by": user.pk if user else None,
+        }
+        if event:
+            event.metadata = {**(event.metadata or {}), "whatsapp_api": delivery}
+            event.save(update_fields=["metadata"])
+        if result.get("provider_id"):
+            from portal.models import WhatsAppDeliveryLog
+
+            WhatsAppDeliveryLog.objects.create(
+                party=party, provider_message_id=result["provider_id"], status=WhatsAppDeliveryLog.SENT,
+            )
+    return {key: delivery[key] for key in ("status", "provider", "provider_id", "template", "reason", "error_code")}
 
 
 def get_public_approval(raw_token, for_update=False):
@@ -187,9 +271,78 @@ def get_public_approval(raw_token, for_update=False):
     return approval
 
 
+CHANGE_REQUEST_MAX_LENGTH = 500
+
+
+def _clean_change_request(message):
+    message = (message or "").strip()
+    if not message:
+        raise ValidationError({"reason": "Tell us what you would like changed."})
+    if len(message) > CHANGE_REQUEST_MAX_LENGTH:
+        raise ValidationError({"reason": f"Keep the change request under {CHANGE_REQUEST_MAX_LENGTH} characters."})
+    return message
+
+
+def customer_request_changes(raw_token, message, ip_address=None, user_agent=""):
+    """
+    The customer asks for changes instead of approving or rejecting.
+
+    Policy: one change request per link. The link moves to
+    CHANGES_REQUESTED and accepts no further decision; the agreement is
+    NOT decided -- the rental stays awaiting approval and its assets stay
+    reserved. Staff answer by revising the agreement and issuing a new
+    link (a new immutable snapshot/version). Re-submitting on the same
+    link (double tap, retry after a dropped response) returns the
+    recorded request unchanged, without a second audit event.
+    """
+    message = _clean_change_request(message)
+    try:
+        with transaction.atomic():
+            approval = get_public_approval(raw_token, for_update=True)
+            if approval.status == RentalApproval.CHANGES_REQUESTED:
+                return approval
+            if approval.status in (RentalApproval.APPROVED, RentalApproval.REJECTED):
+                raise RentalApprovalConflict("A final decision has already been recorded for this agreement.")
+            if approval.status != RentalApproval.PENDING:
+                raise RentalApprovalLinkGone()
+            rental = Rental.objects.select_for_update().select_related("party").get(pk=approval.rental_id)
+            if rental.status != Rental.PENDING_APPROVAL:
+                raise RentalApprovalLinkGone()
+            now = timezone.now()
+            updated = RentalApproval.objects.filter(pk=approval.pk, status=RentalApproval.PENDING).update(
+                status=RentalApproval.CHANGES_REQUESTED,
+                source=RentalApproval.CUSTOMER,
+                reason=message,
+                decided_at=now,
+                decided_ip=ip_address,
+                decided_user_agent=(user_agent or "")[:300],
+            )
+            if updated != 1:
+                raise RentalApprovalConflict()
+            approval.refresh_from_db()
+            _record_event(rental, RentalEvent.CHANGES_REQUESTED, approval=approval, metadata={
+                "message": message,
+                "source": RentalApproval.CUSTOMER,
+                "channel": "secure_link",
+                "version": approval.version,
+                "requested_at": now.isoformat(),
+            })
+            label = rental.agreement_code or f"RENTAL-{rental.pk}"
+            notify_staff(
+                "rental_changes_requested",
+                f"Changes requested on rental agreement {label}",
+                f"{rental.party.name} asked for changes to rental agreement {label} (link v{approval.version}): {message}",
+            )
+            return approval
+    except IntegrityError as exc:
+        raise RentalApprovalConflict() from exc
+
+
 def customer_decide(raw_token, decision, consent=False, reason="", ip_address=None, user_agent=""):
+    if decision == "request_changes":
+        return customer_request_changes(raw_token, reason, ip_address=ip_address, user_agent=user_agent)
     if decision not in ("approve", "reject"):
-        raise ValidationError({"decision": "Choose either approve or reject."})
+        raise ValidationError({"decision": "Choose approve, reject, or request changes."})
     if decision == "approve" and consent is not True:
         raise ValidationError({"consent": "Confirm that you reviewed the rental agreement and charges."})
     try:
@@ -200,6 +353,10 @@ def customer_decide(raw_token, decision, consent=False, reason="", ip_address=No
                 if approval.status == desired_status:
                     return approval
                 raise RentalApprovalConflict("A different final decision has already been recorded.")
+            if approval.status == RentalApproval.CHANGES_REQUESTED:
+                raise RentalApprovalConflict(
+                    "You asked for changes on this link. We'll send you a revised agreement on a new link."
+                )
             if approval.status != RentalApproval.PENDING:
                 raise RentalApprovalLinkGone()
             if RentalApproval.objects.filter(rental=approval.rental, status=RentalApproval.APPROVED).exclude(pk=approval.pk).exists():

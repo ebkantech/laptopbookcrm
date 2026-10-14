@@ -11,3 +11,8 @@ psycopg[binary]>=3.1.8,<4.0
 gunicorn
 dj-database-url
 whitenoise
+# Server-side invoice PDFs for the customer portal (sales/documents.py).
+reportlab>=4.2,<5.0
+# Encrypts the short-lived staff copy of portal codes (portal/otp_vault.py).
+cryptography>=44.0,<46.0# HTTP client for Meta's WhatsApp Cloud API (crmbook_backend/notify.py).
+requests>=2.31,<3.0

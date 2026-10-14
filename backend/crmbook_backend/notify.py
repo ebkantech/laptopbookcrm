@@ -13,109 +13,194 @@ status dict, but never raise. A WhatsApp/email send failing must never
 turn into a 500 on an otherwise-successful action (creating a repair
 ticket, settling an invoice, etc.). The Message/Notification row in the
 database is the durable record of "this was communicated to the
-customer"; these functions are the (currently simulated) delivery
-attempt on top of that.
+customer"; these functions are the delivery attempt on top of that --
+simulated (WHATSAPP_PROVIDER=console, the default) or real
+(WHATSAPP_PROVIDER=meta_cloud, Meta's WhatsApp Cloud API).
 
 See docs/NOTIFICATIONS.md for the full role -> channel mapping.
 """
 import logging
 import os
+import traceback
 
 logger = logging.getLogger("crmbook.notify")
 
 
-def send_whatsapp(to: str, body: str) -> dict:
+GRAPH_API_VERSION_DEFAULT = "v25.0"
+# (connect, read) seconds -- a slow Meta response must not hold a staff
+# request open for long; the caller gets an honest "failed: timeout".
+META_TIMEOUT = (5, 15)
+
+# Meta error codes worth a specific, actionable message. Anything else
+# falls back to Meta's own (credential-free) error text.
+# https://developers.facebook.com/docs/whatsapp/cloud-api/support/error-codes
+_META_ERROR_HINTS = {
+    190: "the access token is invalid or has expired -- create a new one and update WHATSAPP_ACCESS_TOKEN "
+         "(Dashboard tokens last about 24 hours; use a System User token for anything longer)",
+    10: "the access token doesn't have whatsapp_business_messaging permission for this phone number",
+    200: "the access token doesn't have whatsapp_business_messaging permission for this phone number",
+    100: "Meta rejected a request parameter -- check WHATSAPP_PHONE_NUMBER_ID and the recipient number",
+    4: "Meta's API rate limit was hit -- retry in a few minutes",
+    80007: "the WhatsApp Business account rate limit was hit -- retry in a few minutes",
+    130429: "Meta's message throughput limit was hit -- retry shortly",
+    131056: "too many messages to this recipient in a short time -- retry later",
+    131030: "this number is not in the test number's allowed recipient list -- add it in the Meta dashboard "
+            "under WhatsApp > API Setup > 'To', then retry",
+    131026: "the message couldn't be delivered to this number (it may not be on WhatsApp)",
+    131047: "more than 24 hours have passed since this customer last messaged you -- only an approved "
+            "template can be sent now (see docs/NOTIFICATIONS.md)",
+    131051: "unsupported message type",
+    132000: "the template's parameter count doesn't match what was sent",
+    132001: "the template doesn't exist in that language, or isn't approved yet",
+    132005: "the template text is too long after filling in the parameters",
+    132007: "the template content violates WhatsApp policy",
+    132012: "a template parameter is in the wrong format",
+    132015: "the template is paused because of low quality",
+    132016: "the template is disabled",
+}
+
+
+def normalize_whatsapp_number(phone: str) -> str:
     """
-    to: E.164-ish phone number as stored on Party.phone (whatever
-        format your data is already in -- Meta's Cloud API wants
-        digits only with country code, no '+', so the real provider
-        below normalizes it).
-    Returns {"status": "sent" | "simulated" | "skipped" | "failed", "provider_id": str | None}.
+    Digits only with the country code, as Meta wants it ("919876543210",
+    no '+'). A bare 10-digit national number gets WHATSAPP_DEFAULT_COUNTRY_CODE
+    (91 by default -- Party.phone is stored without a code unless staff
+    typed one); a leading 0 trunk prefix or 00 international prefix is
+    dropped. Returns "" for anything that can't be a real E.164 number.
+    """
+    digits = "".join(c for c in (phone or "") if c.isdigit())
+    if digits.startswith("00"):
+        digits = digits[2:]
+    country = os.environ.get("WHATSAPP_DEFAULT_COUNTRY_CODE", "91").strip() or "91"
+    if len(digits) == 11 and digits.startswith("0"):
+        digits = digits[1:]
+    if len(digits) == 10:
+        digits = f"{country}{digits}"
+    return digits if 8 <= len(digits) <= 15 else ""
+
+
+def _mask(phone: str) -> str:
+    digits = "".join(c for c in (phone or "") if c.isdigit())
+    return f"****{digits[-4:]}" if len(digits) >= 4 else "****"
+
+
+def whatsapp_template(kind: str, params) -> dict | None:
+    """
+    The approved Meta template configured for one message kind, or None.
+
+    Business-initiated WhatsApp messages outside the customer's 24-hour
+    service window must be an approved template; free text is only allowed
+    inside that window. Templates are named in the environment, never
+    guessed here:
+        WHATSAPP_TEMPLATE_<KIND>=<template name exactly as approved in Meta>
+        WHATSAPP_TEMPLATE_<KIND>_LANGUAGE=<code, e.g. en or en_US>
+            (else WHATSAPP_TEMPLATE_LANGUAGE, else "en")
+    `params` fill the template body's {{1}}, {{2}}, ... in order -- the
+    approved template must have exactly that many. With no template
+    configured the caller sends its usual free text (fine inside the
+    24-hour window; Meta reports error 131047 otherwise).
+    """
+    key = f"WHATSAPP_TEMPLATE_{kind.upper()}"
+    name = os.environ.get(key, "").strip()
+    if not name:
+        return None
+    language = (os.environ.get(f"{key}_LANGUAGE") or os.environ.get("WHATSAPP_TEMPLATE_LANGUAGE") or "en").strip()
+    return {"name": name, "language": language, "params": [str(p) for p in params]}
+
+
+def send_whatsapp(to: str, body: str, template: dict | None = None) -> dict:
+    """
+    to: the phone number as stored on Party.phone, in whatever format --
+        it's normalized (see normalize_whatsapp_number) before sending.
+    body: the free-text message (also what the console provider prints,
+        and the record of what was meant even when a template is used).
+    template: optional, from whatsapp_template(); when given and the
+        provider is meta_cloud, the approved template is sent INSTEAD of
+        the free text.
+
+    Returns {"status": "sent" | "simulated" | "skipped" | "failed", "provider_id": str | None, ...}
+    plus, when not sent, "reason" (safe to show staff -- never contains
+    credentials) and "error_code". "sent" means Meta ACCEPTED the message
+    and returned a message id -- not that it was delivered or read; those
+    arrive later as delivery-status webhooks.
     """
     if not to:
-        print(f"\n[WhatsApp] SKIPPED -- no phone number on file. Body would have been:\n{body}\n{'-' * 79}")
+        if _provider() == "console":  # message bodies are only echoed in simulation mode
+            print(f"\n[WhatsApp] SKIPPED -- no phone number on file. Body would have been:\n{body}\n{'-' * 79}")
         logger.warning("[WhatsApp] skipped -- no phone number on file")
-        return {"status": "skipped", "reason": "party has no phone number on file"}
+        return {"status": "skipped", "provider_id": None, "reason": "party has no phone number on file", "error_code": "no_phone"}
 
-    provider = os.environ.get("WHATSAPP_PROVIDER", "console")
+    provider = _provider()
     try:
         if provider == "meta_cloud":
-            return _send_whatsapp_meta_cloud(to, body)
-        return _send_whatsapp_console(to, body)
-    except Exception:
-        logger.exception("WhatsApp send failed (provider=%s) to=%s", provider, to)
-        return {"status": "failed", "provider_id": None}
+            return _send_whatsapp_meta_cloud(to, body, template)
+        return _send_whatsapp_console(to, body, template)
+    except Exception as exc:
+        # no exception message or full traceback: either can echo request
+        # details (headers, token). The class and file:line:function of
+        # each frame are enough to find the bug.
+        frames = " <- ".join(f"{os.path.basename(f.filename)}:{f.lineno}:{f.name}"
+                             for f in reversed(traceback.extract_tb(exc.__traceback__)[-6:]))
+        error = type(exc).__name__
+        logger.error("WhatsApp send crashed (provider=%s) to=%s error=%s.%s at %s",
+                     provider, _mask(to), type(exc).__module__, error, frames)
+        return {"status": "failed", "provider_id": None, "reason": f"unexpected error while sending ({error})", "error_code": "unexpected"}
+
+
+def _provider() -> str:
+    provider = (os.environ.get("WHATSAPP_PROVIDER") or "console").strip().lower()
+    if provider not in ("console", "meta_cloud"):
+        logger.warning("Unknown WHATSAPP_PROVIDER %r -- using the console (simulated) provider", provider)
+        return "console"
+    return provider
+
+
+def whatsapp_provider() -> str:
+    """'meta_cloud' or 'console' -- what send_whatsapp() will actually use."""
+    return _provider()
 
 
 def check_whatsapp_number(phone: str) -> dict:
     """
     Task 3 (Party WhatsApp verification pipeline): "does this number have
     WhatsApp" -- runs once per number (at party create/edit), not per
-    message. Same provider-swap shape as send_whatsapp(): today there's
-    no WhatsApp Business API provider picked yet (Task 2's open decision
-    -- Meta Cloud API vs. a BSP like Gupshup/Twilio/AiSensy), so this
-    runs a sandbox check; flipping WHATSAPP_PROVIDER=meta_cloud later
-    also flips this to a real contact-check call, in one place.
+    message.
 
     Returns {"has_whatsapp": bool | None, "checked": bool, "reason": str | None}.
-    has_whatsapp is None only when the check itself couldn't run at all
-    (e.g. no phone number on file) -- that's different from a real "no".
+    has_whatsapp is None when no real answer is available -- that's
+    different from a real "no", and send attempts still go ahead.
+
+    With meta_cloud there is no real answer to give: the Cloud API has no
+    number-lookup endpoint (the old /contacts check belonged to the retired
+    On-Premises API), so this reports "unknown" rather than guessing; a
+    number only proves itself when a message to it is accepted/delivered.
     """
     digits = "".join(c for c in (phone or "") if c.isdigit())
     if not digits:
         return {"has_whatsapp": None, "checked": False, "reason": "no phone number on file"}
 
-    provider = os.environ.get("WHATSAPP_PROVIDER", "console")
+    if _provider() == "meta_cloud":
+        return {"has_whatsapp": None, "checked": False,
+                "reason": "WhatsApp Cloud API can't look numbers up; confirmed only by delivery"}
     try:
-        if provider == "meta_cloud":
-            return _check_whatsapp_meta_cloud(digits)
         return _check_whatsapp_sandbox(digits)
     except Exception:
-        logger.exception("WhatsApp number check failed (provider=%s) phone=%s", provider, phone)
+        logger.exception("WhatsApp number check failed phone=%s", _mask(phone))
         return {"has_whatsapp": None, "checked": False, "reason": "check failed"}
 
 
 def _check_whatsapp_sandbox(digits: str) -> dict:
     """
-    No live provider wired yet -- this is a plausibility check, not a
-    real "is this number on WhatsApp" answer: valid-looking Indian
-    mobile numbers (10 digits, or 12 with a 91 country code, starting
-    2-9) pass; anything else (too short, a landline-shaped number, a
-    junk value) is flagged so staff can confirm it before relying on
-    WhatsApp delivery. Swap this out for a real provider call (Task 2)
-    without touching any caller -- check_whatsapp_number()'s return
-    shape stays the same.
+    Console provider only -- a plausibility check, not a real "is this
+    number on WhatsApp" answer: valid-looking Indian mobile numbers (10
+    digits, or 12 with a 91 country code, starting 6-9) pass; anything
+    else (too short, a landline-shaped number, a junk value) is flagged so
+    staff can confirm it before relying on WhatsApp delivery.
     """
     local = digits[2:] if len(digits) == 12 and digits.startswith("91") else digits
     plausible = len(local) == 10 and local[0] in "6789"
-    logger.info("[WhatsApp check:sandbox -- simulated, no real provider] phone=%s plausible=%s", digits, plausible)
+    logger.info("[WhatsApp check:sandbox -- simulated, no real provider] phone=%s plausible=%s", _mask(digits), plausible)
     return {"has_whatsapp": plausible, "checked": True, "reason": None if plausible else "number doesn't look like a valid mobile number"}
-
-
-def _check_whatsapp_meta_cloud(digits: str) -> dict:
-    """
-    Real contact-check via Meta's WhatsApp Cloud API `/contacts` endpoint.
-    Needs the same WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN env
-    vars as _send_whatsapp_meta_cloud -- not usable until Task 2's
-    provider decision lands and those are set.
-    """
-    import requests
-
-    phone_number_id = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
-    access_token = os.environ["WHATSAPP_ACCESS_TOKEN"]
-
-    resp = requests.post(
-        f"https://graph.facebook.com/v20.0/{phone_number_id}/contacts",
-        headers={"Authorization": f"Bearer {access_token}"},
-        json={"blocking": "wait", "contacts": [digits]},
-        timeout=10,
-    )
-    if resp.ok:
-        contacts = resp.json().get("contacts") or []
-        status = (contacts[0].get("status") if contacts else None)
-        return {"has_whatsapp": status == "valid", "checked": True, "reason": status}
-    logger.error("[WhatsApp check:meta_cloud] phone=%s status=%s body=%s", digits, resp.status_code, resp.text)
-    return {"has_whatsapp": None, "checked": False, "reason": f"provider error {resp.status_code}"}
 
 
 def send_email(to: str, subject: str, body: str) -> dict:
@@ -192,48 +277,126 @@ def notify_staff(event_key: str, subject: str, body: str) -> None:
                 logger.exception("notify_staff: send failed event=%s user=%s", event_key, user.pk)
 
 
-def _send_whatsapp_console(to: str, body: str) -> dict:
+def _send_whatsapp_console(to: str, body: str, template: dict | None = None) -> dict:
     # print(), not just logger.info() -- guaranteed to reach the
     # runserver terminal regardless of any logging configuration
     # subtlety, the same way Django's own console email backend works.
-    print(f"\n[WhatsApp:console -- simulated, no real send] to={to}\n{body}\n{'-' * 79}")
-    logger.info("[WhatsApp:console -- simulated, no real send] to=%s", to)
-    return {"status": "simulated", "provider_id": None}
+    note = f" (live send would use template {template['name']!r})" if template else ""
+    print(f"\n[WhatsApp:console -- simulated, no real send] to={to}{note}\n{body}\n{'-' * 79}")
+    logger.info("[WhatsApp:console -- simulated, no real send] to=%s", _mask(to))
+    return {"status": "simulated", "provider_id": None, "reason": "WHATSAPP_PROVIDER is console -- nothing was sent", "error_code": "simulated"}
 
 
-def _send_whatsapp_meta_cloud(to: str, body: str) -> dict:
+def _failed(code: str, reason: str) -> dict:
+    return {"status": "failed", "provider_id": None, "reason": reason, "error_code": code}
+
+
+def _template_text(value) -> str:
+    # Meta rejects template parameters containing newlines, tabs or 4+
+    # consecutive spaces (error 132012)
+    return " ".join(str(value).split())
+
+
+def _meta_payload(to_digits: str, body: str, template: dict | None) -> dict:
+    payload = {"messaging_product": "whatsapp", "recipient_type": "individual", "to": to_digits}
+    if not template:
+        payload.update({"type": "text", "text": {"preview_url": False, "body": body}})
+        return payload
+    tpl = {"name": template["name"], "language": {"code": template["language"]}}
+    if template.get("params"):
+        tpl["components"] = [{
+            "type": "body",
+            "parameters": [{"type": "text", "text": _template_text(p)} for p in template["params"]],
+        }]
+    payload.update({"type": "template", "template": tpl})
+    return payload
+
+
+def _send_whatsapp_meta_cloud(to: str, body: str, template: dict | None = None) -> dict:
     """
-    Real send via Meta's WhatsApp Cloud API. Not usable yet -- needs a
-    Meta Business Manager account with the WhatsApp product added, plus:
-      WHATSAPP_PROVIDER=meta_cloud          (env var -- flips the switch)
-      WHATSAPP_PHONE_NUMBER_ID=<...>        (from the Meta developer console)
-      WHATSAPP_ACCESS_TOKEN=<...>           (a permanent System User token,
-                                              not the 24-hour temporary one)
+    Real send via Meta's WhatsApp Cloud API. Configuration (environment
+    only -- never in code or source control):
+      WHATSAPP_PROVIDER=meta_cloud
+      WHATSAPP_PHONE_NUMBER_ID=<Meta dashboard > WhatsApp > API Setup>
+      WHATSAPP_ACCESS_TOKEN=<temporary dashboard token, or a System User token>
+      WHATSAPP_GRAPH_API_VERSION=<optional, default GRAPH_API_VERSION_DEFAULT>
     Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/reference/messages
-    Note: outside a 24-hour customer-initiated window, Meta requires a
-    pre-approved message *template* rather than free-form text like
-    this -- that's a real product decision (which templates, what
-    approval lag) to make once this is actually turned on, not before.
+
+    Free text is only accepted inside the customer's 24-hour service
+    window; outside it Meta needs an approved template (see
+    whatsapp_template()). Never logs or returns the token, the request
+    headers, or Meta's raw response body.
     """
     import requests
 
-    phone_number_id = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
-    access_token = os.environ["WHATSAPP_ACCESS_TOKEN"]
-    to_digits = "".join(c for c in to if c.isdigit())
+    phone_number_id = os.environ.get("WHATSAPP_PHONE_NUMBER_ID", "").strip()
+    access_token = os.environ.get("WHATSAPP_ACCESS_TOKEN", "").strip()
+    missing = [name for name, value in (("WHATSAPP_PHONE_NUMBER_ID", phone_number_id), ("WHATSAPP_ACCESS_TOKEN", access_token)) if not value]
+    if missing:
+        logger.error("[WhatsApp:meta_cloud] not configured -- missing %s", ", ".join(missing))
+        return _failed("config_missing", f"WhatsApp is not configured: set {' and '.join(missing)} in backend/.env")
+    if not phone_number_id.isdigit():
+        return _failed("config_invalid", "WHATSAPP_PHONE_NUMBER_ID must be the numeric Phone Number ID from the Meta dashboard")
+    # A token copied from a web page can pick up smart quotes, an ellipsis
+    # or a stray space; http.client then crashes encoding the header
+    # (UnicodeEncodeError, not a requests error) before anything is sent.
+    if not access_token.isascii() or any(c.isspace() or c in "\"'" for c in access_token):
+        logger.error("[WhatsApp:meta_cloud] WHATSAPP_ACCESS_TOKEN contains invalid characters (quotes, spaces or non-ASCII)")
+        return _failed("config_invalid", "WHATSAPP_ACCESS_TOKEN contains characters a Meta token can't have (quotes, '…', "
+                                         "spaces or line breaks) -- copy it again into backend/.env and restart the server")
 
-    resp = requests.post(
-        f"https://graph.facebook.com/v20.0/{phone_number_id}/messages",
-        headers={"Authorization": f"Bearer {access_token}"},
-        json={
-            "messaging_product": "whatsapp",
-            "to": to_digits,
-            "type": "text",
-            "text": {"body": body},
-        },
-        timeout=10,
+    to_digits = normalize_whatsapp_number(to)
+    if not to_digits:
+        logger.warning("[WhatsApp:meta_cloud] invalid recipient number %s", _mask(to))
+        return _failed("invalid_number", "the customer's phone number isn't a valid WhatsApp number (needs country code + number)")
+
+    version = (os.environ.get("WHATSAPP_GRAPH_API_VERSION") or GRAPH_API_VERSION_DEFAULT).strip()
+    url = f"https://graph.facebook.com/{version}/{phone_number_id}/messages"
+    kind = "template" if template else "text"
+    try:
+        resp = requests.post(
+            url,
+            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+            json=_meta_payload(to_digits, body, template),
+            timeout=META_TIMEOUT,
+        )
+    except requests.Timeout:
+        logger.warning("[WhatsApp:meta_cloud] timeout to=%s", _mask(to_digits))
+        return _failed("timeout", "Meta didn't respond in time -- the message may or may not have been sent; check before resending")
+    except requests.RequestException as exc:
+        logger.warning("[WhatsApp:meta_cloud] network error to=%s (%s)", _mask(to_digits), type(exc).__name__)
+        return _failed("network_error", "couldn't reach Meta's WhatsApp API (network error)")
+
+    try:
+        data = resp.json()
+    except ValueError:
+        data = None
+    if not isinstance(data, dict):
+        data = {}
+
+    if 200 <= resp.status_code < 300:
+        messages = data.get("messages")
+        first = messages[0] if isinstance(messages, list) and messages else None
+        message_id = first.get("id") if isinstance(first, dict) else None
+        if not message_id:
+            logger.error("[WhatsApp:meta_cloud] HTTP %s without a message id to=%s", resp.status_code, _mask(to_digits))
+            return _failed("malformed_response", "Meta's response had no message id -- delivery is unconfirmed; check before resending")
+        logger.info("[WhatsApp:meta_cloud] accepted %s to=%s id=%s", kind, _mask(to_digits), message_id)
+        return {"status": "sent", "provider_id": message_id, "kind": kind}
+
+    error = data.get("error") if isinstance(data.get("error"), dict) else {}
+    code = error.get("code")
+    error_data = error.get("error_data") if isinstance(error.get("error_data"), dict) else {}
+    hint = (
+        _META_ERROR_HINTS.get(code)
+        or (_META_ERROR_HINTS[4] if resp.status_code == 429 else None)
+        or error_data.get("details") or error.get("message") or f"HTTP {resp.status_code}"
     )
-    if resp.ok:
-        message_id = (resp.json().get("messages") or [{}])[0].get("id")
-        return {"status": "sent", "provider_id": message_id}
-    logger.error("[WhatsApp:meta_cloud] to=%s status=%s body=%s", to, resp.status_code, resp.text)
-    return {"status": "failed", "provider_id": None}
+    # belt and braces: Meta doesn't echo the token, but nothing that leaves
+    # this function may contain it
+    hint = str(hint).replace(access_token, "[redacted]")[:300]
+    logger.warning(
+        "[WhatsApp:meta_cloud] rejected %s to=%s http=%s code=%s subcode=%s trace=%s",
+        kind, _mask(to_digits), resp.status_code, code, error.get("error_subcode"), error.get("fbtrace_id"),
+    )
+    return _failed(f"meta_{code}" if code else f"http_{resp.status_code}", f"Meta rejected the message: {hint}")

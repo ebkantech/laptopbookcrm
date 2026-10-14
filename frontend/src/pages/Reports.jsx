@@ -70,16 +70,16 @@ export default function Reports() {
 function MonthlyRevenueChart({ data, title, sub, dataKey = "revenue", label = "Revenue" }) {
   return (
     <div className="p-4" style={{ ...heavyPanel, borderRadius: 14 }}>
-      <p className="text-sm" style={{ fontFamily: F.body, fontWeight: 700, color: C.ink }}>{title}</p>
-      {sub && <p className="text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{sub}</p>}
+      <p className="text-sm" style={{ fontFamily: F.display, fontWeight: 700, color: C.ink }}>{title}</p>
+      {sub && <p className="mt-0.5 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{sub}</p>}
       <div className="mt-3" style={{ height: 260 }}>
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data}>
+          <LineChart data={data} margin={{ top: 8, right: 36, left: 0, bottom: 0 }}>
             <CartesianGrid stroke={C.rule} vertical={false} />
-            <XAxis dataKey="month" tick={{ fontFamily: F.mono, fontSize: 10, fill: C.inkSoft }} axisLine={{ stroke: C.rule }} tickLine={false} />
+            <XAxis dataKey="month" tick={{ fontFamily: F.mono, fontSize: 10, fill: C.inkSoft }} axisLine={{ stroke: C.rule }} tickLine={false} interval="preserveStartEnd" minTickGap={18} dy={6} />
             <YAxis tick={{ fontFamily: F.mono, fontSize: 10, fill: C.inkSoft }} axisLine={false} tickLine={false} tickFormatter={compact} width={52} />
             <Tooltip contentStyle={{ fontFamily: F.body, fontSize: 12, background: C.slip, border: `1px solid ${C.rule}`, color: C.ink }} formatter={(v) => money(v)} />
-            <Line type="monotone" dataKey={dataKey} name={label} stroke={C.stamp} strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey={dataKey} name={label} stroke={C.stamp} strokeWidth={2.5} dot={false} activeDot={{ r: 5, strokeWidth: 0 }} />
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -150,7 +150,7 @@ function SalesSummary() {
         <p className="text-sm" style={{ fontFamily: F.body, fontWeight: 700, color: C.ink }}>Revenue by stock point</p>
         <div className="mt-3" style={{ height: Math.max(180, chartData.length * 34) }}>
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} layout="vertical" margin={{ left: 8 }}>
+            <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 16 }}>
               <CartesianGrid stroke={C.rule} horizontal={false} />
               <XAxis type="number" tick={{ fontFamily: F.mono, fontSize: 10, fill: C.inkSoft }} axisLine={false} tickLine={false} tickFormatter={compact} />
               <YAxis type="category" dataKey="name" width={120} tick={{ fontFamily: F.body, fontSize: 11, fill: C.ink }} axisLine={false} tickLine={false} />

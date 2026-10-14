@@ -160,7 +160,7 @@ export default function PrintableInvoice({ invoiceId, onClose }) {
             >
               <Printer size={13} /> Print / Save PDF
             </button>
-            <button onClick={onClose}><X size={18} style={{ color: C.inkSoft }} /></button>
+            <button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={18} style={{ color: C.inkSoft }} /></button>
           </div>
         </div>
         <div className="overflow-y-auto p-4" style={{ backgroundColor: "#e9e9e9" }}>

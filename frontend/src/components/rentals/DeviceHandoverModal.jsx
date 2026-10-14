@@ -309,7 +309,7 @@ export default function DeviceHandoverModal({ rental, onClose, onChanged }) {
               {rental.agreement_code} · {rental.party_name} — everything here is shown to the customer for approval.
             </p>
           </div>
-          <button type="button" onClick={onClose}><X size={17} /></button>
+          <button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={17} /></button>
         </div>
         {lines.length > 1 && (
           <div className="mt-4 flex flex-wrap gap-1.5">

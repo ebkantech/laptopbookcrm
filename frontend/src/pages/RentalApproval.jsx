@@ -1,8 +1,24 @@
 import { useEffect, useState } from "react";
-import { AlertCircle, CheckCircle2, Clock3, FileCheck2, LoaderCircle, Package, ShieldCheck, XCircle } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock3, FileCheck2, LoaderCircle, MessageSquareText, Package, ShieldCheck, XCircle } from "lucide-react";
 
 import { api } from "../lib/api";
 import { C, F, money } from "../lib/theme";
+
+const MAX_MESSAGE = 500;
+
+const CHOICE = {
+  approve: { title: "Confirm approval", submit: "Approve agreement", color: C.green },
+  reject: { title: "Confirm rejection", submit: "Reject agreement", color: C.carbon },
+  request_changes: { title: "Request changes", submit: "Send change request", color: C.stamp },
+};
+
+const OUTCOME = {
+  approved: { icon: CheckCircle2, color: C.green, text: "Your approval has been recorded." },
+  rejected: { icon: XCircle, color: C.carbon, text: "Your rejection has been recorded." },
+  changes_requested: { icon: MessageSquareText, color: C.stamp, text: "Your change request has been sent. Nothing has been approved yet — the shop will contact you and send a revised agreement on a new link." },
+  expired: { icon: Clock3, color: C.inkSoft, text: "This approval link has expired. Ask the shop to send a new one." },
+  revoked: { icon: AlertCircle, color: C.inkSoft, text: "This approval link has been replaced. Please use the latest link the shop sent you." },
+};
 
 
 export default function RentalApproval({ token }) {
@@ -22,23 +38,32 @@ export default function RentalApproval({ token }) {
       .finally(() => setLoading(false));
   }, [endpoint]);
 
+  const trimmed = reason.trim();
+  const needsMessage = choice === "request_changes";
+  const canSubmit = choice && !busy && (choice !== "approve" || consent) && (!needsMessage || (trimmed && trimmed.length <= MAX_MESSAGE));
+
   const submit = async (event) => {
     event.preventDefault();
-    if (!choice || (choice === "approve" && !consent)) return;
+    if (!canSubmit) return;
     setBusy(true);
     setError("");
     try {
-      setApproval(await api.publicPost(endpoint, { decision: choice, consent, reason: reason.trim() }));
+      setApproval(await api.publicPost(endpoint, { decision: choice, consent, reason: trimmed }));
       setChoice("");
     } catch (requestError) {
-      setError(requestError.body?.detail || requestError.message);
+      const body = requestError.body || {};
+      setError(body.detail || [].concat(body.reason || body.consent || body.decision || []).join(" ") || requestError.message);
     } finally {
       setBusy(false);
     }
   };
 
-  const terminal = ["approved", "rejected", "expired"].includes(approval?.status);
+  const terminal = ["approved", "rejected", "expired", "changes_requested", "revoked"].includes(approval?.status);
   const unavailable = error && !approval;
+  const outcome = approval && OUTCOME[approval.status];
+  const expiresAt = approval?.expires_at
+    ? new Date(approval.expires_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
+    : "";
 
   return (
     <main className="cb-shell min-h-screen px-4 py-8" style={{ color: C.ink }}>
@@ -61,23 +86,30 @@ export default function RentalApproval({ token }) {
               </div>
               <FileCheck2 style={{ color: C.green }} />
             </div>
-            {terminal ? (
-              <div className="mt-5 flex items-center gap-2 p-3" style={{ backgroundColor: approval.status === "approved" ? `${C.green}16` : `${C.carbon}12` }}>
-                <CheckCircle2 size={18} style={{ color: approval.status === "approved" ? C.green : C.carbon }} />
-                <span className="text-sm">{approval.status === "approved" ? "Your approval has been recorded." : approval.status === "rejected" ? "Your rejection has been recorded." : "This approval link has expired."}</span>
+            {terminal && outcome ? (
+              <div role="status" className="mt-5 p-3" style={{ backgroundColor: `${outcome.color}14` }}>
+                <p className="flex items-start gap-2 text-sm">
+                  <outcome.icon size={18} className="mt-0.5 shrink-0" style={{ color: outcome.color }} />
+                  <span>{outcome.text}</span>
+                </p>
+                {approval.change_request && (
+                  <p className="mt-2 whitespace-pre-line break-words p-2 text-sm" style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}>
+                    <span className="block text-xs" style={{ color: C.inkSoft }}>Your message</span>{approval.change_request}
+                  </p>
+                )}
               </div>
             ) : (
-              <div className="mt-5 flex items-center gap-2 p-3" style={{ backgroundColor: `${C.amber}16` }}><Clock3 size={17} style={{ color: C.amber }} /><span className="text-xs">This secure link expires in 24 hours.</span></div>
+              <div className="mt-5 flex items-center gap-2 p-3" style={{ backgroundColor: `${C.amber}16` }}><Clock3 size={17} className="shrink-0" style={{ color: C.amber }} /><span className="text-xs">This secure link is valid for 24 hours{expiresAt && ` — until ${expiresAt}`}.</span></div>
             )}
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              <div className="p-3" style={{ backgroundColor: C.slip2 }}><p className="text-xs" style={{ color: C.inkSoft }}>Rental type</p><p className="mt-1 text-sm capitalize">{approval.rental_type}</p></div>
-              <div className="p-3" style={{ backgroundColor: C.slip2 }}><p className="text-xs" style={{ color: C.inkSoft }}>Start date</p><p className="mt-1 text-sm">{approval.start}</p></div>
-              <div className="p-3" style={{ backgroundColor: C.slip2 }}><p className="text-xs" style={{ color: C.inkSoft }}>Tenure</p><p className="mt-1 text-sm">{approval.tenure_months} months</p></div>
+              <div className="p-3 rounded-xl" style={{ backgroundColor: C.slip2 }}><p className="text-xs" style={{ color: C.inkSoft }}>Rental type</p><p className="mt-1 text-sm capitalize">{approval.rental_type}</p></div>
+              <div className="p-3 rounded-xl" style={{ backgroundColor: C.slip2 }}><p className="text-xs" style={{ color: C.inkSoft }}>Start date</p><p className="mt-1 text-sm">{approval.start}</p></div>
+              <div className="p-3 rounded-xl" style={{ backgroundColor: C.slip2 }}><p className="text-xs" style={{ color: C.inkSoft }}>Tenure</p><p className="mt-1 text-sm">{approval.tenure_months} months</p></div>
             </div>
             <div className="mt-5">
               <p className="text-xs uppercase" style={{ color: C.inkSoft }}>Devices and monthly charges</p>
               {approval.items?.map((item) => (
-                <div key={item.asset_tag} className="mt-2 p-3 text-sm" style={{ backgroundColor: C.slip2 }}>
+                <div key={item.asset_tag} className="mt-2 p-3 text-sm rounded-xl" style={{ backgroundColor: C.slip2 }}>
                   <div className="flex items-start justify-between gap-3">
                     <span><strong>{item.brand} {item.model_name}</strong><span className="mt-1 block text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>Asset: {item.asset_tag} · Serial: {item.serial_number}</span></span>
                     <strong className="shrink-0" style={{ fontFamily: F.mono }}>{money(item.monthly_fee)}/mo</strong>
@@ -89,16 +121,29 @@ export default function RentalApproval({ token }) {
             </div>
             {approval.terms && <p className="mt-5 text-sm leading-6" style={{ color: C.inkSoft }}>{approval.terms}</p>}
             {!terminal && !choice && (
-              <div className="mt-6 grid gap-2 sm:grid-cols-2">
-                <button onClick={() => setChoice("approve")} className="py-3 text-sm" style={{ backgroundColor: C.green, color: C.onAccent }}><CheckCircle2 className="mr-1 inline" size={16} /> Approve agreement</button>
-                <button onClick={() => setChoice("reject")} className="py-3 text-sm" style={{ border: `1px solid ${C.carbon}`, color: C.carbon }}><XCircle className="mr-1 inline" size={16} /> Reject agreement</button>
+              <div className="mt-6 grid gap-2 sm:grid-cols-3">
+                <button onClick={() => setChoice("approve")} className="min-h-[48px] px-3 py-3 text-sm" style={{ backgroundColor: C.green, color: C.onAccent }}><CheckCircle2 className="mr-1 inline" size={16} /> Approve</button>
+                <button onClick={() => setChoice("request_changes")} className="min-h-[48px] px-3 py-3 text-sm" style={{ border: `1px solid ${C.stamp}`, color: C.stamp }}><MessageSquareText className="mr-1 inline" size={16} /> Request changes</button>
+                <button onClick={() => setChoice("reject")} className="min-h-[48px] px-3 py-3 text-sm" style={{ border: `1px solid ${C.carbon}`, color: C.carbon }}><XCircle className="mr-1 inline" size={16} /> Reject</button>
               </div>
             )}
             {!terminal && choice && (
               <form onSubmit={submit} className="mt-6 p-4" style={{ border: `1px solid ${C.rule}` }}>
-                <p className="text-sm" style={{ fontWeight: 700 }}>Confirm {choice}</p>
-                {choice === "approve" ? <label className="mt-3 flex gap-2 text-sm"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /> I reviewed the devices, their condition and photos, the accessories, the warranty terms, the rental duration and monthly charges, and authorise this agreement.</label> : <textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason (optional)" rows={3} className="mt-3 w-full p-2 text-sm" style={{ border: `1px solid ${C.rule}` }} />}
-                <div className="mt-4 flex gap-2"><button type="button" onClick={() => { setChoice(""); setConsent(false); }} className="px-4 py-2 text-sm" style={{ border: `1px solid ${C.rule}` }}>Back</button><button disabled={busy || (choice === "approve" && !consent)} className="px-4 py-2 text-sm" style={{ backgroundColor: choice === "approve" ? C.green : C.carbon, color: C.onAccent, opacity: busy ? 0.6 : 1 }}>{busy ? "Saving…" : "Confirm decision"}</button></div>
+                <p className="text-sm" style={{ fontWeight: 700 }}>{CHOICE[choice].title}</p>
+                {choice === "approve" && <label className="mt-3 flex gap-2 text-sm"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} className="mt-1 h-4 w-4 shrink-0" /> I reviewed the devices, their condition and photos, the accessories, the warranty terms, the rental duration and monthly charges, and authorise this agreement.</label>}
+                {choice === "request_changes" && <p className="mt-1 text-xs" style={{ color: C.inkSoft }}>Tell the shop what should change — devices, accessories, dates, or charges. Nothing is approved yet; they will send you a revised agreement on a new link.</p>}
+                {choice !== "approve" && (
+                  <>
+                    <label htmlFor="rental-approval-message" className="sr-only">{needsMessage ? "What would you like changed?" : "Reason"}</label>
+                    <textarea id="rental-approval-message" value={reason} onChange={(event) => setReason(event.target.value)} maxLength={MAX_MESSAGE} required={needsMessage}
+                      placeholder={needsMessage ? "What would you like changed?" : "Reason (optional)"} rows={4} className="mt-3 w-full p-2 text-base sm:text-sm" style={{ border: `1px solid ${C.rule}` }} />
+                    <p className="mt-1 text-right text-xs" style={{ color: reason.length >= MAX_MESSAGE ? C.carbon : C.inkSoft }}>{reason.length}/{MAX_MESSAGE}</p>
+                  </>
+                )}
+                <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row">
+                  <button type="button" onClick={() => { setChoice(""); setConsent(false); setError(""); }} className="min-h-[44px] px-4 py-2 text-sm" style={{ border: `1px solid ${C.rule}` }}>Back</button>
+                  <button disabled={!canSubmit} className="min-h-[44px] px-4 py-2 text-sm" style={{ backgroundColor: CHOICE[choice].color, color: C.onAccent, opacity: canSubmit ? 1 : 0.55 }}>{busy ? "Sending…" : CHOICE[choice].submit}</button>
+                </div>
               </form>
             )}
             {error && <p className="mt-4 text-sm" style={{ color: C.carbon }}>{error}</p>}

@@ -38,7 +38,8 @@ PERMS = {
     "roles.manage": "Change roles and permissions",
     "reports.export": "Export accounting reports",
     "parties.view": "View the customer directory and details",
-    "parties.manage": "Create/edit customer records, message customers, and manage portal access",
+    "parties.manage": "Create customer records, message customers, and manage portal access",
+    "parties.edit": "Edit existing customer records",
     "orders.manage": "View and respond to inbound WhatsApp orders",
 }
 
@@ -55,7 +56,7 @@ ROLES = {
         "rentals.view", "rentals.manage", "rentals.approve",
         "repairs.view", "repairs.manage", "repairs.approve",
         "broadcast.send", "warranty.manage", "portal.manage", "roles.manage", "reports.export",
-        "parties.view", "parties.manage", "orders.manage",
+        "parties.view", "parties.manage", "parties.edit", "orders.manage",
     ]),
     "sales": ("Sales Staff", [
         "invoices.view", "invoices.create", "invoices.settle", "payments.send_link",

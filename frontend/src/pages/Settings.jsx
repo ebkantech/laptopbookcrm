@@ -5,7 +5,7 @@ import {
 import { C, F } from "../lib/theme";
 import { api } from "../lib/api";
 import { useSession } from "../context/SessionContext";
-import { Eyebrow, Locked, Pill, PillButton, Spinner, TabBar } from "../components/Atoms";
+import { Eyebrow, ErrorNote, Locked, Pill, PillButton, Spinner, TabBar } from "../components/Atoms";
 import PageHeader from "../components/PageHeader";
 
 function Profile() {
@@ -31,11 +31,11 @@ function Profile() {
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="flex items-center gap-2 px-3 py-2.5" style={{ backgroundColor: C.slip2 }}>
+          <div className="flex min-w-0 items-center gap-2 rounded-xl px-3 py-2.5" style={{ backgroundColor: C.slip2 }}>
             <Mail size={13} style={{ color: C.inkSoft }} />
-            <span className="text-sm" style={{ fontFamily: F.body, color: C.ink }}>{me.email || "No email on file"}</span>
+            <span className="truncate text-sm" style={{ fontFamily: F.body, color: C.ink }}>{me.email || "No email on file"}</span>
           </div>
-          <div className="flex items-center gap-2 px-3 py-2.5" style={{ backgroundColor: C.slip2 }}>
+          <div className="flex min-w-0 items-center gap-2 rounded-xl px-3 py-2.5" style={{ backgroundColor: C.slip2 }}>
             <Phone size={13} style={{ color: C.inkSoft }} />
             <span className="text-sm" style={{ fontFamily: F.body, color: C.ink }}>{me.phone || "No phone on file"}</span>
           </div>
@@ -46,7 +46,7 @@ function Profile() {
         </div>
       </div>
 
-      <Eyebrow>Your permissions</Eyebrow>
+      <div className="mt-8"><Eyebrow>Your permissions</Eyebrow></div>
       <p className="mt-1 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>Everything your role grants you access to across the app.</p>
       <div className="mt-3 flex flex-wrap gap-2">
         {(me.permissions || []).length ? (
@@ -170,10 +170,10 @@ function RolesAccess() {
       </div>
       <p className="mt-1 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>Every action in accounting, sales, and inventory is a named permission below — a role is just the set it's allowed to touch.</p>
       {error && <div className="mt-2"><ErrorNote message={error} /></div>}
-      <div className="mt-4 overflow-x-auto" data-panel style={{ border: `1px solid ${C.rule}` }}>
+      <div className="mt-4 overflow-x-auto" data-panel style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip }}>
         <table className="w-full table table-borderless table-sm mb-0" style={{ borderCollapse: "collapse" }}>
           <thead><tr>
-            <th className="px-3 py-2 text-left text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: C.inkSoft, borderBottom: `1px solid ${C.rule}` }}>Permission</th>
+            <th className="sticky left-0 z-[1] px-3 py-2 text-left text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: C.inkSoft, borderBottom: `1px solid ${C.rule}`, backgroundColor: C.slip }}>Permission</th>
             {roles.map((r) => (
               <th key={r.id} className="px-3 py-2 text-center text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: C.inkSoft, borderBottom: `1px solid ${C.rule}` }}>
                 <div className="flex flex-col items-center gap-1">
@@ -197,7 +197,7 @@ function RolesAccess() {
           <tbody>
             {allPerms.map((p) => (
               <tr key={p.codename}>
-                <td className="px-3 py-2 text-xs" style={{ fontFamily: F.body, color: C.ink, borderBottom: `1px solid ${C.rule}` }}>{p.description}</td>
+                <td className="sticky left-0 z-[1] min-w-[180px] px-3 py-2 text-xs" style={{ fontFamily: F.body, color: C.ink, borderBottom: `1px solid ${C.rule}`, backgroundColor: C.slip }}>{p.description}</td>
                 {roles.map((r) => {
                   const has = r.permission_codes.includes(p.codename);
                   const editable = editMode && r.slug !== "owner";
@@ -209,7 +209,9 @@ function RolesAccess() {
                           type="button"
                           onClick={() => togglePerm(r, p.codename)}
                           disabled={togglingKey === key}
-                          className="inline-flex h-5 w-5 items-center justify-center disabled:opacity-50"
+                          aria-pressed={has}
+                          aria-label={`${has ? "Remove" : "Grant"} ${p.codename} for ${r.label}`}
+                          className="inline-flex h-6 w-6 items-center justify-center disabled:opacity-50"
                           style={{ borderRadius: 4, border: `1px solid ${has ? C.green : C.rule}`, backgroundColor: has ? `${C.green}18` : "transparent" }}
                         >
                           {has && <Check size={12} style={{ color: C.green }} />}
@@ -250,7 +252,8 @@ function RolesAccess() {
                       type="button"
                       key={p.codename}
                       onClick={() => setNewPerms((cur) => (checked ? cur.filter((c) => c !== p.codename) : [...cur, p.codename]))}
-                      className="px-2.5 py-1 text-xs"
+                      aria-pressed={checked}
+                      className="rounded-full px-2.5 py-1 text-xs"
                       style={{ fontFamily: F.body, fontWeight: 600, border: `1px solid ${checked ? C.green : C.rule}`, color: checked ? C.green : C.inkSoft, backgroundColor: checked ? `${C.green}12` : "transparent" }}
                     >
                       {p.codename}
@@ -267,12 +270,12 @@ function RolesAccess() {
         </div>
       )}
 
-      <Eyebrow>Team</Eyebrow>
+      <div className="mt-8"><Eyebrow>Team</Eyebrow></div>
       <p className="mt-1 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>Assign a role to change what someone can access -- takes effect on their next request, no re-login needed.</p>
       {error && <p className="mt-2 text-xs" style={{ fontFamily: F.body, color: C.carbon }}>{error}</p>}
       <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
         {users.map((u) => (
-          <div key={u.id} data-panel className="flex items-center justify-between px-3 py-2.5" style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}>
+          <div key={u.id} data-panel className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5" style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}>
             <span className="flex items-center gap-2 text-sm" style={{ fontFamily: F.body, color: C.ink }}><BadgeCheck size={14} style={{ color: C.stamp }} />{u.first_name} {u.last_name}</span>
             {u.is_superuser ? (
               <Pill color={C.blue}>Superuser</Pill>
@@ -281,6 +284,7 @@ function RolesAccess() {
                 value={u.role_slug || ""}
                 disabled={savingId === u.id || u.id === me.id}
                 onChange={(e) => changeRole(u, e.target.value)}
+                aria-label={`Role for ${u.first_name} ${u.last_name}`}
                 className="bg-transparent px-2 py-1 text-xs outline-none"
                 style={{ fontFamily: F.body, fontWeight: 600, color: C.ink, border: `1px solid ${C.rule}` }}
               >
@@ -363,14 +367,15 @@ function StaffNotifications() {
                 const waOn = !!rule?.via_whatsapp;
                 const inappOn = !!rule?.via_inapp;
                 return (
-                  <div key={r.id} className="flex items-center justify-between px-3 py-2" style={{ backgroundColor: C.slip2 }}>
+                  <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-2" style={{ backgroundColor: C.slip2 }}>
                     <span className="text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: C.ink }}>{r.label}</span>
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"
                         disabled={busyKey === `${ev.key}:${r.id}:via_inapp`}
                         onClick={() => toggle(ev.key, r, "via_inapp")}
-                        className="flex items-center px-2 py-1 text-[10px] disabled:opacity-50"
+                        aria-pressed={inappOn}
+                        className="flex items-center rounded-full px-2.5 py-1 text-[10px] disabled:opacity-50"
                         style={{ fontFamily: F.body, fontWeight: 700, border: `1px solid ${inappOn ? C.green : C.rule}`, color: inappOn ? C.green : C.inkSoft, backgroundColor: inappOn ? `${C.green}14` : "transparent" }}
                       >
                         <BellRing size={10} style={{ marginRight: 3 }} />Bell
@@ -379,7 +384,8 @@ function StaffNotifications() {
                         type="button"
                         disabled={busyKey === `${ev.key}:${r.id}:via_email`}
                         onClick={() => toggle(ev.key, r, "via_email")}
-                        className="flex items-center px-2 py-1 text-[10px] disabled:opacity-50"
+                        aria-pressed={emailOn}
+                        className="flex items-center rounded-full px-2.5 py-1 text-[10px] disabled:opacity-50"
                         style={{ fontFamily: F.body, fontWeight: 700, border: `1px solid ${emailOn ? C.green : C.rule}`, color: emailOn ? C.green : C.inkSoft, backgroundColor: emailOn ? `${C.green}14` : "transparent" }}
                       >
                         <Mail size={10} style={{ marginRight: 3 }} />Email
@@ -388,7 +394,8 @@ function StaffNotifications() {
                         type="button"
                         disabled={busyKey === `${ev.key}:${r.id}:via_whatsapp`}
                         onClick={() => toggle(ev.key, r, "via_whatsapp")}
-                        className="flex items-center px-2 py-1 text-[10px] disabled:opacity-50"
+                        aria-pressed={waOn}
+                        className="flex items-center rounded-full px-2.5 py-1 text-[10px] disabled:opacity-50"
                         style={{ fontFamily: F.body, fontWeight: 700, border: `1px solid ${waOn ? C.green : C.rule}`, color: waOn ? C.green : C.inkSoft, backgroundColor: waOn ? `${C.green}14` : "transparent" }}
                       >
                         <Phone size={10} style={{ marginRight: 3 }} />WhatsApp

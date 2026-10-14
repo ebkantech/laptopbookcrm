@@ -1,9 +1,9 @@
-import { Lock, Search, TrendingDown, TrendingUp } from "lucide-react";
+import { Lock, Search, TrendingDown, TrendingUp, X } from "lucide-react";
 import { C, F } from "../lib/theme";
 
 export function Eyebrow({ children }) {
   return (
-    <p className="text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 700, letterSpacing: "0.14em", color: C.inkSoft }}>
+    <p className="text-[11px] uppercase" style={{ fontFamily: F.body, fontWeight: 700, letterSpacing: "0.14em", color: C.inkSoft }}>
       {children}
     </p>
   );
@@ -30,18 +30,18 @@ export function Pill({ color, children }) {
 
 export function StatCard({ label, value, sub, trend, icon: Icon }) {
   return (
-    <div data-panel className="flex-1 min-w-[160px] px-4 py-4" style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip }}>
-      <div className="flex items-center justify-between">
-        <Eyebrow>{label}</Eyebrow>
+    <div data-panel className="min-w-[160px] flex-1 px-4 py-4 sm:px-5" style={{ backgroundColor: C.slip }}>
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-[11px] uppercase" style={{ fontFamily: F.body, fontWeight: 700, letterSpacing: "0.12em", color: C.inkSoft }}>{label}</p>
         {Icon && (
-          <span className="flex h-7 w-7 items-center justify-center rounded-full" style={{ backgroundColor: `${C.orange}16` }}>
-            <Icon size={14} style={{ color: C.orange }} />
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl" style={{ backgroundColor: `${C.orange}14` }}>
+            <Icon size={15} style={{ color: C.orange }} />
           </span>
         )}
       </div>
-      <p className="mt-2 text-2xl" style={{ fontFamily: F.display, fontWeight: 800, color: C.ink }}>{value}</p>
+      <p className="mt-2 text-[26px] leading-tight tracking-tight" style={{ fontFamily: F.display, fontWeight: 800, color: C.ink }}>{value}</p>
       {sub && (
-        <p className="mt-1 flex items-center gap-1 text-xs" style={{ fontFamily: F.mono, fontWeight: 600, color: trend === "down" ? C.carbon : trend === "up" ? C.green : C.inkSoft }}>
+        <p className="mt-1.5 flex items-center gap-1 text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: trend === "down" ? C.carbon : trend === "up" ? C.green : C.inkSoft }}>
           {trend === "up" && <TrendingUp size={12} />}
           {trend === "down" && <TrendingDown size={12} />}
           {sub}
@@ -53,7 +53,7 @@ export function StatCard({ label, value, sub, trend, icon: Icon }) {
 
 export function Locked({ label }) {
   return (
-    <div className="flex items-center gap-2 px-4 py-6" style={{ fontFamily: F.body, color: C.inkSoft }}>
+    <div className="flex items-center gap-2 rounded-2xl px-4 py-6" style={{ fontFamily: F.body, color: C.inkSoft, border: `1px dashed ${C.ruleStrong}` }}>
       <Lock size={14} /> <span className="text-sm">{label}</span>
     </div>
   );
@@ -61,8 +61,8 @@ export function Locked({ label }) {
 
 export function Spinner({ label = "Loading…" }) {
   return (
-    <div className="flex items-center gap-2 px-4 py-10 justify-center" style={{ fontFamily: F.body, color: C.inkSoft }}>
-      <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+    <div role="status" className="flex items-center justify-center gap-2.5 px-4 py-12 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>
+      <span className="spinner-border spinner-border-sm" aria-hidden="true" style={{ color: C.orange }} />
       {label}
     </div>
   );
@@ -77,7 +77,8 @@ export function Spinner({ label = "Loading…" }) {
 export function TabBar({ tabs, value, onChange }) {
   return (
     <div
-      className="inline-flex flex-wrap items-center gap-1 rounded-full p-1"
+      role="tablist"
+      className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-full p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}`, boxShadow: "0 1px 2px rgba(35,40,31,0.04)" }}
     >
       {tabs.map((t) => {
@@ -87,7 +88,9 @@ export function TabBar({ tabs, value, onChange }) {
             key={t.id}
             type="button"
             onClick={() => onChange(t.id)}
-            className="flex items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs"
+            role="tab"
+            aria-selected={active}
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs"
             style={{
               fontFamily: F.body, fontWeight: 700,
               color: active ? C.onAccent : C.inkSoft,
@@ -114,7 +117,7 @@ export function PillButton({ icon: Icon, children, primary = false, onClick, typ
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs disabled:opacity-50 ${className}`}
+      className={`flex min-h-9 items-center gap-1.5 rounded-full px-4 py-2 text-xs transition-shadow hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
       style={{
         fontFamily: F.body, fontWeight: 700,
         color: primary ? C.onAccent : C.ink,
@@ -135,7 +138,8 @@ export function PillButton({ icon: Icon, children, primary = false, onClick, typ
 // and Sales & Invoices so all three read as the same control. The inner
 // input stays fully borderless/transparent; the pill carries all the
 // chrome so there's never a visible double-border.
-export function SearchInput({ value, onChange, placeholder, className = "", autoFocus = false }) {
+// Pass onClear to show a clear (x) button while there's text.
+export function SearchInput({ value, onChange, placeholder, className = "", autoFocus = false, onClear, ariaLabel }) {
   return (
     <div data-searchbox className={`flex min-w-0 flex-1 items-center gap-2 px-4 py-2.5 ${className}`}>
       <Search size={15} style={{ color: C.inkSoft, flexShrink: 0 }} />
@@ -143,10 +147,16 @@ export function SearchInput({ value, onChange, placeholder, className = "", auto
         value={value}
         onChange={onChange}
         placeholder={placeholder}
+        aria-label={ariaLabel || placeholder}
         autoFocus={autoFocus}
         className="w-full min-w-0 bg-transparent text-sm outline-none"
-        style={{ fontFamily: F.body, color: C.ink, border: "none" }}
+        style={{ fontFamily: F.body, color: C.ink, border: "none", textOverflow: "ellipsis" }}
       />
+      {onClear && value && (
+        <button type="button" onClick={onClear} aria-label="Clear search" className="-my-1 -mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full hover:bg-black/5">
+          <X size={14} style={{ color: C.inkSoft }} />
+        </button>
+      )}
     </div>
   );
 }
@@ -154,7 +164,7 @@ export function SearchInput({ value, onChange, placeholder, className = "", auto
 export function ErrorNote({ message }) {
   if (!message) return null;
   return (
-    <div className="px-3 py-2 text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: C.carbon, border: `1px solid ${C.carbon}44`, backgroundColor: `${C.carbon}0D` }}>
+    <div role="alert" className="mt-3 rounded-xl px-3 py-2 text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: C.carbon, border: `1px solid ${C.carbon}44`, backgroundColor: `${C.carbon}0D` }}>
       {message}
     </div>
   );

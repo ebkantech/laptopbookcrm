@@ -110,8 +110,21 @@ REST_FRAMEWORK = {
         # Task 6 security checklist: brute-force protection on the portal
         # OTP verify step -- see accounts.throttling.OTPVerifyThrottle.
         'otp_verify': os.environ.get('OTP_VERIFY_THROTTLE_RATE', '5/min'),
+        # portal "resend code": per IP, and per invitation link
+        'otp_resend': os.environ.get('OTP_RESEND_THROTTLE_RATE', '10/hour'),
+        'otp_resend_invite': os.environ.get('OTP_RESEND_INVITE_THROTTLE_RATE', '5/hour'),
+        # customer portal invoice PDF downloads, per customer
+        'portal_pdf': os.environ.get('PORTAL_PDF_THROTTLE_RATE', '60/hour'),
     },
 }
+
+# Minimum wait between two portal verification codes for the same link.
+PORTAL_OTP_RESEND_COOLDOWN_SECONDS = int(os.environ.get('PORTAL_OTP_RESEND_COOLDOWN_SECONDS', 60))
+# Fernet key(s) encrypting the short-lived copy of a portal code that
+# portal.manage staff can read in the CRM (portal/otp_vault.py). Generate:
+#   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# Comma-separate keys to rotate (first encrypts). Unset = staff can't see codes.
+PORTAL_OTP_ENCRYPTION_KEY = os.environ.get('PORTAL_OTP_ENCRYPTION_KEY', '')
 
 SIMPLE_JWT = {
     # shorter-lived access token = smaller window if one leaks; the
@@ -132,11 +145,22 @@ CORS_ALLOWED_ORIGINS = env_list(
     "DJANGO_CORS_ALLOWED_ORIGINS",
     default="http://localhost:5174,http://127.0.0.1:5174",
 ) or ["http://localhost:5174", "http://127.0.0.1:5174"]
-CORS_ALLOW_CREDENTIALS = True
 CSRF_TRUSTED_ORIGINS = env_list(
     "DJANGO_CSRF_TRUSTED_ORIGINS",
     default="http://localhost:5174,http://127.0.0.1:5174",
 ) or ["http://localhost:5174", "http://127.0.0.1:5174"]
+
+# Local Vite development may run on either port. Keep these additions
+# development-only, while retaining every origin explicitly configured for
+# production (DEBUG=False) and any other environment-specific origins.
+if DEBUG:
+    local_frontend_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    CORS_ALLOWED_ORIGINS = list(dict.fromkeys([*CORS_ALLOWED_ORIGINS, *local_frontend_origins]))
+    CSRF_TRUSTED_ORIGINS = list(dict.fromkeys([*CSRF_TRUSTED_ORIGINS, *local_frontend_origins]))
+
+CORS_ALLOW_CREDENTIALS = True
+# Lets the portal read throttling waits cross-origin (portal resend/verify 429s).
+CORS_EXPOSE_HEADERS = ["Retry-After"]
 
 # Django's own session cookie is used by the admin site (and by
 # SessionAuthentication as a DRF fallback) -- hardened regardless, since the
@@ -167,6 +191,11 @@ PUBLIC_FRONTEND_URL = os.environ.get("PUBLIC_FRONTEND_URL", "http://localhost:51
 # webhook refuses everything until then, which is the safe default, not
 # a bug to "fix" by hardcoding a value here.
 WHATSAPP_WEBHOOK_SECRET = os.environ.get("WHATSAPP_WEBHOOK_SECRET")
+# Meta's own webhook (portal/meta_webhook.py, api/whatsapp/meta-webhook/):
+# the verify token you type into Meta's webhook settings, and the app
+# secret Meta signs each delivery-status POST with. Unset = refuse all.
+WHATSAPP_WEBHOOK_VERIFY_TOKEN = os.environ.get("WHATSAPP_WEBHOOK_VERIFY_TOKEN")
+WHATSAPP_APP_SECRET = os.environ.get("WHATSAPP_APP_SECRET")
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -273,10 +302,24 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
 # see EXTERNAL_INTEGRATIONS notes in the project README)
 # ---------------------------------------------------------------- #
 
+# SMTP: setting EMAIL_HOST switches to the SMTP backend automatically
+# (an explicit DJANGO_EMAIL_BACKEND still wins). Without it, emails are
+# only printed to the runserver console.
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "").strip()
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT") or 587)
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "").strip()
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_SSL = env_bool("EMAIL_USE_SSL", False)
+# TLS and SSL are mutually exclusive in Django; SSL (port 465) wins.
+EMAIL_USE_TLS = False if EMAIL_USE_SSL else env_bool("EMAIL_USE_TLS", True)
+EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT") or 20)
+
 EMAIL_BACKEND = os.environ.get(
-    "DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+    "DJANGO_EMAIL_BACKEND",
+    "django.core.mail.backends.smtp.EmailBackend" if EMAIL_HOST
+    else "django.core.mail.backends.console.EmailBackend",
 )
-DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "no-reply@vantagecomputers.example")
+DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL") or EMAIL_HOST_USER or "no-reply@vantagecomputers.example"
 
 # ---------------------------------------------------------------- #
 # Security headers -- only meaningfully active when DEBUG=False and

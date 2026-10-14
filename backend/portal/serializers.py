@@ -4,30 +4,76 @@ from parties.models import Party
 from rentals.models import Rental
 from repairs.models import RepairTicket
 from sales.models import Invoice
+from sales.documents import CURRENCY, pdf_available
+from sales.serializers import InvoiceSerializer
 from warranty.models import Warranty
+from . import access
 from .models import Feedback, PortalAccessLog, PortalInvite
 
 
 class PortalPartySerializer(serializers.ModelSerializer):
+    """
+    The signed-in customer's own profile. `type` is the canonical
+    Party.type ("Rental" | "Dealer" | "Retail", or "Unknown" for anything
+    else) -- deliberately NOT customer_classification, which is an
+    unrelated internal label (a Rental account can be classified "dealer").
+    """
+    type = serializers.SerializerMethodField()
+    portal_access_ends_at = serializers.SerializerMethodField()
+
     class Meta:
         model = Party
-        fields = ["id", "name", "phone", "email", "city", "joined"]
+        fields = ["id", "name", "phone", "email", "city", "joined", "type", "portal_access_ends_at"]
+
+    def get_type(self, obj):
+        return access.account_type(obj)
+
+    def get_portal_access_ends_at(self, obj):
+        """When a Rental customer's portal access ends (exclusive); null for other account types."""
+        if obj.type != Party.RENTAL:
+            return None
+        ends_at = access.rental_access_ends_at(obj)
+        return serializers.DateTimeField().to_representation(ends_at) if ends_at else None
 
 
 class PortalInvoiceSerializer(serializers.ModelSerializer):
+    """Customer-safe invoice fields only: no staff names, cancel reasons, payment links or refunds detail."""
     stock_point_name = serializers.CharField(source="stock_point.name", read_only=True)
     total = serializers.IntegerField(read_only=True)
+    currency = serializers.SerializerMethodField()
+    reference = serializers.SerializerMethodField()
+    pdf_available = serializers.SerializerMethodField()
     items = serializers.SerializerMethodField()
 
     class Meta:
         model = Invoice
-        fields = ["id", "code", "date", "status", "stock_point_name", "total", "items"]
+        fields = [
+            "id", "code", "source", "reference", "date", "due_date", "paid_on", "status", "stock_point_name",
+            "period_start", "period_end", "total", "currency", "pdf_available", "items",
+        ]
+
+    def get_currency(self, obj):
+        return CURRENCY
+
+    def get_reference(self, obj):
+        return InvoiceSerializer().get_reference(obj)
+
+    def get_pdf_available(self, obj):
+        return pdf_available(obj)
 
     def get_items(self, obj):
         return [
-            {"product": i.label, "spec": i.variant.spec if i.variant_id else "", "qty": i.qty, "price": i.price}
+            {"product": i.label, "spec": i.variant.spec if i.variant_id else "", "qty": i.qty, "price": i.price,
+             "amount": i.qty * i.price}
             for i in obj.items.all()
         ]
+
+
+class PortalInvoiceDetailSerializer(PortalInvoiceSerializer):
+    refunded_total = serializers.IntegerField(read_only=True)
+
+    class Meta(PortalInvoiceSerializer.Meta):
+        fields = PortalInvoiceSerializer.Meta.fields + ["pay_method", "payment_reference", "refunded_total"]
 
 
 class PortalRepairInvoiceSerializer(serializers.ModelSerializer):
@@ -53,12 +99,28 @@ class PortalRepairTicketSerializer(serializers.ModelSerializer):
 class PortalRentalSerializer(serializers.ModelSerializer):
     next_payment_date = serializers.DateField(read_only=True)
     next_payment_overdue = serializers.BooleanField(read_only=True)
+    end_date = serializers.SerializerMethodField()
+    total_monthly_fee = serializers.IntegerField(read_only=True)
+    devices = serializers.SerializerMethodField()
 
     class Meta:
         # deliberately NOT exposing churn_score/churn_band/late_count/tickets --
         # that's an internal risk signal for staff, not something to show the customer
         model = Rental
-        fields = ["id", "product_label", "monthly_fee", "start", "tenure_months", "months_paid", "next_payment_date", "next_payment_overdue"]
+        fields = [
+            "id", "agreement_code", "status", "product_label", "monthly_fee", "total_monthly_fee", "start",
+            "tenure_months", "end_date", "months_paid", "next_payment_date", "next_payment_overdue", "devices",
+        ]
+
+    def get_end_date(self, obj):
+        """Last day the agreement covers (inclusive), same convention as rent billing."""
+        return access.rental_last_day(obj).isoformat()
+
+    def get_devices(self, obj):
+        return [
+            {"description": line.description, "serial_number": line.asset.serial_number, "monthly_fee": line.monthly_fee}
+            for line in obj.lines.all()
+        ]
 
 
 class PortalWarrantySerializer(serializers.ModelSerializer):

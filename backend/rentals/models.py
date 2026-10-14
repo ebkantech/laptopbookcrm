@@ -269,7 +269,14 @@ class RentalApproval(models.Model):
     """Immutable 24-hour customer-approval snapshot for the whole agreement."""
 
     PENDING, APPROVED, REJECTED, EXPIRED, REVOKED = "pending", "approved", "rejected", "expired", "revoked"
-    STATUS_CHOICES = [(value, value.title()) for value in (PENDING, APPROVED, REJECTED, EXPIRED, REVOKED)]
+    # The customer asked for changes through the link: this link is done
+    # (no further decision on it), but the agreement itself is NOT decided --
+    # the rental stays awaiting approval and its assets are untouched until
+    # staff send a revised agreement on a new link.
+    CHANGES_REQUESTED = "changes_requested"
+    STATUS_CHOICES = [(value, value.title()) for value in (PENDING, APPROVED, REJECTED, EXPIRED, REVOKED)] + [
+        (CHANGES_REQUESTED, "Changes requested"),
+    ]
     CUSTOMER, ADMIN, SUPERADMIN = "customer", "admin", "superadmin"
     SOURCE_CHOICES = [
         (CUSTOMER, "Customer via secure link"),
@@ -281,7 +288,7 @@ class RentalApproval(models.Model):
     version = models.PositiveSmallIntegerField()
     snapshot = models.JSONField(default=dict, editable=False)
     token_hash = models.CharField(max_length=64, unique=True, null=True, blank=True, editable=False)
-    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=PENDING)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=PENDING)
     source = models.CharField(max_length=12, choices=SOURCE_CHOICES, blank=True)
     requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="rental_approvals_requested")
     decided_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="rental_approvals_decided")
@@ -320,6 +327,7 @@ class RentalEvent(models.Model):
     AGREEMENT_CANCELLED = "agreement_cancelled"
     AGREEMENT_CLOSED = "agreement_closed"
     HANDOVER_UPDATED = "handover_updated"
+    CHANGES_REQUESTED = "changes_requested"
     EVENT_CHOICES = [
         (AGREEMENT_CREATED, "Agreement created"),
         (APPROVAL_LINK_CREATED, "Approval link created"),
@@ -328,6 +336,7 @@ class RentalEvent(models.Model):
         (AGREEMENT_CANCELLED, "Agreement cancelled"),
         (AGREEMENT_CLOSED, "Agreement closed"),
         (HANDOVER_UPDATED, "Device handover details changed"),
+        (CHANGES_REQUESTED, "Customer requested changes"),
     ]
 
     rental = models.ForeignKey(Rental, on_delete=models.CASCADE, related_name="events")

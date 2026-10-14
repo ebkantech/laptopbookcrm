@@ -1,1 +1,13 @@
+/* Tailwind is the only CSS framework loaded. Bootstrap's stylesheet used
+   to be imported too, but its utilities (.p-5, .px-3, .border, .shadow...)
+   are !important and share names with Tailwind's, so they silently
+   overrode spacing and borders on every page. The three Bootstrap pieces
+   the app actually used -- table, badge, spinner-border -- are
+   re-implemented in index.css (@layer components). */
 @import "tailwindcss";
+
+@layer components {
+  /* Headings and paragraphs carry their own size/margin utilities (or
+     inline styles); give unstyled headings a sensible default weight. */
+  :where(h1, h2, h3, h4, h5, h6) { font-weight: 700; line-height: 1.25; }
+}

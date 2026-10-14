@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import JsBarcode from "jsbarcode";
 import {
-  AlertTriangle, Check, Loader2, MapPin, Pencil, Plus, Printer, ScanBarcode, X,
+  AlertTriangle, Check, Loader2, MapPin, Pencil, Plus, Printer, ScanBarcode, Search, X,
 } from "lucide-react";
 import { C, F, money } from "../lib/theme";
 import { api } from "../lib/api";
@@ -57,6 +58,16 @@ function StockLocationCell({ product }) {
   );
 }
 
+/* Column name shown above a value on phones, where the table header row
+ * is hidden. */
+function MobileLabel({ children }) {
+  return (
+    <span className="mb-0.5 block text-[10px] uppercase md:hidden" style={{ fontFamily: F.body, fontWeight: 700, letterSpacing: "0.08em", color: C.inkSoft }}>
+      {children}
+    </span>
+  );
+}
+
 /* One shop's stock of one variant in the detail panel: quantity plus
  * where it sits, editable in place for inventory.edit holders. */
 function StockTile({ stock, canEdit, onSaved }) {
@@ -80,7 +91,7 @@ function StockTile({ stock, canEdit, onSaved }) {
   };
 
   return (
-    <div className="px-2 py-1.5" style={{ backgroundColor: C.slip2 }}>
+    <div className="px-2 py-1.5 rounded-xl" style={{ backgroundColor: C.slip2 }}>
       <div className="flex items-center justify-between gap-2">
         <span className="truncate text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{stockLabel(stock)}</span>
         <span className="text-xs" style={{ fontFamily: F.mono, fontWeight: 600, color: stock.quantity <= 1 ? C.carbon : C.ink }}>{stock.quantity}</span>
@@ -142,7 +153,7 @@ function ScanModal({ onClose, onFound }) {
       <div className="w-full max-w-sm p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}>
         <div className="flex items-center justify-between">
           <Eyebrow>Barcode scanner</Eyebrow>
-          <button onClick={onClose}><X size={16} style={{ color: C.inkSoft }} /></button>
+          <button type="button" onClick={onClose} aria-label="Close barcode scanner"><X size={16} style={{ color: C.inkSoft }} /></button>
         </div>
         <div className="mt-6 flex flex-col items-center gap-4 py-4">
           <ScanBarcode size={36} style={{ color: status === "searching" ? C.orange : C.stamp }} />
@@ -239,10 +250,10 @@ function AddStockModal({ stockPoints, onClose, onAdded }) {
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}>
         <div className="flex items-center justify-between">
           <Eyebrow>Add stock</Eyebrow>
-          <button onClick={onClose}><X size={16} style={{ color: C.inkSoft }} /></button>
+          <button type="button" onClick={onClose} aria-label="Close add stock"><X size={16} style={{ color: C.inkSoft }} /></button>
         </div>
 
-        <div className="mt-4 flex" style={{ border: `1px solid ${C.rule}` }}>
+        <div className="mt-4 flex overflow-hidden rounded-xl" style={{ border: `1px solid ${C.rule}` }}>
           {[["existing", "Restock existing item"], ["new", "New item"]].map(([k, label]) => (
             <button key={k} onClick={() => setMode(k)} className="flex-1 py-2 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, color: mode === k ? C.onAccent : C.inkSoft, backgroundColor: mode === k ? C.stamp : "transparent" }}>{label}</button>
           ))}
@@ -320,7 +331,7 @@ function AddStockModal({ stockPoints, onClose, onAdded }) {
           </div>
         )}
 
-        <div className="mt-4 grid grid-cols-2 gap-3">
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Shop / channel
             <select value={stockPointId} onChange={(e) => setStockPointId(e.target.value)} className="mt-1 w-full py-2 text-sm outline-none" style={{ fontFamily: F.body, background: C.slip, color: C.ink, border: `1px solid ${C.rule}` }}>
               {stockPoints.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -351,27 +362,154 @@ function AddStockModal({ stockPoints, onClose, onAdded }) {
  *  boundary of what's possible from here).
  * ------------------------------------------------------------------ */
 function PrintModal({ product, variant, onClose }) {
+  const barcodeRef = useRef(null);
+  const [barcodeError, setBarcodeError] = useState("");
+
+  useEffect(() => {
+    if (!barcodeRef.current || !variant?.code) {
+      setBarcodeError("Variant code is missing, so a barcode cannot be generated.");
+      return;
+    }
+
+    try {
+      JsBarcode(barcodeRef.current, String(variant.code), {
+        format: "CODE128",
+        lineColor: "#171634",
+        background: "#FFFFFF",
+        width: 2,
+        height: 42,
+        margin: 2,
+        displayValue: false,
+      });
+      setBarcodeError("");
+    } catch (error) {
+      console.error("Barcode generation failed:", error);
+      setBarcodeError("Barcode could not be generated for this product code.");
+    }
+  }, [variant?.code]);
+
+  const handlePrint = () => {
+    if (!barcodeRef.current || !variant?.code || barcodeError) {
+      window.alert(barcodeError || "Barcode is not ready yet. Please try again.");
+      return;
+    }
+
+    // Open the print window directly from the button click so browsers
+    // are less likely to block it as a popup.
+    const printWindow = window.open("", "_blank", "width=500,height=400");
+    if (!printWindow) {
+      window.alert("The print window was blocked. Please allow pop-ups for this site and try again.");
+      return;
+    }
+
+    const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    })[char]);
+
+    const barcode = barcodeRef.current.cloneNode(true);
+    barcode.setAttribute("class", "barcode");
+    barcode.removeAttribute("style");
+
+    const productName = escapeHtml(product.display_name);
+    const variantSpec = escapeHtml(variant.spec || "Standard");
+    const variantCode = escapeHtml(variant.code);
+    const hsnText = product.hsn
+      ? `HSN ${escapeHtml(product.hsn)}`
+      : "Internal code — no HSN";
+    const priceText = escapeHtml(money(variant.sell_price));
+
+    printWindow.document.open();
+    printWindow.document.write(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Product Sticker - ${productName}</title>
+  <style>
+    @page { size: 60mm 40mm; margin: 2mm; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #fff; color: #171634; }
+    body { font-family: Arial, Helvetica, sans-serif; }
+    .label {
+      width: 56mm;
+      min-height: 36mm;
+      padding: 1mm;
+      overflow: hidden;
+      text-align: center;
+      background: #fff;
+      break-inside: avoid;
+    }
+    .brand { margin: 0 0 1mm; text-align: left; font-size: 8pt; font-weight: 700; }
+    .product { margin: 1mm 0; font-size: 10pt; line-height: 1.15; font-weight: 700; overflow-wrap: anywhere; }
+    .spec { margin: 0 0 1mm; font-size: 7pt; overflow-wrap: anywhere; }
+    .barcode { display: block; width: 100%; max-width: 54mm; height: 12mm; margin: 1mm auto; }
+    .code { margin: 0; font-family: monospace; font-size: 8pt; font-weight: 700; overflow-wrap: anywhere; }
+    .details { margin: 1mm 0 0; font-size: 7pt; overflow-wrap: anywhere; }
+    @media screen {
+      body { padding: 10px; }
+      .label { border: 1px dashed #aaa; }
+    }
+  </style>
+</head>
+<body>
+  <main class="label">
+    <p class="brand">Vantage Computers</p>
+    <p class="product">${productName}</p>
+    <p class="spec">${variantSpec}</p>
+    ${barcode.outerHTML}
+    <p class="code">${variantCode}</p>
+    <p class="details">${hsnText} · ${priceText}</p>
+  </main>
+  <script>
+    window.addEventListener("load", function () {
+      setTimeout(function () {
+        window.focus();
+        window.print();
+      }, 250);
+    });
+    window.addEventListener("afterprint", function () {
+      window.close();
+    });
+  </script>
+</body>
+</html>`);
+    printWindow.document.close();
+  };
+
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(4,9,18,0.7)" }}>
-      <div className="w-full max-w-sm p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}>
+      <div className="max-h-[90vh] w-full max-w-sm overflow-y-auto p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}>
         <div className="flex items-center justify-between">
           <Eyebrow>Label printer</Eyebrow>
-          <button onClick={onClose}><X size={16} style={{ color: C.inkSoft }} /></button>
+          <button type="button" onClick={onClose} aria-label="Close label printer">
+            <X size={16} style={{ color: C.inkSoft }} />
+          </button>
         </div>
 
-        <div id="print-label-area" className="mt-4 p-3" data-panel style={{ border: "1px dashed #B9C2CE", backgroundColor: "#F2F0EA" }}>
+        <div className="mt-4 p-3" style={{ border: "1px dashed #B9C2CE", backgroundColor: "#FFFFFF" }}>
           <p className="text-xs" style={{ fontFamily: F.mono, color: "#5B5F52" }}>Vantage Computers</p>
-          <p className="mt-1 text-sm" style={{ fontFamily: F.display, fontWeight: 600, color: "#171634" }}>{product.display_name}</p>
-          <p className="text-xs" style={{ fontFamily: F.body, color: "#5B5F52" }}>{variant.spec}</p>
-          <div className="mt-2 flex h-10 items-center justify-center" style={{ background: "repeating-linear-gradient(90deg, #171634 0 2px, transparent 2px 5px)" }} />
-          <p className="mt-1 text-center text-xs" style={{ fontFamily: F.mono, color: "#171634" }}>{variant.code}</p>
-          <p className="text-center text-xs" style={{ fontFamily: F.mono, color: "#5B5F52" }}>{product.hsn ? `HSN ${product.hsn}` : "Internal code — no HSN"} · {money(variant.sell_price)}</p>
+          <p className="mt-1 text-sm break-words" style={{ fontFamily: F.display, fontWeight: 600, color: "#171634" }}>{product.display_name}</p>
+          <p className="text-xs break-words" style={{ fontFamily: F.body, color: "#5B5F52" }}>{variant.spec || "Standard"}</p>
+          <div className="mt-2 flex min-h-[52px] items-center justify-center overflow-hidden">
+            <svg ref={barcodeRef} style={{ maxWidth: "100%", height: 52 }} aria-label={`Barcode for ${variant.code}`} />
+          </div>
+          {barcodeError && <p className="mt-2 text-xs" style={{ color: C.carbon, fontFamily: F.body }}>{barcodeError}</p>}
+          <p className="mt-1 text-center text-xs break-all" style={{ fontFamily: F.mono, color: "#171634" }}>{variant.code}</p>
+          <p className="text-center text-xs" style={{ fontFamily: F.mono, color: "#5B5F52" }}>
+            {product.hsn ? `HSN ${product.hsn}` : "Internal code — no HSN"} · {money(variant.sell_price)}
+          </p>
         </div>
 
-        <button onClick={() => window.print()} className="mt-4 flex w-full items-center justify-center gap-1.5 py-2.5 text-xs uppercase" style={{ backgroundColor: C.stamp, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em" }}>
+        <button type="button" onClick={handlePrint} disabled={!!barcodeError} className="mt-4 flex w-full items-center justify-center gap-1.5 py-2.5 text-xs uppercase disabled:cursor-not-allowed disabled:opacity-50" style={{ backgroundColor: C.stamp, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em" }}>
           <Printer size={13} /> Print sticker
         </button>
-        <p className="mt-2 text-center text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Choose your magnetic/thermal label printer in the print dialog that opens.</p>
+        <p className="mt-2 text-center text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
+          Choose your thermal or label printer in the print dialog. Default label size: 60 × 40 mm.
+        </p>
       </div>
     </div>
   );
@@ -388,20 +526,34 @@ export default function Inventory() {
   const [adding, setAdding] = useState(false);
   const [printing, setPrinting] = useState(null); // { product, variant }
   const [flash, setFlash] = useState("");
+  const [searching, setSearching] = useState(false);
+  // Each search gets a number; only the newest one may update the list, so
+  // a slow response for "del" can't overwrite the results for "dell".
+  const loadSeq = useRef(0);
 
   const load = (q) => {
+    const seq = ++loadSeq.current;
+    setSearching(true);
     api.getAll(`/products/${q ? `?q=${encodeURIComponent(q)}` : ""}`)
-      .then(setProducts)
-      .catch((e) => setError(e.message));
+      .then((list) => {
+        if (seq === loadSeq.current) setProducts(list);
+      })
+      .catch((e) => {
+        if (seq === loadSeq.current) setError(e.message);
+      })
+      .finally(() => {
+        if (seq === loadSeq.current) setSearching(false);
+      });
   };
 
   useEffect(() => {
-    load("");
-    api.get("/stock-points/").then((d) => setStockPoints(d.results ?? d));
+    api.get("/stock-points/").then((d) => setStockPoints(d.results ?? d)).catch(() => {});
   }, []);
 
+  // Also does the first load (query ""), immediately rather than after the
+  // typing pause -- previously a separate mount effect loaded it twice.
   useEffect(() => {
-    const t = setTimeout(() => load(query), 300);
+    const t = setTimeout(() => load(query), query ? 300 : 0);
     return () => clearTimeout(t);
   }, [query]);
 
@@ -437,25 +589,35 @@ export default function Inventory() {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <div className="px-5 pt-6 sm:px-8">
+      <div className="px-[1rem] pt-[1.5rem] sm:px-[2rem]">
         <PageHeader title="Inventory" subtitle="Stock levels and product records across every shop and online channel" />
       </div>
-      <header className="flex flex-wrap items-center gap-3 px-5 py-4 sm:px-8">
-        <SearchInput value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by product, brand, product ID, or variant code" />
-        <PillButton icon={ScanBarcode} onClick={() => setScanning(true)}>Scan</PillButton>
-        {can("inventory.edit") && (
-          <PillButton icon={Plus} primary onClick={() => setAdding(true)}>Add stock</PillButton>
-        )}
+      <header className="flex flex-wrap items-center gap-3 px-[1rem] py-[1rem] sm:px-[2rem]">
+        <SearchInput
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search by product, brand, product ID, or variant code"
+          className="basis-full sm:basis-0"
+        />
+        <div className="flex flex-1 items-center gap-2 sm:flex-none">
+          <PillButton icon={ScanBarcode} onClick={() => setScanning(true)} className="flex-1 justify-center sm:flex-none">Scan</PillButton>
+          {can("inventory.edit") && (
+            <PillButton icon={Plus} primary onClick={() => setAdding(true)} className="flex-1 justify-center sm:flex-none">Add stock</PillButton>
+          )}
+        </div>
+        <p className="basis-full text-xs" aria-live="polite" style={{ fontFamily: F.body, color: C.inkSoft }}>
+          {searching ? "Searching…" : `${products.length} product${products.length === 1 ? "" : "s"}${query ? ` matching “${query}”` : ""}`}
+        </p>
       </header>
 
       {flash && (
-        <div className="mx-5 mt-3 flex items-center gap-2 px-3 py-2 sm:mx-8" style={{ backgroundColor: `${C.green}14`, border: `1px solid ${C.green}` }}>
+        <div role="status" className="mx-[1rem] mb-1 flex items-center gap-2 rounded-xl px-3 py-2 sm:mx-[2rem]" style={{ backgroundColor: `${C.green}14`, border: `1px solid ${C.green}55` }}>
           <Check size={13} style={{ color: C.green }} />
           <span className="text-xs" style={{ fontFamily: F.body, color: C.ink }}>{flash}</span>
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-5 py-4 sm:px-8">
+      <div className="flex-1 overflow-y-auto px-[1rem] pb-6 pt-1 sm:px-[2rem]">
         <div className="hidden grid-cols-[2fr_1fr_1fr_1fr_1fr_1.8fr] gap-3 px-5 pb-2 text-xs uppercase md:grid" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.08em", color: C.inkSoft }}>
           <span>Product</span><span>ID / HSN</span><span>Processor</span><span>Sell price</span><span>Shared stock</span><span>Stock location</span>
         </div>
@@ -469,33 +631,55 @@ export default function Inventory() {
                 onClick={() => setOpenProduct(p)}
                 data-listcard
                 data-selected={openProduct?.id === p.id}
-                className="block w-full px-5 py-3.5 text-left md:grid md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1.8fr] md:items-center md:gap-3"
+                className="grid w-full grid-cols-2 gap-x-4 gap-y-3 px-4 py-3.5 text-left sm:px-5 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1.8fr] md:items-center md:gap-3"
               >
-                <div className="min-w-0">
-                  <p className="truncate text-sm" style={{ fontFamily: F.display, fontWeight: 600, color: C.ink }}>{p.display_name}</p>
-                  <p className="text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{p.condition} · {p.variants.length ? `${p.variants.length} variant${p.variants.length > 1 ? "s" : ""}` : "no variants"}</p>
+                <div className="col-span-2 flex min-w-0 items-start justify-between gap-3 md:col-span-1 md:block">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm" style={{ fontFamily: F.display, fontWeight: 600, color: C.ink }}>{p.display_name}</p>
+                    <p className="mt-0.5 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{p.condition} · {p.variants.length ? `${p.variants.length} variant${p.variants.length > 1 ? "s" : ""}` : "no variants"}</p>
+                  </div>
+                  <span className="shrink-0 md:hidden"><Pill color={lowest ? C.carbon : C.green}>{totalStock} units</Pill></span>
                 </div>
-                <span className="text-xs" style={{ fontFamily: F.mono, color: C.ink }}>{p.product_code}<br /><span style={{ color: p.hsn ? C.inkSoft : C.amber }}>{p.hsn ? `HSN ${p.hsn}` : "generated — no HSN"}</span></span>
-                <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{p.processor || "—"}</span>
-                <span className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{p.variants.length ? money(p.variants[0].sell_price) : "—"}</span>
-                <span><Pill color={lowest ? C.carbon : C.green}>{totalStock} units</Pill></span>
-                <span className="mt-2 block min-w-0 md:mt-0"><StockLocationCell product={p} /></span>
+                <span className="min-w-0 text-xs" style={{ fontFamily: F.mono, color: C.ink }}>
+                  <MobileLabel>ID / HSN</MobileLabel>
+                  <span className="block truncate">{p.product_code}</span>
+                  <span className="block break-words" style={{ color: p.hsn ? C.inkSoft : C.amber }}>{p.hsn ? `HSN ${p.hsn}` : "generated — no HSN"}</span>
+                </span>
+                <span className="min-w-0 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
+                  <MobileLabel>Processor</MobileLabel>
+                  <span className="block truncate">{p.processor || "—"}</span>
+                </span>
+                <span className="min-w-0 text-sm" style={{ fontFamily: F.mono, color: C.ink }}>
+                  <MobileLabel>Sell price</MobileLabel>
+                  {p.variants.length ? money(p.variants[0].sell_price) : "—"}
+                </span>
+                <span className="hidden md:block"><Pill color={lowest ? C.carbon : C.green}>{totalStock} units</Pill></span>
+                <span className="block min-w-0">
+                  <MobileLabel>Stock location</MobileLabel>
+                  <StockLocationCell product={p} />
+                </span>
               </button>
             );
           })}
-          {!products.length && <p className="px-3 py-10 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>No products match that search.</p>}
+          {!products.length && (
+            <div className="flex flex-col items-center gap-2 rounded-2xl px-4 py-12 text-center" style={{ border: `1px dashed ${C.ruleStrong}`, backgroundColor: `${C.slip}99` }}>
+              <Search size={22} style={{ color: C.inkSoft }} />
+              <p className="text-sm" style={{ fontFamily: F.body, fontWeight: 600, color: C.ink }}>No products match that search</p>
+              <p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Try a brand, model, product ID or variant code.</p>
+            </div>
+          )}
         </div>
       </div>
 
       {openProduct && (
         <div className="fixed inset-0 z-20 flex items-end justify-center sm:items-center" style={{ backgroundColor: "rgba(4,9,18,0.7)" }} onClick={() => setOpenProduct(null)}>
-          <div className="max-h-[88vh] w-full max-w-2xl overflow-y-auto p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }} onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-start justify-between">
-              <div>
+          <div role="dialog" aria-modal="true" aria-label={openProduct.display_name} className="max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-t-2xl p-[1.25rem] sm:rounded-2xl sm:p-[1.5rem]" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
                 <p style={{ fontFamily: F.display, fontWeight: 600, fontSize: 18, color: C.ink }}>{openProduct.display_name}</p>
                 <p className="mt-1 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{openProduct.product_code} · {openProduct.hsn ? `HSN ${openProduct.hsn}` : "internal code — no matching HSN"} · {openProduct.condition}</p>
               </div>
-              <button onClick={() => setOpenProduct(null)}><X size={18} style={{ color: C.inkSoft }} /></button>
+              <button type="button" onClick={() => setOpenProduct(null)} aria-label="Close product details" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={18} style={{ color: C.inkSoft }} /></button>
             </div>
 
             <div className="mt-6 space-y-4">

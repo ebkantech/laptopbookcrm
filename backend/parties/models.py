@@ -1,4 +1,5 @@
 from django.db import models
+from django.conf import settings
 
 
 class Party(models.Model):
@@ -62,6 +63,44 @@ class Message(models.Model):
     direction = models.CharField(max_length=3, choices=DIRECTION_CHOICES)
     body = models.TextField()
     at = models.DateTimeField(auto_now_add=True)
+    is_editable = models.BooleanField(default=False)
+    edited_at = models.DateTimeField(null=True, blank=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="deleted_party_messages")
+
+    # WhatsApp Cloud API state of an outbound message the CRM tried to
+    # send ("" = a CRM-only record: history, email, or written before
+    # sending existed). "sent" means Meta ACCEPTED it; only Meta's
+    # delivery webhook moves it on to delivered/read (or failed).
+    # "unknown" = the outcome is uncertain (timeout etc.) -- it may have
+    # gone out, so it is never resent without staff confirming.
+    DELIVERY_SENDING, DELIVERY_SENT, DELIVERY_DELIVERED, DELIVERY_READ = "sending", "sent", "delivered", "read"
+    DELIVERY_FAILED, DELIVERY_UNKNOWN, DELIVERY_SIMULATED = "failed", "unknown", "simulated"
+    DELIVERY_CHOICES = [
+        (DELIVERY_SENDING, "Sending"), (DELIVERY_SENT, "Sent to WhatsApp API"), (DELIVERY_DELIVERED, "Delivered"),
+        (DELIVERY_READ, "Read"), (DELIVERY_FAILED, "Failed"), (DELIVERY_UNKNOWN, "Outcome unknown"),
+        (DELIVERY_SIMULATED, "Not sent (simulation mode)"),
+    ]
+    delivery_status = models.CharField(max_length=10, choices=DELIVERY_CHOICES, blank=True, default="")
+    provider_message_id = models.CharField(max_length=100, blank=True, default="", db_index=True)
+    delivery_error = models.CharField(max_length=300, blank=True, default="")
+    delivery_updated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["at"]
+
+
+class MessageRevision(models.Model):
+    message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name="revisions")
+    previous_body = models.TextField()
+    edited_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    edited_at = models.DateTimeField(auto_now_add=True)
+
+
+class MessageHidden(models.Model):
+    message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name="hidden_for_users")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="hidden_party_messages")
+    hidden_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["message", "user"], name="unique_user_hidden_party_message")]
