@@ -3,7 +3,6 @@ djangorestframework>=3.15,<4.0
 djangorestframework-simplejwt>=5.3,<6.0
 django-cors-headers>=4.3,<5.0
 python-dotenv>=1.0,<2.0
-cryptography>=44.0,<46.0
 
 # Psycopg 3 is Django's modern PostgreSQL adapter. The binary extra keeps
 # Windows/local development simple while Render and similar PaaS services can
@@ -15,5 +14,5 @@ whitenoise
 # Server-side invoice PDFs for the customer portal (sales/documents.py).
 reportlab>=4.2,<5.0
 # Encrypts the short-lived staff copy of portal codes (portal/otp_vault.py).
-cryptography>=44.0,<46.0# HTTP client for Meta's WhatsApp Cloud API (crmbook_backend/notify.py).
+cryptography>=44.0,<46.0  # HTTP client for Meta's WhatsApp Cloud API (crmbook_backend/notify.py).
 requests>=2.31,<3.0
