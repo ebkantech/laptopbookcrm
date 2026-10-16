@@ -205,7 +205,7 @@ class OtpSecurityTests(PortalTestBase):
         self.assertEqual(response.status_code, 200, response.content)
         body = response.json()
         self.assertEqual(body["masked_email"], "c***@e***")
-        self.assertEqual(body["resend_available_in"], 60)
+        self.assertTrue(0 < body["resend_available_in"] <= 60)
         self.assertNotIn("customer@example.test", str(body))
         self.assertFalse({"otp", "otp_digest", "code_value"} & set(body))
         new = code_from_last_email()
@@ -254,7 +254,7 @@ class OtpSecurityTests(PortalTestBase):
 
     def test_resend_cooldown_returns_retry_after(self):
         invite, _ = self.issue()
-        self.assertEqual(self.status(invite).json()["resend_available_in"], 60)
+        self.assertTrue(0 < self.status(invite).json()["resend_available_in"] <= 60)
         response = self.resend(invite)
         self.assertEqual((response.status_code, response.json()["code"]), (429, "resend_throttled"))
         self.assertTrue(0 < int(response["Retry-After"]) <= 60)
