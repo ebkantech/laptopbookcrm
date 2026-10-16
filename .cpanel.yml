@@ -1,0 +1,5 @@
+---
+deployment:
+      tasks:
+        - export DEPLOYPATH=/home/anytimes/public_html/crm.laptoprepairinnoida.com
+        - /bin/cp -R backend/* $DEPLOYPATH
