@@ -55,7 +55,7 @@ function PhotoSlot({ label, photos, required, editable, onAdd, onDelete, busy })
         <span className="text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: C.ink }}>{label}{required && <span style={{ color: C.carbon }}> *</span>}</span>
         {photos.length > 0 && <CheckCircle2 size={13} style={{ color: C.green }} />}
       </div>
-      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+      <div className="mt-1.5 grid grid-cols-1 gap-1.5">
         {photos.map((p) => (
           <div key={p.id} className="relative aspect-[4/3] overflow-hidden" style={{ backgroundColor: C.paper }}>
             <AuthImage photoId={p.id} alt={label} />
@@ -66,10 +66,10 @@ function PhotoSlot({ label, photos, required, editable, onAdd, onDelete, busy })
             )}
           </div>
         ))}
-        {editable && (
+        {editable && photos.length === 0 && (
           <button type="button" disabled={busy} onClick={() => input.current?.click()} className="flex aspect-[4/3] flex-col items-center justify-center gap-1 text-xs" style={{ border: `1px dashed ${C.rule}`, color: C.inkSoft, fontFamily: F.body }}>
             {busy ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
-            {busy ? "Uploading…" : photos.length ? "Add another" : "Take / upload"}
+            {busy ? "Uploading…" : "Take / upload"}
           </button>
         )}
       </div>
@@ -218,8 +218,8 @@ function DeviceHandover({ lineId, onSaved, allLineIds }) {
       </section>
 
       <section>
-        <Eyebrow>2 · Photos — every side and the serial number</Eyebrow>
-        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <Eyebrow>2 · Photo of the device</Eyebrow>
+        <div className="mt-2 max-w-sm">
           {meta.photo_kinds.filter((k) => k.key !== "accessory").map((k) => (
             <PhotoSlot key={k.key} label={k.label} photos={photosOf(k.key)} required={meta.required_photo_kinds.includes(k.key)}
               editable={editable} busy={uploading === k.key} onAdd={(f) => addPhoto(k.key, f)} onDelete={deletePhoto} />
@@ -291,7 +291,7 @@ function DeviceHandover({ lineId, onSaved, allLineIds }) {
 
 /*
  * Device handover for a rental agreement: per device, the working-condition
- * check, photos of every side + serial label + accessories, the accessories
+ * check, photos of the device + accessories, the accessories
  * list and the shop's warranty. All of it goes to the customer for
  * approval; the approval link can't be sent until every device is complete.
  */

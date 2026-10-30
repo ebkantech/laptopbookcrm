@@ -1,4 +1,7 @@
+import hmac
 import json
+import os
+from datetime import timedelta
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
@@ -9,13 +12,13 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
-from rest_framework.exceptions import MethodNotAllowed, ValidationError
+from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
 
 from accounts.permissions import HasPerm
 from crmbook_backend.notify import whatsapp_provider
 from catalog.models import Stock, StockPoint
 
-from .billing import RentBillingError, raise_rent_invoice
+from .billing import RentBillingError, period_months, raise_rent_invoice, send_due_rent_invoices, set_payment_plan
 from .models import Rental, RentalApproval, RentalAsset, RentalEvent, RentalIssue, RentalLine
 from .serializers import (
     AssetFromInventorySerializer,
@@ -69,6 +72,7 @@ class RentalViewSet(viewsets.ModelViewSet):
         "approve_on_behalf": "rentals.approve", "cancel": "rentals.manage",
         "close": "rentals.manage", "raise_invoice": "rentals.manage",
         "approval_history": "rentals.view",
+        "payment_plan": "rentals.manage", "payment_ledger": "rentals.view",
     }
 
     def get_queryset(self):
@@ -150,6 +154,8 @@ class RentalViewSet(viewsets.ModelViewSet):
                 tenure_months=data["tenure_months"],
                 last_payment=data["start"],
                 terms=data.get("terms", ""),
+                payment_interval_months=data["payment_interval_months"],
+                auto_invoice=data["auto_invoice"],
             )
             rental.agreement_code = f"RNT-{rental.pk:06d}"
             rental.save(update_fields=["agreement_code"])
@@ -239,6 +245,101 @@ class RentalViewSet(viewsets.ModelViewSet):
         except RentBillingError as e:
             return Response({"detail": str(e)}, status=400)
         return Response({"invoice_code": invoice.code, "rental": RentalSerializer(self._fresh(rental)).data}, status=201)
+
+    @action(detail=True, methods=["post"], url_path="payment-plan")
+    def payment_plan(self, request, pk=None):
+        """Body: {"payment_interval_months": 1|3|6|12, "auto_invoice": bool}."""
+        try:
+            interval = int(request.data.get("payment_interval_months") or 0)
+        except (TypeError, ValueError):
+            interval = 0
+        try:
+            rental = set_payment_plan(self.get_object(), request.user, interval, request.data.get("auto_invoice", True))
+        except RentBillingError as e:
+            return Response({"detail": str(e)}, status=400)
+        return Response(RentalSerializer(self._fresh(rental)).data)
+
+    @action(detail=False, methods=["get"], url_path="payment-ledger")
+    def payment_ledger(self, request):
+        """Recurring-payment history of the rental clients: every rent invoice
+        sent (kind "invoice", with its due date, whether it was paid, when, and
+        how late) plus the next invoice each live agreement will send (kind
+        "scheduled"). Filters: ?party= ?rental= ?status=Paid|Overdue|Unpaid|
+        Scheduled|... ?from=YYYY-MM-DD ?to=YYYY-MM-DD (dates apply to invoices)."""
+        from django.utils import timezone
+
+        from sales.models import Invoice
+        from sales.services import mark_overdue
+        from .billing import INVOICE_LEAD_DAYS, next_billing_period
+
+        mark_overdue()
+        today = timezone.localdate()
+        qp = request.query_params
+        want = qp.get("status") or ""
+
+        qs = Invoice.objects.filter(source=Invoice.RENTAL).select_related("party", "rental", "settled_by").prefetch_related("items")
+        for param, lookup in (("party", "party_id"), ("rental", "rental_id"), ("from", "date__gte"), ("to", "date__lte")):
+            if qp.get(param):
+                qs = qs.filter(**{lookup: qp[param]})
+        if want and want not in ("Scheduled",):
+            qs = qs.filter(status=Invoice.LINK_SENT if want == "Unpaid" else want)
+
+        rows = []
+        if want != "Scheduled":
+            for inv in qs.order_by("-date", "-id")[:500]:
+                due = inv.due_date or inv.period_start
+                row = {
+                    "kind": "invoice", "id": inv.id, "code": inv.code, "date": inv.date,
+                    "party": inv.party_id, "client_name": inv.party.name, "phone": inv.party.phone,
+                    "rental": inv.rental_id, "agreement_code": inv.rental.agreement_code if inv.rental else None,
+                    "period_start": inv.period_start, "period_end": inv.period_end,
+                    "months": period_months(inv.period_start, inv.period_end) if inv.period_start and inv.period_end else 1,
+                    "total": inv.total, "due_date": due, "status": inv.status, "paid_on": inv.paid_on,
+                    "pay_method": inv.pay_method, "payment_reference": inv.payment_reference,
+                    "received_by": (inv.settled_by.get_full_name() or inv.settled_by.get_username()) if inv.settled_by else None,
+                    "days_late": None, "days_overdue": None, "due_in_days": None,
+                }
+                if inv.status in Invoice.SETTLED and inv.paid_on and due:
+                    row["days_late"] = max(0, (inv.paid_on - due).days)
+                elif inv.status in Invoice.OUTSTANDING and due:
+                    delta = (today - due).days
+                    row["days_overdue"] = max(0, delta)
+                    row["due_in_days"] = max(0, -delta)
+                rows.append(row)
+
+        # the next invoice each live agreement will send (only when no date range is asked for)
+        if want in ("", "Scheduled") and not qp.get("from") and not qp.get("to"):
+            live = Rental.objects.filter(status__in=(Rental.APPROVED, Rental.ACTIVE)).select_related("party").prefetch_related("lines", "invoices")
+            if qp.get("party"):
+                live = live.filter(party_id=qp["party"])
+            if qp.get("rental"):
+                live = live.filter(pk=qp["rental"])
+            for rental in live:
+                period = next_billing_period(rental)
+                if not period:
+                    continue
+                months = period_months(*period)
+                rows.append({
+                    "kind": "scheduled", "id": f"s{rental.pk}", "code": None, "date": None,
+                    "party": rental.party_id, "client_name": rental.party.name, "phone": rental.party.phone,
+                    "rental": rental.pk, "agreement_code": rental.agreement_code,
+                    "period_start": period[0], "period_end": period[1], "months": months,
+                    "total": rental.total_monthly_fee * months, "due_date": period[0], "status": "Scheduled",
+                    "paid_on": None, "pay_method": "", "payment_reference": "", "received_by": None,
+                    "days_late": None, "days_overdue": None, "due_in_days": max(0, (period[0] - today).days),
+                    "send_on": (period[0] - timedelta(days=INVOICE_LEAD_DAYS)) if rental.auto_invoice else None,
+                    "auto_invoice": rental.auto_invoice,
+                })
+        return Response(rows)
+
+    @action(detail=False, methods=["post"], url_path="cron/send-due-invoices",
+            authentication_classes=[], permission_classes=[permissions.AllowAny])
+    def cron_send_due_invoices(self, request):
+        """Daily scheduler hook. Header X-Cron-Token must equal env RENTAL_CRON_TOKEN."""
+        expected = os.environ.get("RENTAL_CRON_TOKEN", "")
+        if not expected or not hmac.compare_digest(expected, request.headers.get("X-Cron-Token", "")):
+            raise PermissionDenied("Invalid cron token.")
+        return Response(send_due_rent_invoices())
 
     def destroy(self, request, *args, **kwargs):
         raise MethodNotAllowed("DELETE", detail="Rental agreements are retained for audit. Cancel the agreement instead.")

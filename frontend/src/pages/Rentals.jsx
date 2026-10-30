@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertOctagon, Camera, Check, CircleCheck, CircleX, Clock3, Hourglass, Copy, History, Laptop, Link2, MessageCircle, MessageSquareDiff, MessageSquarePlus, MessageSquareText, Phone,
+  AlertOctagon, Camera, Check, CircleCheck, CircleX, Clock3, FileText, Hourglass, Copy, History, Laptop, Link2, MessageCircle, MessageSquareDiff, MessageSquarePlus, MessageSquareText, Phone,
   Plus, Send, ShieldAlert, ShieldCheck, UserPlus, X,
 } from "lucide-react";
 import { C, F, fmt, money } from "../lib/theme";
@@ -13,6 +13,8 @@ import PageHeader from "../components/PageHeader";
 import { PartyChatModal } from "../components/PartyThread";
 import RentalAgreementModal from "../components/rentals/RentalAgreementModal";
 import RentInvoices from "../components/rentals/RentInvoices";
+import RentPaymentPlan from "../components/rentals/RentPaymentPlan";
+import RentLedger from "../components/rentals/RentLedger";
 import DeviceHandoverModal from "../components/rentals/DeviceHandoverModal";
 import RentalDevicesModal from "../components/rentals/RentalDevicesModal";
 import ApprovalHistoryModal from "../components/rentals/ApprovalHistoryModal";
@@ -220,6 +222,8 @@ const chipStyle = (tone = C.ink) => ({ border: `1px solid ${C.rule}`, background
  * Approved includes agreements that have since gone active on their first
  * paid invoice. */
 const DECISION_FILTERS = [
+  // saved but not yet sent to the customer (handover still being completed)
+  { key: "draft", label: "Draft", icon: FileText, color: C.inkSoft, match: (r) => r.status === "draft" && !r.open_change_request },
   { key: "pending", label: "Pending", icon: Hourglass, color: C.blue, match: (r) => r.status === "pending_approval" && r.approval_status === "pending" },
   { key: "approved", label: "Approved", icon: CircleCheck, color: C.green, match: (r) => ["approved", "active"].includes(r.status) },
   { key: "rejected", label: "Rejected", icon: CircleX, color: C.carbon, match: (r) => r.status === "rejected" },
@@ -277,6 +281,7 @@ export default function Rentals() {
   const [chatWith, setChatWith] = useState(null);
   const [creating, setCreating] = useState(false);
   const [showDevices, setShowDevices] = useState(false);
+  const [showLedger, setShowLedger] = useState(false);
   const [approvalLink, setApprovalLink] = useState(null);
   const [generatingFor, setGeneratingFor] = useState(null);
   const [historyFor, setHistoryFor] = useState(null);
@@ -445,6 +450,7 @@ export default function Rentals() {
         title="Rental accounts"
         subtitle="New agreements awaiting action first, then live rentals by churn risk — next payment due and client-raised issues"
         actions={<>
+          <PillButton icon={FileText} onClick={() => { setShowLedger((v) => !v); setDecisionFilter(null); }}>Invoice ledger</PillButton>
           <PillButton icon={Laptop} onClick={() => setShowDevices(true)}>Devices</PillButton>
           {can("rentals.manage") && <PillButton icon={Plus} primary onClick={() => setCreating(true)}>New rental agreement</PillButton>}
         </>}
@@ -461,7 +467,7 @@ export default function Rentals() {
           <div role="group" aria-label="Filter rentals by approval status" className="flex w-full shrink-0 flex-nowrap gap-1.5 @sm:w-auto @3xl:gap-2">
             {DECISION_FILTERS.map((f) => (
               <DecisionFilterButton key={f.key} filter={f} count={decisionCounts[f.key]} selected={decisionFilter === f.key}
-                onClick={() => setDecisionFilter((current) => (current === f.key ? null : f.key))} />
+                onClick={() => { setShowLedger(false); setDecisionFilter((current) => (current === f.key ? null : f.key)); }} />
             ))}
           </div>
         </div>
@@ -474,10 +480,11 @@ export default function Rentals() {
       )}
 
       <ErrorNote message={actionError} />
+      {showLedger && <RentLedger clients={[...new Map(rentals.map((r) => [r.party, { id: r.party, name: r.party_name }])).values()].sort((a, b) => a.name.localeCompare(b.name))} onClose={() => setShowLedger(false)} />}
       {flash && <div role="status" className="mt-4 flex items-center gap-2 rounded-xl p-3" style={{ border: `1px solid ${C.green}55`, backgroundColor: `${C.green}10` }}><ShieldCheck size={14} style={{ color: C.green }} /><span className="text-xs" style={{ fontFamily: F.body, color: C.ink }}>{flash}</span></div>}
       {approvalLink && <ApprovalLinkPanel link={approvalLink} onDismiss={() => setApprovalLink(null)} />}
 
-      <div className="mt-6 space-y-3">
+      <div className={`mt-6 space-y-3${showLedger ? " hidden" : ""}`}>
         {visibleRentals.map((r) => {
           const left = r.tenure_months - r.months_paid;
           return (
@@ -510,10 +517,12 @@ export default function Rentals() {
               {/* next payment -- called out on its own row so it can't be missed */}
               <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl px-3 py-2" style={{ backgroundColor: r.next_payment_overdue ? `${C.carbon}14` : C.slip2, border: `1px solid ${r.next_payment_overdue ? `${C.carbon}66` : C.rule}` }}>
                 <Clock3 size={13} style={{ color: r.next_payment_overdue ? C.carbon : C.inkSoft }} />
-                <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Next recurring payment due</span>
-                <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: r.next_payment_overdue ? C.carbon : C.ink }}>{fmt(r.next_payment_date)}</span>
+                <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{r.next_payment_date ? "Next recurring payment due" : "Tenure fully paid"}</span>
+                {r.next_payment_date && <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: r.next_payment_overdue ? C.carbon : C.ink }}>{fmt(r.next_payment_date)}</span>}
                 {r.next_payment_overdue && <Pill color={C.carbon}>Overdue</Pill>}
               </div>
+
+              <RentPaymentPlan rental={r} canManage={can("rentals.manage")} onChanged={(updated) => setRentals((list) => list.map((x) => (x.id === updated.id ? updated : x)))} />
 
               <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 px-1 sm:grid-cols-4">
                 <div><p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Tenure</p><p className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{r.months_paid}/{r.tenure_months} mo</p></div>

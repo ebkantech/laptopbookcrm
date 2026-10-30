@@ -41,6 +41,8 @@ class RentalSerializer(serializers.ModelSerializer):
     open_change_request = serializers.SerializerMethodField()
     rent_invoices = serializers.SerializerMethodField()
     next_billing_period = serializers.SerializerMethodField()
+    payment_interval_months = serializers.IntegerField(read_only=True)
+    auto_invoice = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Rental
@@ -50,7 +52,7 @@ class RentalSerializer(serializers.ModelSerializer):
             "agreement_code", "status", "terms", "rental_type", "total_monthly_fee", "lines", "approval_status",
             "open_change_request", "next_payment_date", "next_payment_overdue",
             "churn_score", "churn_band", "issues", "open_issue_count",
-            "rent_invoices", "next_billing_period",
+            "rent_invoices", "next_billing_period", "payment_interval_months", "auto_invoice",
         ]
         # Payment counters only move when a rent invoice is paid in Sales &
         # Invoices (rentals.billing.on_rent_invoice_paid) -- never by hand.
@@ -68,8 +70,13 @@ class RentalSerializer(serializers.ModelSerializer):
     def get_next_billing_period(self, obj):
         from .billing import next_billing_period
 
+        from .billing import period_months
+
         period = next_billing_period(obj)
-        return {"start": period[0], "end": period[1]} if period else None
+        if not period:
+            return None
+        months = period_months(*period)
+        return {"start": period[0], "end": period[1], "months": months, "amount": obj.total_monthly_fee * months}
 
     def get_open_issue_count(self, obj):
         return sum(1 for i in obj.issues.all() if i.status != RentalIssue.RESOLVED)
@@ -266,17 +273,36 @@ class RentalLineSerializer(serializers.ModelSerializer):
         return len(obj.photos.all())
 
 
+# Sanity limits -- the agreement form checks the same numbers before sending.
+MAX_TENURE_MONTHS = 120
+MAX_MONTHLY_FEE = 1_000_000  # rupees, per device
+START_WINDOW_DAYS = 366
+
+
 class CreateRentalLineSerializer(serializers.Serializer):
     asset_id = serializers.PrimaryKeyRelatedField(source="asset", queryset=RentalAsset.objects.all())
-    monthly_fee = serializers.IntegerField(min_value=0)
+    # a rent invoice for Rs 0 would be sent to the client every cycle, so a fee must be a real amount
+    monthly_fee = serializers.IntegerField(min_value=1, max_value=MAX_MONTHLY_FEE)
 
 
 class CreateRentalAgreementSerializer(serializers.Serializer):
     party = serializers.PrimaryKeyRelatedField(queryset=Party.objects.all())
     start = serializers.DateField()
-    tenure_months = serializers.IntegerField(min_value=1)
+    tenure_months = serializers.IntegerField(min_value=1, max_value=MAX_TENURE_MONTHS)
     terms = serializers.CharField(required=False, allow_blank=True, max_length=2000)
+    payment_interval_months = serializers.ChoiceField(choices=[c[0] for c in Rental.INTERVAL_CHOICES], default=1)
+    auto_invoice = serializers.BooleanField(required=False, default=True)
     lines = CreateRentalLineSerializer(many=True, allow_empty=False)
+
+    def validate_start(self, value):
+        from django.utils import timezone
+
+        days = (value - timezone.localdate()).days
+        if days < -START_WINDOW_DAYS:
+            raise serializers.ValidationError("The start date is more than a year in the past -- check the year.")
+        if days > START_WINDOW_DAYS:
+            raise serializers.ValidationError("The start date is more than a year ahead -- check the year.")
+        return value
 
     def validate_lines(self, lines):
         asset_ids = [line["asset"].id for line in lines]

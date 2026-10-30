@@ -23,6 +23,8 @@ class Rental(models.Model):
     DRAFT, PENDING_APPROVAL, APPROVED, REJECTED, ACTIVE, CLOSED, CANCELLED = (
         "draft", "pending_approval", "approved", "rejected", "active", "closed", "cancelled",
     )
+    # How many months each rent invoice covers (the billing cycle).
+    INTERVAL_CHOICES = [(1, "Monthly"), (3, "Every 3 months"), (6, "Every 6 months"), (12, "Every 12 months")]
     STATUS_CHOICES = [
         (DRAFT, "Draft"),
         (PENDING_APPROVAL, "Pending customer approval"),
@@ -47,6 +49,12 @@ class Rental(models.Model):
     agreement_code = models.CharField(max_length=24, unique=True, null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=DRAFT)
     terms = models.TextField(blank=True)
+    # Recurring billing plan, chosen when the agreement is made: each rent
+    # invoice covers this many months, and (auto_invoice) the invoice is
+    # raised and sent to the client automatically shortly before it falls
+    # due -- see rentals.billing.send_due_rent_invoices.
+    payment_interval_months = models.PositiveSmallIntegerField(choices=INTERVAL_CHOICES, default=1)
+    auto_invoice = models.BooleanField(default=True)
 
     class Meta:
         ordering = ["-start"]
@@ -74,17 +82,22 @@ class Rental(models.Model):
         return total if total is not None else self.monthly_fee
 
     @property
-    def next_payment_date(self) -> date:
-        """Billing is monthly -- next due date is exactly one month after the last payment."""
-        return add_months(self.last_payment, 1)
+    def next_payment_date(self):
+        """Due date of the first unpaid month (a rent invoice is due on the
+        first day of the period it bills). None once the tenure is fully paid."""
+        if self.months_paid >= self.tenure_months:
+            return None
+        return add_months(self.start, self.months_paid)
 
     @property
     def next_payment_overdue(self) -> bool:
-        return date.today() > self.next_payment_date
+        due = self.next_payment_date
+        return due is not None and date.today() > due
 
     @property
     def churn_score(self) -> int:
-        overdue_days = max(0, (date.today() - self.last_payment).days - 30)
+        due = self.next_payment_date
+        overdue_days = max(0, (date.today() - due).days) if due else 0
         tenure_left = self.tenure_months - self.months_paid
         score = self.late_count * 14 + self.tickets * 9 + overdue_days * 1.4
         if tenure_left <= 1:
@@ -216,9 +229,10 @@ class RentalLine(models.Model):
         if not self.working_confirmed:
             issues.append("Confirm the device is tested and in working condition")
         kinds = {photo.kind for photo in self.photos.all()}
-        missing = [label for kind, label in RentalLinePhoto.REQUIRED_KINDS if kind not in kinds]
-        if missing:
-            issues.append(f"Photos missing: {', '.join(missing)}")
+        # One photo of the device is enough. Photos taken before this rule
+        # (front, lid, sides...) still count: any non-accessory photo will do.
+        if not (kinds - {RentalLinePhoto.ACCESSORY}):
+            issues.append("Photo missing: add a photo of the device")
         if self.accessories and RentalLinePhoto.ACCESSORY not in kinds:
             issues.append("Add a photo of the accessories being handed over")
         if self.warranty_included and not self.warranty_terms.strip():
@@ -250,8 +264,11 @@ class RentalLinePhoto(models.Model):
         (ACCESSORY, "Accessories"),
         (OTHER, "Other"),
     ]
-    # Every side of the device plus its serial label is mandatory.
-    REQUIRED_KINDS = KIND_CHOICES[:6]
+    # One photo of the device is mandatory (stored as "front"); photos of
+    # other kinds taken earlier are kept and also satisfy the requirement.
+    REQUIRED_KINDS = [(FRONT, "Device photo")]
+    # What the handover screen offers for new uploads: one photo each.
+    UPLOAD_KINDS = [(FRONT, "Device photo"), (ACCESSORY, "Accessories photo")]
 
     line = models.ForeignKey(RentalLine, on_delete=models.CASCADE, related_name="photos")
     kind = models.CharField(max_length=12, choices=KIND_CHOICES)
@@ -328,6 +345,7 @@ class RentalEvent(models.Model):
     AGREEMENT_CLOSED = "agreement_closed"
     HANDOVER_UPDATED = "handover_updated"
     CHANGES_REQUESTED = "changes_requested"
+    PAYMENT_PLAN_CHANGED = "payment_plan_changed"
     EVENT_CHOICES = [
         (AGREEMENT_CREATED, "Agreement created"),
         (APPROVAL_LINK_CREATED, "Approval link created"),
@@ -337,6 +355,7 @@ class RentalEvent(models.Model):
         (AGREEMENT_CLOSED, "Agreement closed"),
         (HANDOVER_UPDATED, "Device handover details changed"),
         (CHANGES_REQUESTED, "Customer requested changes"),
+        (PAYMENT_PLAN_CHANGED, "Payment plan changed"),
     ]
 
     rental = models.ForeignKey(Rental, on_delete=models.CASCADE, related_name="events")

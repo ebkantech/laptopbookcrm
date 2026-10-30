@@ -45,7 +45,7 @@ class DeviceHandoverTests(TestCase):
         response = self.link()
         self.assertEqual(response.status_code, 400)
         issues = response.json()["devices"]["AST-HO-1 (Dell Latitude 5420)"]
-        self.assertTrue(any("Photos missing" in i for i in issues))
+        self.assertTrue(any("Photo missing" in i for i in issues))
         self.assertTrue(any("working condition" in i for i in issues))
 
     def test_fill_in_handover_through_the_api(self):
@@ -63,7 +63,7 @@ class DeviceHandoverTests(TestCase):
         }, format="json")
         self.assertEqual(response.status_code, 200, response.content)
         issues = response.json()["issues"]
-        self.assertTrue(any("Photos missing" in i for i in issues))
+        self.assertTrue(any("Photo missing" in i for i in issues))
         self.assertTrue(any("accessories" in i for i in issues))
 
         for kind, _ in RentalLinePhoto.REQUIRED_KINDS:
@@ -72,6 +72,20 @@ class DeviceHandoverTests(TestCase):
         self.assertEqual(self.manager.get(f"{self.url}/handover/").json()["issues"], [])
         self.line.refresh_from_db()
         self.assertEqual(self.line.handover_by, self.manager_user)
+
+    def test_one_photo_per_device_and_one_for_accessories(self):
+        self.assertEqual(self.upload("front").status_code, 201)
+        second = self.upload("front")
+        self.assertEqual(second.status_code, 400)
+        self.assertIn("Only one photo", second.json()["detail"])
+        self.assertEqual(self.upload("lid").status_code, 400)   # the old extra sides are no longer offered
+        self.assertEqual(self.upload("accessory").status_code, 201)
+        self.assertEqual(self.upload("accessory").status_code, 400)
+        meta = self.manager.get(f"{self.url}/handover/").json()["meta"]
+        self.assertEqual([k["key"] for k in meta["photo_kinds"]], ["front", "accessory"])
+        self.assertEqual(meta["required_photo_kinds"], ["front"])
+        # one device photo is all the handover needs
+        self.assertFalse(any("Photo" in i for i in self.manager.get(f"{self.url}/handover/").json()["issues"]))
 
     def test_validation(self):
         bad = self.manager.patch(f"{self.url}/handover/", {"checks": {"teleporter": True}}, format="json")
@@ -110,7 +124,7 @@ class DeviceHandoverTests(TestCase):
         self.assertTrue(all(c["ok"] for c in item["checks"]))
         self.assertEqual(item["accessories"], [{"name": "Charger", "serial": "CH-1"}])
         self.assertEqual(item["warranty"], {"included": True, "months": 6, "terms": "Swap within 48h."})
-        self.assertEqual(len(item["photos"]), 7)
+        self.assertEqual(len(item["photos"]), 2)
 
         photo_id = item["photos"][0]["id"]
         self.assertEqual(APIClient().get(f"/api/public/rental-approvals/{token}/photos/{photo_id}/").status_code, 200)

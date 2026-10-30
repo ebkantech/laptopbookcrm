@@ -1,10 +1,18 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Package, Plus, Trash2, X } from "lucide-react";
 
 import { api } from "../../lib/api";
 import { C, todayISO } from "../../lib/theme";
 import { ErrorNote, Eyebrow } from "../Atoms";
+import { ASSET_LIMITS, LIMITS, describeServerError, validateAgreement, validateAssetDraft, validateInventoryPick } from "./agreementValidation";
 
+
+// inline message under a field (only rendered when there is one)
+function FieldError({ id, message }) {
+  if (!message) return null;
+  return <p id={id} role="alert" className="mt-1 text-xs" style={{ color: C.carbon, fontWeight: 600 }}>{message}</p>;
+}
+const boxStyle = (message) => ({ border: `1px solid ${message ? C.carbon : C.rule}`, color: C.ink });
 
 const emptyAsset = { asset_tag: "", serial_number: "", brand: "", model_name: "" };
 
@@ -13,6 +21,8 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
   const [party, setParty] = useState("");
   const [start, setStart] = useState(todayISO());
   const [tenureMonths, setTenureMonths] = useState("1");
+  const [billingCycle, setBillingCycle] = useState("1");
+  const [autoInvoice, setAutoInvoice] = useState(true);
   const [terms, setTerms] = useState("");
   const [lines, setLines] = useState([{ asset_id: "", monthly_fee: "" }]);
   const [assetDraft, setAssetDraft] = useState(emptyAsset);
@@ -27,8 +37,30 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [existing, setExisting] = useState(null); // an already-registered asset matching the draft
+  const [draftErrors, setDraftErrors] = useState({}); // per-field messages for the two device sub-forms
 
   const availableAssets = useMemo(() => assets.filter((asset) => asset.status === "available"), [assets]);
+
+  // Validation runs live, but errors are only shown once the user has tried to save.
+  const [submitted, setSubmitted] = useState(false);
+  const [serverFields, setServerFields] = useState({});
+  const errorRef = useRef(null);
+  const assetLabel = (id) => assets.find((a) => String(a.id) === String(id))?.asset_tag || "Device";
+  const check = useMemo(
+    () => validateAgreement({ party, start, tenure: tenureMonths, billingCycle, autoInvoice, terms, lines }, { today: todayISO(), parties, assetLabel }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [party, start, tenureMonths, billingCycle, autoInvoice, terms, lines, parties, assets],
+  );
+  const shown = submitted ? check.errors : { lines: lines.map(() => ({})) };
+  const fieldError = (key, serverKey) => shown[key] || serverFields[serverKey];
+  const lineError = (index, key) => shown.lines[index]?.[key]
+    || [].concat(serverFields.lines?.[index]?.[key === "asset" ? "asset_id" : "monthly_fee"] || []).join(" ");
+  // editing anything clears the server's complaint about it
+  useEffect(() => { setServerFields({}); }, [party, start, tenureMonths, billingCycle, terms, lines]);
+  useEffect(() => { setDraftErrors({}); }, [assetDraft, invSerial, invTag, stockId]);
+  useEffect(() => { if (error) errorRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, [error]);
+  // a stray click on the backdrop must not throw away a half-filled agreement
+  const dirty = !!(party || terms || lines.some((l) => l.asset_id || l.monthly_fee) || tenureMonths !== "1" || billingCycle !== "1" || start !== todayISO());
   const selectedCount = lines.filter((line) => line.asset_id).length;
 
   const updateLine = (index, key, value) => {
@@ -55,8 +87,10 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
 
   const addAsset = async () => {
     setExisting(null);
-    if (["serial_number", "brand", "model_name"].some((key) => !assetDraft[key].trim())) {
-      setError("Serial number, brand and model are required. Leave the asset tag blank to generate one.");
+    const draftCheck = validateAssetDraft(assetDraft);
+    setDraftErrors(draftCheck.errors);
+    if (draftCheck.summary.length) {
+      setError(draftCheck.summary.join(" "));
       return;
     }
     // catch an already-registered device before asking the server
@@ -86,7 +120,9 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
         setExisting(asset);
         setError(describeExisting(asset));
       } else {
-        setError(Object.values(body).flat().join(" ") || requestError.message);
+        const { message, fields } = describeServerError(requestError);
+        setDraftErrors(fields);
+        setError(message);
       }
     } finally {
       setBusy(false);
@@ -109,8 +145,10 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
   };
 
   const takeFromInventory = async () => {
-    if (!stockId || !invSerial.trim()) {
-      setError("Pick the item and enter the serial number printed on this unit.");
+    const pick = validateInventoryPick({ stockId, serial: invSerial, tag: invTag });
+    setDraftErrors(pick.errors);
+    if (pick.summary.length) {
+      setError(pick.summary.join(" "));
       return;
     }
     setBusy(true);
@@ -124,8 +162,9 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
       setInvSerial("");
       setInvTag("");
     } catch (requestError) {
-      const body = requestError.body || {};
-      setError(Object.entries(body).filter(([k]) => k !== "existing_asset").map(([, v]) => [].concat(v).join(" ")).join(" ") || requestError.message);
+      const { message, fields } = describeServerError({ ...requestError, status: requestError.status, body: Object.fromEntries(Object.entries(requestError.body || {}).filter(([k]) => k !== "existing_asset")) });
+      setDraftErrors(fields);
+      setError(message);
     } finally {
       setBusy(false);
     }
@@ -133,11 +172,18 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
 
   const submit = async (event) => {
     event.preventDefault();
-    const selectedLines = lines.filter((line) => line.asset_id);
-    if (!party || !start || !tenureMonths || !selectedLines.length || selectedLines.some((line) => line.monthly_fee === "")) {
-      setError("Customer, start date, tenure, device and monthly fee are required.");
+    if (busy) return;
+    setSubmitted(true);
+    if (!check.valid) {
+      setError(
+        <>
+          <b>{check.errors.summary.length === 1 ? "Fix this before saving:" : `Fix these ${check.errors.summary.length} things before saving:`}</b>
+          <ul className="mt-1 list-disc pl-4 font-normal">{check.errors.summary.map((m, i) => <li key={i}>{m}</li>)}</ul>
+        </>,
+      );
       return;
     }
+    const selectedLines = lines.filter((line) => line.asset_id);
     setBusy(true);
     setError("");
     try {
@@ -145,26 +191,47 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
         party: Number(party),
         start,
         tenure_months: Number(tenureMonths),
+        payment_interval_months: Number(billingCycle),
+        auto_invoice: autoInvoice,
         terms: terms.trim(),
         lines: selectedLines.map((line) => ({ asset_id: Number(line.asset_id), monthly_fee: Number(line.monthly_fee) })),
       });
       onCreated(created);
     } catch (requestError) {
-      setError(Object.values(requestError.body || {}).flat().join(" ") || requestError.message);
+      const { message, fields } = describeServerError(requestError);
+      setServerFields(fields);
+      setError(message);
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto p-4" style={{ backgroundColor: "rgba(4,9,18,0.72)" }} onClick={onClose}>
-      <form onSubmit={submit} className="my-auto w-full max-w-2xl p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }} onClick={(event) => event.stopPropagation()}>
+    <div className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto p-4" style={{ backgroundColor: "rgba(4,9,18,0.72)" }} onClick={() => { if (!dirty && !busy) onClose(); }}>
+      <form noValidate onSubmit={submit} className="my-auto w-full max-w-2xl p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }} onClick={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between gap-3"><div><Eyebrow>New rental agreement</Eyebrow><p className="mt-1 text-xs" style={{ color: C.inkSoft }}>One device becomes Single; two or more become Bulk automatically. Next you'll record each device's condition, photos, accessories and warranty for the customer to approve.</p></div><button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={17} /></button></div>
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
-          <label className="text-xs" style={{ color: C.inkSoft }}>Customer<select value={party} onChange={(event) => setParty(event.target.value)} className="mt-1 w-full bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }}><option value="">Choose customer</option>{parties.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.customer_classification || "individual"}</option>)}</select></label>
-          <label className="text-xs" style={{ color: C.inkSoft }}>Start date<input type="date" value={start} onChange={(event) => setStart(event.target.value)} className="mt-1 w-full bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} /></label>
-          <label className="text-xs" style={{ color: C.inkSoft }}>Tenure (months)<input type="number" min="1" value={tenureMonths} onChange={(event) => setTenureMonths(event.target.value)} className="mt-1 w-full bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} /></label>
+          <label className="text-xs" style={{ color: C.inkSoft }}>Customer<select value={party} aria-invalid={!!fieldError("party", "party")} aria-describedby="err-party" onChange={(event) => setParty(event.target.value)} className="mt-1 w-full bg-transparent p-2 text-sm" style={boxStyle(fieldError("party", "party"))}><option value="">Choose customer</option>{parties.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.customer_classification || "individual"}</option>)}</select><FieldError id="err-party" message={fieldError("party", "party")} /></label>
+          <label className="text-xs" style={{ color: C.inkSoft }}>Start date<input type="date" value={start} aria-invalid={!!fieldError("start", "start")} aria-describedby="err-start" onChange={(event) => setStart(event.target.value)} className="mt-1 w-full bg-transparent p-2 text-sm" style={boxStyle(fieldError("start", "start"))} /><FieldError id="err-start" message={fieldError("start", "start")} /></label>
+          <label className="text-xs" style={{ color: C.inkSoft }}>Tenure (months)<input type="number" inputMode="numeric" min="1" max={LIMITS.tenureMax} step="1" value={tenureMonths} aria-invalid={!!fieldError("tenure", "tenure_months")} aria-describedby="err-tenure" onChange={(event) => setTenureMonths(event.target.value)} className="mt-1 w-full bg-transparent p-2 text-sm" style={boxStyle(fieldError("tenure", "tenure_months"))} /><FieldError id="err-tenure" message={fieldError("tenure", "tenure_months")} /></label>
         </div>
+        <div className="mt-3 flex flex-wrap items-end gap-x-4 gap-y-2">
+          <label className="text-xs" style={{ color: C.inkSoft }}>Recurring payment
+            <select value={billingCycle} aria-invalid={!!fieldError("billingCycle", "payment_interval_months")} onChange={(event) => setBillingCycle(event.target.value)} className="mt-1 block bg-transparent p-2 text-sm" style={boxStyle(fieldError("billingCycle", "payment_interval_months"))}>
+              <option value="1">Every month</option><option value="3">Every 3 months</option><option value="6">Every 6 months</option><option value="12">Every 12 months</option>
+            </select>
+            <FieldError message={fieldError("billingCycle", "payment_interval_months")} />
+          </label>
+          <label className="flex items-center gap-1.5 pb-2 text-xs" style={{ color: C.inkSoft }}>
+            <input type="checkbox" checked={autoInvoice} onChange={(event) => setAutoInvoice(event.target.checked)} />
+            Send each invoice to the client automatically before it is due
+          </label>
+        </div>
+        {check.warnings.length > 0 && (
+          <div role="status" className="mt-3 space-y-1 rounded-xl px-3 py-2 text-xs" style={{ border: `1px solid ${C.amber}88`, backgroundColor: `${C.amber}12`, color: C.ink }}>
+            {check.warnings.map((w, i) => <p key={i}>⚠ {w}</p>)}
+          </div>
+        )}
         <div className="mt-5 flex items-center justify-between"><Eyebrow>Devices · {selectedCount >= 2 ? "Bulk" : "Single"}</Eyebrow><div className="flex items-center gap-3"><button type="button" onClick={openInventory} className="flex items-center gap-1 text-xs" style={{ color: C.orange, fontWeight: 600 }}><Package size={12} /> Rent out from inventory</button><button type="button" onClick={() => { setShowAssetForm((value) => !value); setShowInventory(false); }} className="flex items-center gap-1 text-xs" style={{ color: C.orange }}><Plus size={12} /> Register device not in inventory</button></div></div>
         {showInventory && (
           <div className="mt-2 space-y-2 p-3 rounded-xl" style={{ backgroundColor: C.slip2 }}>
@@ -172,15 +239,16 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
             {!stockRows ? <p className="text-xs" style={{ color: C.inkSoft }}>Loading inventory…</p> : (
               <>
                 <input value={stockQuery} onChange={(e) => setStockQuery(e.target.value)} placeholder="Search product, spec or shop" className="w-full bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} />
-                <select value={stockId} onChange={(e) => setStockId(e.target.value)} size={Math.min(6, Math.max(2, stockRows.length))} className="w-full bg-transparent p-1 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }}>
+                <select value={stockId} aria-invalid={!!draftErrors.stock} onChange={(e) => setStockId(e.target.value)} size={Math.min(6, Math.max(2, stockRows.length))} className="w-full bg-transparent p-1 text-sm" style={boxStyle(draftErrors.stock)}>
                   {stockRows
                     .filter((r) => !stockQuery.trim() || `${r.label} ${r.code} ${r.shop}`.toLowerCase().includes(stockQuery.trim().toLowerCase()))
                     .map((r) => <option key={r.id} value={r.id}>{r.label} — {r.shop} ({r.qty} in stock{r.location ? `, ${r.location}` : ""})</option>)}
                 </select>
+                <FieldError message={draftErrors.stock} />
                 {!stockRows.length && <p className="text-xs" style={{ color: C.carbon }}>Nothing is in stock in Inventory right now.</p>}
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <label className="text-xs" style={{ display: "block", color: C.inkSoft }}>Serial number of this unit *<input value={invSerial} onChange={(e) => setInvSerial(e.target.value)} placeholder="from the label under the laptop" className="mt-1 w-full bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} /></label>
-                  <label className="text-xs" style={{ display: "block", color: C.inkSoft }}>Asset tag (optional)<input value={invTag} onChange={(e) => setInvTag(e.target.value)} placeholder="blank = generate AST-####" className="mt-1 w-full bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} /></label>
+                  <label className="text-xs" style={{ display: "block", color: C.inkSoft }}>Serial number of this unit *<input value={invSerial} maxLength={ASSET_LIMITS.serial_number + 20} aria-invalid={!!draftErrors.serial_number} onChange={(e) => setInvSerial(e.target.value)} placeholder="from the label under the laptop" className="mt-1 w-full bg-transparent p-2 text-sm" style={boxStyle(draftErrors.serial_number)} /><FieldError message={draftErrors.serial_number} /></label>
+                  <label className="text-xs" style={{ display: "block", color: C.inkSoft }}>Asset tag (optional)<input value={invTag} maxLength={ASSET_LIMITS.asset_tag + 20} aria-invalid={!!draftErrors.asset_tag} onChange={(e) => setInvTag(e.target.value)} placeholder="blank = generate AST-####" className="mt-1 w-full bg-transparent p-2 text-sm" style={boxStyle(draftErrors.asset_tag)} /><FieldError message={draftErrors.asset_tag} /></label>
                 </div>
                 <button type="button" disabled={busy} onClick={takeFromInventory} className="w-full p-2 text-xs" style={{ backgroundColor: C.carbon, color: C.onAccent }}>{busy ? "Taking from stock…" : "Take 1 from stock and add to this agreement"}</button>
               </>
@@ -190,7 +258,7 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
         {showAssetForm && <div className="mt-2 grid gap-2 p-3 sm:grid-cols-2 rounded-xl" style={{ backgroundColor: C.slip2 }}>
           {[["asset_tag", "Asset tag (optional)", "Unique sticker ID, e.g. AST-0042 — blank = generate"], ["serial_number", "Serial number *", "From the label under the laptop"], ["brand", "Brand *", "e.g. Apple"], ["model_name", "Model *", "e.g. MacBook Air M2 2022"]].map(([key, label, hint]) => (
             <label key={key} className="text-xs" style={{ display: "block", color: C.inkSoft }}>{label}
-              <input value={assetDraft[key]} onChange={(event) => setAssetDraft((draft) => ({ ...draft, [key]: event.target.value }))} placeholder={hint} className="mt-1 w-full bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} />
+              <input value={assetDraft[key]} maxLength={ASSET_LIMITS[key] + 20} aria-invalid={!!draftErrors[key]} onChange={(event) => setAssetDraft((draft) => ({ ...draft, [key]: event.target.value }))} placeholder={hint} className="mt-1 w-full bg-transparent p-2 text-sm" style={boxStyle(draftErrors[key])} /><FieldError message={draftErrors[key]} />
             </label>
           ))}
           <button type="button" disabled={busy} onClick={addAsset} className="p-2 text-xs sm:col-span-2" style={{ backgroundColor: C.carbon, color: C.onAccent }}>Save asset and select it</button>
@@ -198,10 +266,10 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
             <button type="button" onClick={() => selectAsset(existing)} className="p-2 text-xs sm:col-span-2" style={{ border: `1px solid ${C.green}`, color: C.green, fontWeight: 600 }}>Use {existing.asset_tag} on this agreement</button>
           )}
         </div>}
-        <div className="mt-2 space-y-2">{lines.map((line, index) => <div key={index} className="grid grid-cols-[1fr_130px_32px] gap-2"><select value={line.asset_id} onChange={(event) => updateLine(index, "asset_id", event.target.value)} className="bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }}><option value="">{availableAssets.length ? "Choose an available rental device" : "No free rental devices — rent one out from inventory above"}</option>{availableAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.asset_tag} · {asset.brand} {asset.model_name} · {asset.serial_number}</option>)}</select><input type="number" min="0" value={line.monthly_fee} onChange={(event) => updateLine(index, "monthly_fee", event.target.value)} placeholder="₹ / month" className="bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} /><button type="button" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, position) => position !== index))}><Trash2 size={15} /></button></div>)}</div>
+        <div className="mt-2 space-y-2">{lines.map((line, index) => <div key={index}><div className="grid grid-cols-[1fr_130px_32px] gap-2"><select value={line.asset_id} aria-label={`Device ${index + 1}`} aria-invalid={!!lineError(index, "asset")} onChange={(event) => updateLine(index, "asset_id", event.target.value)} className="bg-transparent p-2 text-sm" style={boxStyle(lineError(index, "asset"))}><option value="">{availableAssets.length ? "Choose an available rental device" : "No free rental devices — rent one out from inventory above"}</option>{availableAssets.map((asset) => <option key={asset.id} value={asset.id} disabled={lines.some((other, position) => position !== index && other.asset_id === String(asset.id))}>{asset.asset_tag} · {asset.brand} {asset.model_name} · {asset.serial_number}</option>)}</select><input type="number" inputMode="numeric" min="1" max={LIMITS.feeMax} step="1" aria-label={`Monthly fee for device ${index + 1}`} aria-invalid={!!lineError(index, "fee")} value={line.monthly_fee} onChange={(event) => updateLine(index, "monthly_fee", event.target.value)} placeholder="₹ / month" className="bg-transparent p-2 text-sm" style={boxStyle(lineError(index, "fee"))} /><button type="button" aria-label={`Remove device ${index + 1}`} disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, position) => position !== index))}><Trash2 size={15} /></button></div><FieldError message={lineError(index, "asset")} /><FieldError message={lineError(index, "fee")} /></div>)}<FieldError message={shown.devices} /></div>
         <button type="button" onClick={() => setLines((current) => [...current, { asset_id: "", monthly_fee: "" }])} className="mt-2 flex items-center gap-1 text-xs" style={{ color: C.orange }}><Plus size={12} /> Add another device</button>
-        <label className="mt-4 block text-xs" style={{ color: C.inkSoft }}>Terms (optional)<textarea value={terms} onChange={(event) => setTerms(event.target.value)} rows={3} className="mt-1 w-full resize-none bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} /></label>
-        <ErrorNote message={error} />
+        <label className="mt-4 block text-xs" style={{ color: C.inkSoft }}>Terms (optional)<textarea value={terms} maxLength={LIMITS.termsMax + 200} aria-invalid={!!fieldError("terms", "terms")} onChange={(event) => setTerms(event.target.value)} rows={3} className="mt-1 w-full resize-none bg-transparent p-2 text-sm" style={boxStyle(fieldError("terms", "terms"))} /><span className="mt-0.5 flex justify-between text-xs"><FieldError message={fieldError("terms", "terms")} /><span style={{ marginLeft: "auto", color: terms.length > LIMITS.termsMax ? C.carbon : C.inkSoft }}>{terms.length}/{LIMITS.termsMax}</span></span></label>
+        <div ref={errorRef}><ErrorNote message={error} /></div>
         <button disabled={busy} className="mt-4 w-full py-3 text-sm" style={{ backgroundColor: C.green, color: C.onAccent, opacity: busy ? 0.65 : 1 }}>{busy ? "Saving…" : `Create ${selectedCount >= 2 ? "Bulk" : "Single"} agreement`}</button>
       </form>
     </div>

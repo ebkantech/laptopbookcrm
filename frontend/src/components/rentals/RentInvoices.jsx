@@ -94,7 +94,7 @@ export default function RentInvoices({ rental, canRaise, onChanged }) {
             </select>
           </label>
           <button onClick={raise} disabled={busy || !shopId} className="flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase" style={{ backgroundColor: C.green, color: C.onAccent, fontFamily: F.body, fontWeight: 600, opacity: busy || !shopId ? 0.6 : 1 }}>
-            <Send size={12} /> {busy ? "Raising…" : `Raise & send ${money(rental.total_monthly_fee ?? rental.monthly_fee)}`}
+            <Send size={12} /> {busy ? "Raising…" : `Raise & send ${money(next?.amount ?? rental.total_monthly_fee ?? rental.monthly_fee)}`}
           </button>
           <button onClick={() => setOpen(false)} className="text-xs underline" style={{ fontFamily: F.body, color: C.inkSoft }}>Cancel</button>
         </div>

@@ -1,6 +1,6 @@
 """
 Device handover for rental agreements: working-condition checks, photos
-of every side + serial label + accessories, the accessories list, and the
+of the device + accessories, the accessories list, and the
 shop's warranty for the tenure. All of it is snapshotted into the
 customer's approval (services._snapshot), so it's only editable before
 approval, and editing withdraws any pending approval link.
@@ -102,7 +102,7 @@ class HandoverSerializer(serializers.ModelSerializer):
 def _meta():
     return {
         "checks": [{"key": k, "label": label} for k, label in RentalLine.CHECKS],
-        "photo_kinds": [{"key": k, "label": label} for k, label in RentalLinePhoto.KIND_CHOICES],
+        "photo_kinds": [{"key": k, "label": label} for k, label in RentalLinePhoto.UPLOAD_KINDS],
         "required_photo_kinds": [k for k, _ in RentalLinePhoto.REQUIRED_KINDS],
     }
 
@@ -165,8 +165,10 @@ class RentalLinePhotoUploadView(APIView):
         if locked:
             return locked
         kind = request.data.get("kind")
-        if kind not in dict(RentalLinePhoto.KIND_CHOICES):
+        if kind not in dict(RentalLinePhoto.UPLOAD_KINDS):
             return Response({"detail": "Choose what this photo shows."}, status=400)
+        if line.photos.filter(kind=kind).exists():
+            return Response({"detail": "Only one photo is kept here. Remove the current one to add another."}, status=400)
         upload = request.FILES.get("image")
         if not upload:
             return Response({"detail": "Attach a photo."}, status=400)
