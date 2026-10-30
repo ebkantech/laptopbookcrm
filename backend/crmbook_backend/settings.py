@@ -180,6 +180,9 @@ BUSINESS_PHONE = os.environ.get("BUSINESS_PHONE", "")
 BUSINESS_EMAIL = os.environ.get("BUSINESS_EMAIL", "")
 # Days a customer has to pay a sale or repair invoice before it's Overdue.
 INVOICE_DUE_DAYS = int(os.environ.get("INVOICE_DUE_DAYS", 7))
+# Staff Activity Logs: may a superuser read ANOTHER superuser's logs? Off
+# by default -- a superuser sees their own and non-superusers' logs only.
+ACTIVITY_LOGS_SUPERUSER_PEERS = env_bool("ACTIVITY_LOGS_SUPERUSER_PEERS", False)
 
 # Set PUBLIC_FRONTEND_URL to the HTTPS customer-facing frontend origin in production.
 PUBLIC_FRONTEND_URL = os.environ.get("PUBLIC_FRONTEND_URL", "http://localhost:5174")
@@ -204,6 +207,8 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # Staff Activity Logs: records successful API writes (accounts.activity)
+    'accounts.activity.ActivityLogMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -296,6 +301,12 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", BASE_DIR / "media"))
 # Phone camera photos are a few MB; leave headroom for the multipart body.
 DATA_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
+# Expense attachments (accounting.expenses): JPG / PNG / PDF, checked by
+# content. Stored under MEDIA_ROOT and streamed only to authorised staff.
+EXPENSE_ATTACHMENT_MAX_BYTES = int(os.environ.get("EXPENSE_ATTACHMENT_MAX_MB", 10)) * 1024 * 1024
+EXPENSE_ATTACHMENT_MAX_COUNT = int(os.environ.get("EXPENSE_ATTACHMENT_MAX_COUNT", 10))
+EXPENSE_BULK_MAX_ENTRIES = int(os.environ.get("EXPENSE_BULK_MAX_ENTRIES", 50))
+EXPENSE_BULK_MAX_FILES = int(os.environ.get("EXPENSE_BULK_MAX_FILES", 100))
 
 # ---------------------------------------------------------------- #
 # Email (still console backend until a real provider is wired --

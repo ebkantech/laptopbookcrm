@@ -5,12 +5,29 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from accounts.permissions import HasPerm
+from accounts.store_scope import StoreScope, StoreScopedMixin
 from .models import BankAccount, BankEntry, CashEntry
 from .serializers import BankAccountSerializer, BankEntrySerializer, CashEntrySerializer
 
 
-class CashEntryViewSet(viewsets.ModelViewSet):
-    queryset = CashEntry.objects.select_related("by", "invoice", "refund__invoice").all()
+# Cash and bank books are business-wide. The only reliable store link an
+# entry has is the invoice (or refund's invoice) or the expense it was
+# posted from, so store staff see those entries for their own store; manual
+# entries, shared expenses and bank accounts (whose balances mix every
+# store) are Owner-only.
+LEDGER_STORE_LOOKUPS = (
+    "invoice__stock_point", "refund__invoice__stock_point",
+    "expense_payment__expense__stock_point", "expense_reversal__expense__stock_point",
+)
+MANUAL_ENTRY_DETAIL = "Manual cash and bank entries aren't tied to a store, so only the Owner can record them."
+
+
+class CashEntryViewSet(StoreScopedMixin, viewsets.ModelViewSet):
+    store_lookups = LEDGER_STORE_LOOKUPS
+    store_payload_field = None
+    queryset = CashEntry.objects.select_related(
+        "by", "invoice", "refund__invoice", "expense_payment__expense", "expense_reversal__expense",
+    ).all()
     serializer_class = CashEntrySerializer
     permission_classes = [permissions.IsAuthenticated, HasPerm]
     required_perms = {
@@ -20,6 +37,7 @@ class CashEntryViewSet(viewsets.ModelViewSet):
     }
 
     def perform_create(self, serializer):
+        self.store_scope.require_owner(MANUAL_ENTRY_DETAIL)
         serializer.save(by=self.request.user)
 
     def perform_update(self, serializer):
@@ -37,6 +55,9 @@ def _refuse_if_posted(entry):
         raise ValidationError({"detail": f"This entry was posted from invoice {entry.invoice.code} and can't be changed here."})
     if entry.refund_id:
         raise ValidationError({"detail": f"This entry is a refund on invoice {entry.refund.invoice.code} and can't be changed here."})
+    payment = entry.expense_payment or entry.expense_reversal
+    if payment is not None:
+        raise ValidationError({"detail": f"This entry was posted from expense {payment.expense.code} and can't be changed here."})
 
 
 class BankAccountViewSet(viewsets.ModelViewSet):
@@ -51,8 +72,14 @@ class BankAccountViewSet(viewsets.ModelViewSet):
         "create": "bankbook.edit", "partial_update": "bankbook.edit",
     }
 
+    def get_queryset(self):
+        # an account's balance and entries span every store -- Owner only
+        qs = super().get_queryset()
+        return qs if StoreScope(self.request.user).all else qs.none()
+
     @transaction.atomic
     def perform_create(self, serializer):
+        StoreScope(self.request.user).require_owner("Bank accounts are business-wide -- only the Owner can add one.")
         account = serializer.save()
         self._single_default(account)
 
@@ -70,7 +97,9 @@ class BankAccountViewSet(viewsets.ModelViewSet):
             account.save(update_fields=["is_default"])
 
 
-class BankEntryViewSet(viewsets.ModelViewSet):
+class BankEntryViewSet(StoreScopedMixin, viewsets.ModelViewSet):
+    store_lookups = LEDGER_STORE_LOOKUPS
+    store_payload_field = None
     queryset = BankEntry.objects.select_related("account").all()
     serializer_class = BankEntrySerializer
     permission_classes = [permissions.IsAuthenticated, HasPerm]
@@ -82,11 +111,15 @@ class BankEntryViewSet(viewsets.ModelViewSet):
     }
 
     def get_queryset(self):
-        qs = super().get_queryset().select_related("invoice", "refund__invoice")
+        qs = super().get_queryset().select_related("invoice", "refund__invoice", "expense_payment__expense", "expense_reversal__expense")
         account = self.request.query_params.get("account")
         if account:
             qs = qs.filter(account_id=account)
         return qs
+
+    def perform_create(self, serializer):
+        self.store_scope.require_owner(MANUAL_ENTRY_DETAIL)
+        serializer.save()
 
     def perform_update(self, serializer):
         _refuse_if_posted(serializer.instance)

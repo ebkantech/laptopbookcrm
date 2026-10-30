@@ -12,3 +12,16 @@ backend/**/*.pyc
 frontend/node_modules/
 frontend/dist/
 frontend/.env
+
+crmbook_data_only.sql
+crmbook_restore.sql
+crmbook.sql
+laptopbookcrm_local_backup.dump
+migrations_data.sql
+
+backend/crmbook_before_catalog_0005_20261030_201350.dump
+backend/crmbook_before_catalog_0006_20261030_205035.dump
+backend/crmbook_before_expense_migrations_20261030_191103.dump
+backend/crmbook_data_only.dump
+backend/crmbook_fresh.dump
+backend/crmbook_schema.sql

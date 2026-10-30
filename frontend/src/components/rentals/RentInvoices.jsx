@@ -29,7 +29,7 @@ export default function RentInvoices({ rental, canRaise, onChanged }) {
     setOpen(true);
     if (!shops) {
       try {
-        const all = await api.getAll("/stock-points/");
+        const all = await api.getAll("/stock-points/?active=1");
         setShops(all);
         setShopId(String(all.find((s) => s.kind === "shop")?.id ?? all[0]?.id ?? ""));
       } catch (e) {

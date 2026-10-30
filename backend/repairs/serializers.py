@@ -4,6 +4,7 @@ from rest_framework import serializers
 
 from catalog.models import Service, StockPoint
 from catalog.serializers import ServiceSerializer
+from catalog.status import require_active
 from parties.models import Party
 from sales.models import Invoice
 from .models import (
@@ -67,6 +68,10 @@ class CreateRepairOrderSerializer(serializers.Serializer):
     expected = serializers.DateField(required=False, allow_null=True)
     payment = serializers.ChoiceField(choices=RepairTicket.PAYMENT_CHOICES, default=RepairTicket.ADVANCE)
     devices = RepairOrderDeviceInputSerializer(many=True, allow_empty=False)
+
+    def validate_stock_point(self, value):
+        require_active(value, "repair orders")
+        return value
 
     def validate_devices(self, devices):
         serials = [device["serial"].casefold() for device in devices]
@@ -241,6 +246,12 @@ class RepairTicketSerializer(serializers.ModelSerializer):
         ]
         # advance_paid only changes when the advance invoice is paid or refunded
         read_only_fields = ["code", "status", "advance_paid"]
+
+    def validate_stock_point(self, value):
+        # no new drop-off at an inactive shop; an existing ticket keeps its
+        # shop (and stays fully workable) whatever that shop's status
+        require_active(value, "repair tickets", current=self.instance.stock_point_id if self.instance else None)
+        return value
 
     def validate(self, attrs):
         if self.instance is None:

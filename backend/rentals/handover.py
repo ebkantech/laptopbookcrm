@@ -14,8 +14,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import HasPerm
+from accounts.store_scope import StoreScope
 
-from .models import RentalLine, RentalLinePhoto
+from .models import Rental, RentalLine, RentalLinePhoto
+from .scope import rental_queryset_for
 from .services import HANDOVER_EDITABLE, get_public_approval, handover_changed
 
 MAX_PHOTO_BYTES = 10 * 1024 * 1024
@@ -107,9 +109,15 @@ def _meta():
     }
 
 
-def _line(pk):
+def _scoped_rentals(user):
+    # a device line / photo belongs to whichever store its agreement does
+    return rental_queryset_for(StoreScope(user), Rental.objects.all())
+
+
+def _line(pk, user):
     return get_object_or_404(
-        RentalLine.objects.select_related("rental", "asset", "handover_by").prefetch_related("photos"), pk=pk,
+        RentalLine.objects.filter(rental__in=_scoped_rentals(user))
+        .select_related("rental", "asset", "handover_by").prefetch_related("photos"), pk=pk,
     )
 
 
@@ -138,10 +146,10 @@ class RentalLineHandoverView(APIView):
         return "rentals.view" if self.request.method == "GET" else "rentals.manage"
 
     def get(self, request, pk):
-        return Response({**HandoverSerializer(_line(pk)).data, "meta": _meta()})
+        return Response({**HandoverSerializer(_line(pk, request.user)).data, "meta": _meta()})
 
     def patch(self, request, pk):
-        line = _line(pk)
+        line = _line(pk, request.user)
         locked = _locked(line)
         if locked:
             return locked
@@ -149,7 +157,7 @@ class RentalLineHandoverView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         revoked = _changed(line, request.user, "details")
-        line = _line(pk)
+        line = _line(pk, request.user)
         return Response({**HandoverSerializer(line).data, "meta": _meta(), "approval_link_revoked": revoked})
 
 
@@ -160,7 +168,7 @@ class RentalLinePhotoUploadView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request, pk):
-        line = _line(pk)
+        line = _line(pk, request.user)
         locked = _locked(line)
         if locked:
             return locked
@@ -203,10 +211,12 @@ class RentalLinePhotoView(APIView):
         return "rentals.view" if self.request.method == "GET" else "rentals.manage"
 
     def get(self, request, pk):
-        return _photo_response(get_object_or_404(RentalLinePhoto, pk=pk))
+        return _photo_response(get_object_or_404(RentalLinePhoto, pk=pk, line__rental__in=_scoped_rentals(request.user)))
 
     def delete(self, request, pk):
-        photo = get_object_or_404(RentalLinePhoto.objects.select_related("line__rental"), pk=pk)
+        photo = get_object_or_404(
+            RentalLinePhoto.objects.select_related("line__rental"), pk=pk, line__rental__in=_scoped_rentals(request.user),
+        )
         line = photo.line
         locked = _locked(line)
         if locked:

@@ -16,7 +16,8 @@ from sales.services import mark_overdue
 @mock.patch.dict(os.environ, {"PAYMENT_PROVIDER": "sandbox", "UPI_LOOKUP_PROVIDER": "sandbox", "WHATSAPP_PROVIDER": "console"})
 class InvoiceLifecycleTests(TestCase):
     def setUp(self):
-        self.staff = client_for(make_user("seller", ["invoices.view", "invoices.create", "invoices.settle", "payments.send_link", "rentals.view", "rentals.manage"]))
+        # sells at two shops and bills rentals: an Owner-role account with these perms
+        self.staff = client_for(make_user("seller", ["invoices.view", "invoices.create", "invoices.settle", "payments.send_link", "rentals.view", "rentals.manage"], owner=True))
         self.shop = StockPoint.objects.create(slug="shop", name="Main Shop", kind=StockPoint.SHOP)
         self.other_shop = StockPoint.objects.create(slug="other", name="Other Shop", kind=StockPoint.SHOP)
         self.party = Party.objects.create(name="Buyer", type=Party.RENTAL, phone="9876543211", joined=date.today())
@@ -98,5 +99,5 @@ class InvoiceLifecycleTests(TestCase):
 
     def test_cancel_needs_permission(self):
         inv_id = self.sell([{"variant": self.b.id, "qty": 1, "price": 1}]).json()["id"]
-        viewer = client_for(make_user("viewer", ["invoices.view"]))
+        viewer = client_for(make_user("viewer", ["invoices.view"], stock_point=self.shop))
         self.assertEqual(viewer.post(f"/api/invoices/{inv_id}/cancel/", {"reason": "x"}, format="json").status_code, 403)

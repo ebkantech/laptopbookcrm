@@ -10,7 +10,8 @@ from rentals.models import RentalAsset
 
 class ReturnToInventoryTests(TestCase):
     def setUp(self):
-        self.client_ = client_for(make_user("renter", ["rentals.view", "rentals.manage"]))
+        # returns devices to a different shop too, so an Owner-role account
+        self.client_ = client_for(make_user("renter", ["rentals.view", "rentals.manage"], owner=True))
         self.shop = StockPoint.objects.create(slug="shop", name="Main Shop", kind=StockPoint.SHOP)
         self.other = StockPoint.objects.create(slug="other", name="Other Shop", kind=StockPoint.SHOP)
         product = Product.objects.create(model_name="ThinkPad T14", brand="Lenovo", product_code="P-1")

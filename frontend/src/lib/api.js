@@ -24,7 +24,12 @@ async function responseError(res, fallback) {
   try { body = raw ? JSON.parse(raw) : {}; } catch { /* Django can return an HTML CSRF rejection page. */ }
   const csrfFailure = /CSRF (?:verification failed|cookie not set|token missing|token incorrect|Failed)|Origin checking failed/i.test(`${body.detail || ""} ${raw}`);
   if (csrfFailure) body = { ...body, code: "csrf_failed", detail: "Django rejected this request during CSRF validation." };
-  const err = new Error(body.detail || res.statusText || fallback);
+  // DRF field errors ({"stock_point": ["... is inactive ..."]}) carry the
+  // useful message when there's no `detail` -- show the first one.
+  const fieldMessage = body && typeof body === "object"
+    ? Object.entries(body).filter(([k]) => k !== "code").map(([, v]) => (Array.isArray(v) ? v.find((m) => typeof m === "string") : typeof v === "string" ? v : null)).find(Boolean)
+    : null;
+  const err = new Error(body.detail || fieldMessage || res.statusText || fallback);
   err.status = res.status;
   err.body = body;
   return err;
@@ -180,6 +185,12 @@ export const api = {
     const data = await res.json();
     setTokens(data.access, data.refresh);
     return true;
+  },
+
+  // After a self-service password change the server signs out every other
+  // session and hands this one a fresh token pair -- keep using it.
+  adoptTokens(access, refresh) {
+    if (access && refresh) setTokens(access, refresh);
   },
 
   async logout() {

@@ -7,6 +7,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from catalog.models import StockPoint
 from crmbook_backend.testing import client_for, complete_handover, make_user
 from parties.models import Party
 from rentals.models import Rental, RentalApproval, RentalAsset, RentalEvent, RentalLine
@@ -25,7 +26,8 @@ class RentalChangeRequestTests(TestCase):
         shutil.rmtree(TEST_MEDIA, ignore_errors=True)
 
     def setUp(self):
-        self.manager_user = make_user("rental-cr-manager", ["rentals.view", "rentals.manage"])
+        self.shop = StockPoint.objects.create(slug="cr-shop", name="CR Shop", kind=StockPoint.SHOP)
+        self.manager_user = make_user("rental-cr-manager", ["rentals.view", "rentals.manage"], stock_point=self.shop)
         self.manager = client_for(self.manager_user)
         self.party = Party.objects.create(name="Change Request Co", type=Party.RENTAL, phone="9876543210", joined=date.today())
         self.rental = self._rental("RNT-CR-1", "SN-CR-1")
@@ -38,7 +40,7 @@ class RentalChangeRequestTests(TestCase):
             start=date.today(), tenure_months=6, last_payment=date.today(),
         )
         asset = RentalAsset.objects.create(asset_tag=f"AST-{serial}", serial_number=serial, brand="Dell",
-                                           model_name="Latitude 5420", status=RentalAsset.RESERVED)
+                                           model_name="Latitude 5420", status=RentalAsset.RESERVED, source_stock_point=self.shop)
         complete_handover(RentalLine.objects.create(rental=rental, asset=asset, monthly_fee=2000), self.manager_user)
         return rental
 

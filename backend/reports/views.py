@@ -1,19 +1,25 @@
 from collections import defaultdict
 from datetime import date
 
-from django.db.models import Count
+from django.db.models import Count, Prefetch
+from django.utils import timezone
 from rest_framework import permissions
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import HasPerm
-from catalog.models import Product, StockPoint
+from accounts.store_scope import StoreScope
+from catalog.models import StockPoint
+from catalog.views import product_queryset
 from parties.models import Party
 from portal.models import Feedback, PortalAccessLog
 from rentals.models import Rental, RentalAsset
+from rentals.scope import rental_queryset_for
 from repairs.models import RepairTicket
 from sales.models import Invoice
 from sales.services import mark_overdue
+from . import profit_loss
 from .utils import last_n_months, month_label
 
 # Task 7: both reports below are gated the same way, matching the
@@ -29,6 +35,12 @@ from .utils import last_n_months, month_label
 # Staff as intended viewers of those two.
 REPORT_MONTHS = 12
 
+# Store scope: every report below is computed only from records the
+# requesting account's store owns (accounts.store_scope) -- the Owner sees
+# the whole business, store staff their own store, unassigned staff nothing.
+# The feedback & portal report is the exception: Feedback and portal logs
+# carry no store link at all, so there is nothing store-owned to filter.
+
 
 class FinancialSummaryReportView(APIView):
     """
@@ -43,17 +55,20 @@ class FinancialSummaryReportView(APIView):
         months = last_n_months(REPORT_MONTHS)
         range_start = date(months[0][0], months[0][1], 1)
 
+        scope = StoreScope(request.user)
+        invoices = scope.filter(Invoice.objects.all(), "stock_point")
         revenue_by_month = {ym: 0 for ym in months}
-        for inv in Invoice.objects.filter(status__in=Invoice.SETTLED, date__gte=range_start).prefetch_related("items", "refunds"):
+        for inv in invoices.filter(status__in=Invoice.SETTLED, date__gte=range_start).prefetch_related("items", "refunds"):
             key = (inv.date.year, inv.date.month)
             if key in revenue_by_month:
                 revenue_by_month[key] += inv.net_total
 
         mark_overdue()
-        outstanding_invoices = Invoice.objects.filter(status__in=Invoice.OUTSTANDING)
+        outstanding_invoices = invoices.filter(status__in=Invoice.OUTSTANDING)
         outstanding_total = sum(inv.total for inv in outstanding_invoices)
 
-        active_rentals = Rental.objects.filter(status__in=[Rental.APPROVED, Rental.ACTIVE])
+        rentals = rental_queryset_for(scope, Rental.objects.all())
+        active_rentals = rentals.filter(status__in=[Rental.APPROVED, Rental.ACTIVE])
 
         return Response({
             "monthly_revenue": [
@@ -64,7 +79,7 @@ class FinancialSummaryReportView(APIView):
             "outstanding_count": outstanding_invoices.count(),
             "rentals_active_monthly_value": sum(r.monthly_fee for r in active_rentals),
             "rentals_active_count": active_rentals.count(),
-            "rentals_pending_approval": Rental.objects.filter(status=Rental.PENDING_APPROVAL).count(),
+            "rentals_pending_approval": rentals.filter(status=Rental.PENDING_APPROVAL).count(),
         })
 
 
@@ -80,8 +95,10 @@ class SalesSummaryReportView(APIView):
         months = last_n_months(REPORT_MONTHS)
         range_start = date(months[0][0], months[0][1], 1)
 
+        scope = StoreScope(request.user)
         all_invoices = list(
-            Invoice.objects.filter(source=Invoice.SALE, date__gte=range_start).exclude(status=Invoice.CANCELLED)
+            scope.filter(Invoice.objects.filter(source=Invoice.SALE, date__gte=range_start), "stock_point")
+            .exclude(status=Invoice.CANCELLED)
             .select_related("stock_point").prefetch_related("items", "refunds")
         )
 
@@ -94,7 +111,7 @@ class SalesSummaryReportView(APIView):
                 revenue_by_month[key] += inv.net_total
 
         by_stock_point = []
-        for sp in StockPoint.objects.all():
+        for sp in scope.filter(StockPoint.objects.all(), "id"):
             sp_invoices = [i for i in all_invoices if i.stock_point_id == sp.id]
             sp_paid = [i for i in sp_invoices if i.status in Invoice.SETTLED]
             sp_pending = [i for i in sp_invoices if i.status in Invoice.OUTSTANDING]
@@ -138,7 +155,7 @@ class RentalPortfolioReportView(APIView):
     required_perm = "rentals.view"
 
     def get(self, request):
-        rentals = list(Rental.objects.select_related("party"))
+        rentals = list(rental_queryset_for(StoreScope(request.user), Rental.objects.all()).select_related("party"))
 
         status_counts = {}
         for choice, _ in Rental.STATUS_CHOICES:
@@ -195,8 +212,8 @@ class RepairTurnaroundReportView(APIView):
 
     def get(self, request):
         tickets = list(
-            RepairTicket.objects.select_related("stock_point")
-            .prefetch_related("invoices")
+            StoreScope(request.user).filter(RepairTicket.objects.all(), "stock_point")
+            .select_related("stock_point").prefetch_related("invoices")
         )
 
         stage_counts = {stage: 0 for stage in RepairTicket.STAGES}
@@ -244,7 +261,10 @@ class PartyReportView(APIView):
     required_perm = "parties.view"
 
     def get(self, request):
-        parties = list(Party.objects.prefetch_related("invoices__items", "invoices__refunds"))
+        # the customer list is shared, but what they spent is counted from
+        # this account's store's invoices only
+        invoices = StoreScope(request.user).filter(Invoice.objects.prefetch_related("items", "refunds"), "stock_point")
+        parties = list(Party.objects.prefetch_related(Prefetch("invoices", queryset=invoices)))
 
         rows = []
         for p in parties:
@@ -337,14 +357,15 @@ class InventoryStockReportView(APIView):
         low_stock = []
         by_stock_point = defaultdict(lambda: {"units": 0, "value": 0})
 
-        for p in Product.objects.prefetch_related("variants__stock__stock_point"):
+        scope = StoreScope(request.user)
+        for p in product_queryset(request.user):
             for v in p.variants.all():
                 for s in v.stock.all():
                     total_units += s.quantity
                     stock_value += s.quantity * v.cost
                     by_stock_point[s.stock_point.name]["units"] += s.quantity
                     by_stock_point[s.stock_point.name]["value"] += s.quantity * v.cost
-                if v.total_stock <= 4:
+                if scope.assigned and v.total_stock <= 4:
                     low_stock.append({
                         "product": p.display_name, "variant_code": v.code,
                         "spec": v.spec, "total_stock": v.total_stock,
@@ -352,7 +373,8 @@ class InventoryStockReportView(APIView):
         low_stock.sort(key=lambda x: x["total_stock"])
 
         rental_asset_counts = {choice: 0 for choice, _ in RentalAsset.STATUS_CHOICES}
-        for row in RentalAsset.objects.values("status").annotate(count=Count("id")):
+        assets = scope.filter(RentalAsset.objects.all(), "source_stock_point", "returned_to")
+        for row in assets.order_by().values("status").annotate(count=Count("id")):
             rental_asset_counts[row["status"]] = row["count"]
 
         return Response({
@@ -366,3 +388,149 @@ class InventoryStockReportView(APIView):
             ],
             "rental_asset_counts": rental_asset_counts,
         })
+
+
+# --------------------------------------------------------------------------
+# Store-wise Profit & Loss (Store Locator). Formulas and the access rule:
+# reports.profit_loss. Authorisation runs before any figure is computed:
+#   1. CanViewProfitLoss -- Superuser, or an Admin holding reports.profit_loss
+#      (403 for everyone else, logged like any other permission denial)
+#   2. StoreScope -- the store asked for must be one this account reaches
+#      (403 otherwise, whatever id is sent)
+# Responses are marked no-store so no shared cache keeps one account's
+# figures for another.
+# --------------------------------------------------------------------------
+
+PL_STORE_DENIED = "You can only view Profit & Loss for stores you're assigned to."
+PL_PAGE_SIZE, PL_MAX_PAGE_SIZE = 25, 100
+
+
+def _private(data):
+    response = Response(data)
+    response["Cache-Control"] = "no-store, private"
+    response["Vary"] = "Authorization, Cookie"
+    return response
+
+
+def _pl_meta(period):
+    # a period that hasn't ended yet may still be missing expenses (rent,
+    # salaries are often entered at month end) -- the dashboard says so
+    return {
+        "period": {**period.as_dict(), "complete": period.end < timezone.localdate()},
+        "generated_at": timezone.now().isoformat(),
+        "timezone": timezone.get_current_timezone_name(),
+        "currency": "INR",
+    }
+
+
+def _pl_store(request):
+    scope = StoreScope(request.user)
+    scope.require_assigned()
+    values = request.query_params.getlist("store")
+    try:
+        if len(values) != 1:  # one store per statement -- never "the last of several"
+            raise ValueError
+        store_id = int(values[0])
+    except (TypeError, ValueError):
+        raise ValidationError({"store": "Choose one store."})
+    if not scope.allows(store_id):
+        raise PermissionDenied(PL_STORE_DENIED)
+    store = StockPoint.objects.filter(pk=store_id).first()
+    if store is None:
+        raise NotFound("That store doesn't exist.")
+    return store
+
+
+def _pl_store_info(store):
+    return {"id": store.id, "slug": store.slug, "name": store.name, "kind": store.kind, "is_active": store.is_active}
+
+
+class ProfitLossView(APIView):
+    """GET /reports/profit-loss/?store=<id>&period=<key>[&date_from&date_to]
+    -- one store's statement, source breakdown, trend and monthly comparison."""
+    permission_classes = [permissions.IsAuthenticated, profit_loss.CanViewProfitLoss]
+
+    def get(self, request):
+        store = _pl_store(request)
+        period = profit_loss.resolve_period(request.query_params)
+        figures = profit_loss.raw_figures([store.id], period.start, period.end)[store.id]
+        return _private({
+            **_pl_meta(period),
+            "store": _pl_store_info(store),
+            "statement": profit_loss.statement(figures),
+            "trend": profit_loss.trend(store.id, period),
+            "monthly": profit_loss.monthly_comparison(store.id, period),
+        })
+
+
+class ProfitLossTransactionsView(APIView):
+    """GET /reports/profit-loss/transactions/?store=<id>&period=..&kind=settled|refunds|receivables|cancelled
+    [&source=sale|repair|rental&page=&page_size=] -- the records behind the totals."""
+    permission_classes = [permissions.IsAuthenticated, profit_loss.CanViewProfitLoss]
+
+    def get(self, request):
+        store = _pl_store(request)
+        period = profit_loss.resolve_period(request.query_params)
+        kind = request.query_params.get("kind") or "settled"
+        if kind not in profit_loss.TRANSACTION_KINDS:
+            raise ValidationError({"kind": f"Choose one of: {', '.join(profit_loss.TRANSACTION_KINDS)}."})
+        source = request.query_params.get("source") or None
+        if source is not None and source not in profit_loss.SOURCES:
+            raise ValidationError({"source": f"Choose one of: {', '.join(profit_loss.SOURCES)}."})
+        try:
+            page = max(1, int(request.query_params.get("page") or 1))
+            page_size = min(PL_MAX_PAGE_SIZE, max(1, int(request.query_params.get("page_size") or PL_PAGE_SIZE)))
+        except ValueError:
+            raise ValidationError({"page": "Page numbers must be whole numbers."})
+
+        if kind == "refunds":
+            qs, serialize = profit_loss.refund_rows(store.id, period, source), profit_loss.serialize_refund
+        elif kind == "expenses":
+            if not profit_loss.expenses_available():
+                return _private({**_pl_meta(period), "store": _pl_store_info(store), "kind": kind, "source": None,
+                                 "expenses_available": False, "count": 0, "page": 1, "page_size": page_size, "results": []})
+            qs, serialize = profit_loss.expense_list(store.id, period), profit_loss.serialize_expense
+        else:
+            qs = profit_loss.invoice_rows(store.id, period, kind, source)
+            serialize = lambda inv: profit_loss.serialize_invoice(inv, kind)  # noqa: E731
+        count = qs.count()
+        offset = (page - 1) * page_size
+        return _private({
+            **_pl_meta(period),
+            "store": _pl_store_info(store),
+            "kind": kind, "source": source,
+            "count": count, "page": page, "page_size": page_size,
+            "results": [serialize(row) for row in qs[offset:offset + page_size]],
+        })
+
+
+class ProfitLossStoresView(APIView):
+    """GET /reports/profit-loss/stores/?period=.. -- every store this account
+    reaches, side by side. The consolidated total is only included for an
+    account that sees every store (Superuser / Owner); a store-assigned
+    Admin gets their own store's row and nothing else."""
+    permission_classes = [permissions.IsAuthenticated, profit_loss.CanViewProfitLoss]
+
+    def get(self, request):
+        scope = StoreScope(request.user)
+        scope.require_assigned()
+        period = profit_loss.resolve_period(request.query_params)
+        stores = list(scope.filter(StockPoint.objects.all(), "id"))
+        figures = profit_loss.raw_figures([s.id for s in stores], period.start, period.end)
+
+        def summary(statement):
+            keys = ("revenue", "cogs", "gross_profit", "gross_margin_pct", "operating_expenses", "other_expenses", "expenses",
+                    "net_profit", "net_margin_pct", "transactions", "refunds", "receivables")
+            return {**{k: statement[k] for k in keys}, "data_quality": statement["data_quality"]}
+
+        rows = [{"store": _pl_store_info(s), **summary(profit_loss.statement(figures[s.id]))} for s in stores]
+        rows.sort(key=lambda r: (-r["revenue"], r["store"]["name"]))
+        consolidated = shared = None
+        if scope.all:
+            # shared / head-office expenses belong to the business, not a store
+            shared_fig = profit_loss.shared_figures(period.start, period.end)
+            shared = ({k: shared_fig[k] for k in ("operating_expenses", "other_expenses", "expense_count")}
+                      if profit_loss.expenses_available() else None)
+            consolidated = summary(profit_loss.statement(profit_loss.combine([*figures.values(), shared_fig])))
+        return _private({**_pl_meta(period), "can_compare": scope.all, "stores": rows, "shared_expenses": shared,
+                         "consolidated": consolidated})

@@ -98,10 +98,12 @@ export default function RentalAgreementModal({ parties, initialAssets, onCreated
     setShowAssetForm(false);
     if (stockRows) return;
     try {
-      const products = await api.getAll("/products/");
+      const [products, open] = await Promise.all([api.getAll("/products/"), api.getAll("/stock-points/?active=1")]);
+      // units can't leave an inactive shop's stock for a new rental
+      const openSlugs = new Set(open.map((sp) => sp.slug));
       // one row per (variant, shop) that actually has units on the shelf
       setStockRows(products.flatMap((p) => p.variants.flatMap((v) => v.stock
-        .filter((s) => s.quantity > 0)
+        .filter((s) => s.quantity > 0 && openSlugs.has(s.stock_point))
         .map((s) => ({ id: s.id, label: `${p.display_name} · ${v.spec}`, code: v.code, shop: s.stock_point_name || s.stock_point, qty: s.quantity, location: s.location })))));
     } catch (e) {
       setError(e.message);

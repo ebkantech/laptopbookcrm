@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { onStoreChanged } from "../lib/storeEvents";
 
 const SessionContext = createContext(null);
 
@@ -27,6 +28,14 @@ export function SessionProvider({ children }) {
   useEffect(() => {
     loadMe();
   }, [loadMe]);
+
+  // `me` carries the account's store name (stock_point_name) -- reload it
+  // when that store is edited, here or in another tab.
+  const myStore = me?.stock_point;
+  useEffect(() => {
+    if (!myStore) return undefined;
+    return onStoreChanged(({ id }) => { if (id === myStore) loadMe(); });
+  }, [myStore, loadMe]);
 
   const login = async (username, password) => {
     await api.login(username, password);

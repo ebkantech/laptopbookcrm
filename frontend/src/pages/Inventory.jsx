@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import JsBarcode from "jsbarcode";
 import {
-  AlertTriangle, Check, Loader2, MapPin, Pencil, Plus, Printer, ScanBarcode, Search, X,
+  Check, Loader2, MapPin, Pencil, Plus, Printer, ScanBarcode, Search, X,
 } from "lucide-react";
 import { C, F, money } from "../lib/theme";
 import { api } from "../lib/api";
+import { onStoreChanged } from "../lib/storeEvents";
 import { useSession } from "../context/SessionContext";
 import { Eyebrow, ErrorNote, Pill, PillButton, SearchInput, Spinner } from "../components/Atoms";
 import PageHeader from "../components/PageHeader";
+// Add stock -- New product / Existing product (restock): inventory/AddStockModal.jsx
+import AddStockModal from "./inventory/AddStockModal";
 
 const STOCK_LABELS = { kb: "Karol Bagh", np: "Nehru Place", ln: "Lajpat Nagar", amazon: "Amazon", flipkart: "Flipkart", site: "Website", wa: "WhatsApp" };
 const stockLabel = (s) => s.stock_point_name || STOCK_LABELS[s.stock_point] || s.stock_point;
@@ -65,6 +68,45 @@ function MobileLabel({ children }) {
     <span className="mb-0.5 block text-[10px] uppercase md:hidden" style={{ fontFamily: F.body, fontWeight: 700, letterSpacing: "0.08em", color: C.inkSoft }}>
       {children}
     </span>
+  );
+}
+
+/* A variant's units with serial numbers (GET /products/<id>/serials/,
+ * limited to the account's store). Each unit: the product's one Product ID,
+ * its own Serial Number, and -- under it, when the product has one -- the
+ * product's HSN code. Units received before serial numbers have none. */
+function UnitList({ serials, productCode, hsn, inStock }) {
+  if (!serials) return <p className="mt-2 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Loading serial numbers…</p>;
+  const label = { fontFamily: F.body, fontWeight: 700, letterSpacing: "0.08em", color: C.inkSoft };
+  return (
+    <div className="mt-3">
+      <p className="text-[10px] uppercase" style={label}>
+        Units with serial numbers · {serials.length}{inStock > serials.length ? ` of ${inStock} in stock` : ""}
+      </p>
+      {serials.length ? (
+        <ul className="mt-1.5 grid grid-cols-1 gap-1.5 sm:grid-cols-2" aria-label="Units">
+          {serials.map((s) => (
+            <li key={s.serial_number} className="grid grid-cols-2 gap-2 rounded-lg px-2.5 py-1.5 text-xs" style={{ backgroundColor: C.slip2, border: `1px solid ${C.rule}` }}
+              title={`${s.stock_point} · received ${new Date(s.received_at).toLocaleDateString("en-IN")}`}>
+              <span className="min-w-0">
+                <span className="block text-[10px] uppercase" style={label}>Serial number</span>
+                <span className="block" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{s.serial_number}</span>
+                {hsn && <span className="block" style={{ fontFamily: F.mono, color: C.inkSoft }}>HSN {hsn}</span>}
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[10px] uppercase" style={label}>Product ID</span>
+                <span className="block truncate" style={{ fontFamily: F.mono, color: C.ink }}>{productCode}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {inStock > serials.length && (
+        <p className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
+          {inStock - serials.length} {inStock - serials.length === 1 ? "unit was" : "units were"} received before serial numbers were generated, so {inStock - serials.length === 1 ? "it has" : "they have"} none.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -171,184 +213,6 @@ function ScanModal({ onClose, onFound }) {
           {status === "searching" && <p className="flex items-center gap-1.5 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}><Loader2 size={12} className="animate-spin" />Looking up…</p>}
           {status === "notfound" && <ErrorNote message={error} />}
         </div>
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ *
- *  Add stock -- restock an existing SKU, or bring a brand-new item
- *  into the catalogue. Either product code or variant code is
- *  auto-generated server-side if left blank (the "no HSN yet" case).
- * ------------------------------------------------------------------ */
-function AddStockModal({ stockPoints, onClose, onAdded }) {
-  const [mode, setMode] = useState("existing"); // existing | new
-  const [allProducts, setAllProducts] = useState(null);
-  const [productId, setProductId] = useState("");
-  const [variantId, setVariantId] = useState("");
-
-  const [brand, setBrand] = useState("");
-  const [modelName, setModelName] = useState("");
-  const [processor, setProcessor] = useState("");
-  const [hsn, setHsn] = useState("");
-  const [condition, setCondition] = useState("New");
-  const [spec, setSpec] = useState("");
-  const [sellPrice, setSellPrice] = useState("");
-  const [mrp, setMrp] = useState("");
-
-  const [stockPointId, setStockPointId] = useState(stockPoints[0]?.id || "");
-  const [quantity, setQuantity] = useState("");
-  const [location, setLocation] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (mode === "existing" && !allProducts) {
-      api.getAll("/products/").then(setAllProducts).catch((e) => setError(e.message));
-    }
-  }, [mode, allProducts]);
-
-  const product = allProducts?.find((p) => p.id === +productId);
-
-  const submit = async () => {
-    setError("");
-    const qty = +quantity;
-    if (!qty || qty <= 0) return setError("Enter a quantity greater than 0.");
-    if (!stockPointId) return setError("Pick a shop or channel.");
-
-    let payload = { stock_point: stockPointId, quantity: qty, location: location.trim() };
-    if (mode === "existing") {
-      if (!productId) return setError("Pick a product.");
-      if (product?.variants.length > 1 && !variantId) return setError("This product has several variants — pick one.");
-      payload = { ...payload, product: +productId };
-      if (variantId) payload.variant = +variantId;
-      // No variants yet: the server files the stock under a default
-      // "Standard" variant, priced with whatever was entered here.
-      if (!product?.variants.length && sellPrice) payload = { ...payload, sell_price: +sellPrice, mrp: mrp ? +mrp : undefined };
-    } else {
-      if (!modelName.trim()) return setError("Model name is required.");
-      if (!sellPrice || +sellPrice <= 0) return setError("Enter a selling price.");
-      payload = {
-        ...payload, brand: brand.trim(), model_name: modelName.trim(), processor: processor.trim(),
-        hsn: hsn.trim(), condition, spec: spec.trim(), sell_price: +sellPrice, mrp: mrp ? +mrp : undefined,
-      };
-    }
-
-    setBusy(true);
-    try {
-      const result = await api.post("/inventory/add-stock/", payload);
-      onAdded(result);
-    } catch (e) {
-      setError(e.body?.detail || e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(4,9,18,0.7)" }}>
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}>
-        <div className="flex items-center justify-between">
-          <Eyebrow>Add stock</Eyebrow>
-          <button type="button" onClick={onClose} aria-label="Close add stock"><X size={16} style={{ color: C.inkSoft }} /></button>
-        </div>
-
-        <div className="mt-4 flex overflow-hidden rounded-xl" style={{ border: `1px solid ${C.rule}` }}>
-          {[["existing", "Restock existing item"], ["new", "New item"]].map(([k, label]) => (
-            <button key={k} onClick={() => setMode(k)} className="flex-1 py-2 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, color: mode === k ? C.onAccent : C.inkSoft, backgroundColor: mode === k ? C.stamp : "transparent" }}>{label}</button>
-          ))}
-        </div>
-
-        {mode === "existing" ? (
-          <div className="mt-4 space-y-3">
-            {!allProducts ? <Spinner label="Loading catalogue…" /> : (
-              <>
-                <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Product
-                  <select value={productId} onChange={(e) => { const p = allProducts.find((x) => x.id === +e.target.value); setProductId(e.target.value); setVariantId(p?.variants.length === 1 ? String(p.variants[0].id) : ""); }} className="mt-1 w-full py-2 text-sm outline-none" style={{ fontFamily: F.body, background:C.slip, color: C.ink, border: `1px solid ${C.rule}` }}>
-                    <option value="">Select a product…</option>
-                    {allProducts.map((p) => <option key={p.id} value={p.id}>{p.display_name} · {p.product_code}</option>)}
-                  </select>
-                </label>
-                {product && product.variants.length > 0 && (
-                  <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Variant{product.variants.length === 1 ? " (only one)" : ""}
-                    <select value={variantId} onChange={(e) => setVariantId(e.target.value)} className="mt-1 w-full py-2 text-sm outline-none" style={{ fontFamily: F.body, background: C.slip, color: C.ink, border: `1px solid ${C.rule}` }}>
-                      {product.variants.length > 1 && <option value="">Select a variant…</option>}
-                      {product.variants.map((v) => <option key={v.id} value={v.id}>{v.spec} · {v.code} · {v.total_stock} in stock</option>)}
-                    </select>
-                  </label>
-                )}
-                {product && product.variants.length === 0 && (
-                  <div className="space-y-3">
-                    <p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
-                      This product has no variants — the stock will be added to the product directly.
-                    </p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Sell price (₹, optional)
-                        <input value={sellPrice} onChange={(e) => setSellPrice(e.target.value.replace(/\D/g, ""))} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.mono, color: C.ink, border: `1px solid ${C.rule}` }} />
-                      </label>
-                      <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>MRP (₹, optional)
-                        <input value={mrp} onChange={(e) => setMrp(e.target.value.replace(/\D/g, ""))} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.mono, color: C.ink, border: `1px solid ${C.rule}` }} />
-                      </label>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        ) : (
-          <div className="mt-4 space-y-3">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Brand
-                <input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Leave blank for accessories" className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
-              </label>
-              <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Model name
-                <input value={modelName} onChange={(e) => setModelName(e.target.value)} placeholder="e.g. Latitude 5440" className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
-              </label>
-              <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Processor
-                <input value={processor} onChange={(e) => setProcessor(e.target.value)} placeholder="Optional" className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
-              </label>
-              <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Condition
-                <select value={condition} onChange={(e) => setCondition(e.target.value)} className="mt-1 w-full py-2 text-sm outline-none" style={{ fontFamily: F.body, background: C.slip, color: C.ink, border: `1px solid ${C.rule}` }}>
-                  <option>New</option><option>Refurbished</option>
-                </select>
-              </label>
-              <label className="block text-xs sm:col-span-2" style={{ fontFamily: F.body, color: C.inkSoft }}>HSN code
-                <input value={hsn} onChange={(e) => setHsn(e.target.value)} placeholder="Leave blank if none applies -- a code will be generated" className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.mono, color: C.ink, border: `1px solid ${C.rule}` }} />
-                {!hsn.trim() && <span className="mt-1 flex items-center gap-1 text-xs" style={{ fontFamily: F.body, color: C.amber }}><AlertTriangle size={11} />No HSN — an internal code will be auto-generated for this item.</span>}
-              </label>
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <label className="block text-xs sm:col-span-1" style={{ fontFamily: F.body, color: C.inkSoft }}>Variant / spec (optional)
-                <input value={spec} onChange={(e) => setSpec(e.target.value)} placeholder="e.g. 8GB / 256GB SSD" className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
-              </label>
-              <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Sell price (₹)
-                <input value={sellPrice} onChange={(e) => setSellPrice(e.target.value.replace(/\D/g, ""))} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.mono, color: C.ink, border: `1px solid ${C.rule}` }} />
-              </label>
-              <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>MRP (₹, optional)
-                <input value={mrp} onChange={(e) => setMrp(e.target.value.replace(/\D/g, ""))} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.mono, color: C.ink, border: `1px solid ${C.rule}` }} />
-              </label>
-            </div>
-          </div>
-        )}
-
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Shop / channel
-            <select value={stockPointId} onChange={(e) => setStockPointId(e.target.value)} className="mt-1 w-full py-2 text-sm outline-none" style={{ fontFamily: F.body, background: C.slip, color: C.ink, border: `1px solid ${C.rule}` }}>
-              {stockPoints.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </label>
-          <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Quantity received
-            <input value={quantity} onChange={(e) => setQuantity(e.target.value.replace(/\D/g, ""))} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.mono, color: C.ink, border: `1px solid ${C.rule}` }} />
-          </label>
-        </div>
-        <label className="mt-3 block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Placed at (rack / shelf, optional)
-          <input value={location} maxLength={80} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Rack A / Shelf 3 — leave blank to keep the current spot" className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
-        </label>
-
-        <ErrorNote message={error} />
-        <button onClick={submit} disabled={busy} className="mt-4 flex w-full items-center justify-center gap-1.5 py-2.5 text-xs uppercase" style={{ backgroundColor: C.green, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em", opacity: busy ? 0.7 : 1 }}>
-          <Plus size={13} /> {busy ? "Adding…" : "Add stock"}
-        </button>
       </div>
     </div>
   );
@@ -521,6 +385,21 @@ export default function Inventory() {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [openProduct, setOpenProduct] = useState(null);
+  // serial numbers of the open product, by variant SKU: { productId, byVariant }
+  const [openSerials, setOpenSerials] = useState({ productId: null, byVariant: {} });
+  useEffect(() => {
+    if (!openProduct) return undefined;
+    let live = true;
+    api.get(`/products/${openProduct.id}/serials/`).then((d) => {
+      if (!live) return;
+      const byVariant = {};
+      for (const s of d.serials) (byVariant[s.variant] ||= []).push(s);
+      setOpenSerials({ productId: openProduct.id, byVariant });
+    }, () => live && setOpenSerials({ productId: openProduct.id, byVariant: {} }));
+    return () => { live = false; };
+  }, [openProduct]);
+  const serialsLoaded = openSerials.productId === openProduct?.id;
+  const serialsFor = (code) => (serialsLoaded ? openSerials.byVariant[code] || [] : null);
   const [stockPoints, setStockPoints] = useState([]);
   const [scanning, setScanning] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -547,8 +426,14 @@ export default function Inventory() {
   };
 
   useEffect(() => {
-    api.get("/stock-points/").then((d) => setStockPoints(d.results ?? d)).catch(() => {});
+    api.get("/stock-points/?active=1").then((d) => setStockPoints(d.results ?? d)).catch(() => {});
   }, []);
+
+  // a store was renamed / edited: refresh the store list and the stock rows' store names
+  useEffect(() => onStoreChanged(() => {
+    api.get("/stock-points/?active=1").then((d) => setStockPoints(d.results ?? d)).catch(() => {});
+    load(query);
+  }), [query]);
 
   // Also does the first load (query ""), immediately rather than after the
   // typing pause -- previously a separate mount effect loaded it twice.
@@ -571,8 +456,13 @@ export default function Inventory() {
     setOpenProduct(result.product);
     const bits = [];
     if (result.generated_product_code) bits.push(`product code ${result.product.product_code} auto-generated`);
-    if (result.generated_variant_code) bits.push(`variant code ${result.variant.code} auto-generated`);
-    setFlash(`Added stock at ${result.stock_point}${result.location ? ` (${result.location})` : ""}.${bits.length ? " " + bits.join(", ") + "." : ""}`);
+    if (result.generated_variant_code) bits.push(`${result.created_variant ? "new variant" : "variant code"} ${result.variant.code}${result.variant.colour ? ` (${result.variant.colour})` : ""} auto-generated`);
+    if (result.serials?.length) {
+      const list = result.serials;
+      bits.push(`serial number${list.length > 1 ? "s" : ""} ${list.length > 3 ? `${list.slice(0, 3).join(", ")} and ${list.length - 3} more` : list.join(", ")} generated`);
+    }
+    const level = result.previous_quantity !== undefined ? ` Stock there: ${result.previous_quantity} → ${result.new_quantity}.` : ` Stock there: ${result.new_quantity}.`;
+    setFlash(`Added stock at ${result.stock_point}${result.location ? ` (${result.location})` : ""}.${level}${bits.length ? " " + bits.join(", ") + "." : ""}`);
     setTimeout(() => setFlash(""), 6000);
   };
 
@@ -619,7 +509,7 @@ export default function Inventory() {
 
       <div className="flex-1 overflow-y-auto px-[1rem] pb-6 pt-1 sm:px-[2rem]">
         <div className="hidden grid-cols-[2fr_1fr_1fr_1fr_1fr_1.8fr] gap-3 px-5 pb-2 text-xs uppercase md:grid" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.08em", color: C.inkSoft }}>
-          <span>Product</span><span>ID / HSN</span><span>Processor</span><span>Sell price</span><span>Shared stock</span><span>Stock location</span>
+          <span>Product</span><span>Product ID · HSN</span><span>Processor</span><span>Sell price</span><span>Shared stock</span><span>Stock location</span>
         </div>
         <div className="flex flex-col gap-2.5">
           {products.map((p) => {
@@ -641,9 +531,9 @@ export default function Inventory() {
                   <span className="shrink-0 md:hidden"><Pill color={lowest ? C.carbon : C.green}>{totalStock} units</Pill></span>
                 </div>
                 <span className="min-w-0 text-xs" style={{ fontFamily: F.mono, color: C.ink }}>
-                  <MobileLabel>ID / HSN</MobileLabel>
-                  <span className="block truncate">{p.product_code}</span>
-                  <span className="block break-words" style={{ color: p.hsn ? C.inkSoft : C.amber }}>{p.hsn ? `HSN ${p.hsn}` : "generated — no HSN"}</span>
+                  <MobileLabel>Product ID · HSN</MobileLabel>
+                  <span className="block truncate" title="Product ID — the same for every unit of this product">{p.product_code}</span>
+                  <span className="block break-words" style={{ color: p.hsn ? C.inkSoft : C.amber }}>{p.hsn ? `HSN ${p.hsn}` : "No HSN code"}</span>
                 </span>
                 <span className="min-w-0 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
                   <MobileLabel>Processor</MobileLabel>
@@ -677,7 +567,11 @@ export default function Inventory() {
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p style={{ fontFamily: F.display, fontWeight: 600, fontSize: 18, color: C.ink }}>{openProduct.display_name}</p>
-                <p className="mt-1 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{openProduct.product_code} · {openProduct.hsn ? `HSN ${openProduct.hsn}` : "internal code — no matching HSN"} · {openProduct.condition}</p>
+                <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-3" style={{ fontFamily: F.body }}>
+                  <div><dt style={{ color: C.inkSoft }}>Product ID</dt><dd style={{ fontFamily: F.mono, color: C.ink }}>{openProduct.product_code}</dd></div>
+                  <div><dt style={{ color: C.inkSoft }}>HSN code</dt><dd style={{ fontFamily: F.mono, color: openProduct.hsn ? C.ink : C.amber }}>{openProduct.hsn || "Not specified"}</dd></div>
+                  <div><dt style={{ color: C.inkSoft }}>Condition</dt><dd style={{ color: C.ink }}>{openProduct.condition}</dd></div>
+                </dl>
               </div>
               <button type="button" onClick={() => setOpenProduct(null)} aria-label="Close product details" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={18} style={{ color: C.inkSoft }} /></button>
             </div>
@@ -693,7 +587,7 @@ export default function Inventory() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <p className="text-sm" style={{ fontFamily: F.body, fontWeight: 600, color: C.ink }}>{v.spec}</p>
-                      <p className="text-xs" style={{ fontFamily: F.mono, color: C.stamp }}>{v.code}</p>
+                      <p className="text-xs" style={{ fontFamily: F.mono, color: C.stamp }} title="Variant SKU">SKU {v.code}{v.colour ? <span style={{ color: C.inkSoft }}> · {v.colour}</span> : null}</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{money(v.sell_price)} <span style={{ color: C.inkSoft, textDecoration: "line-through" }}>{money(v.mrp)}</span></span>
@@ -702,6 +596,8 @@ export default function Inventory() {
                       </button>
                     </div>
                   </div>
+                  <UnitList serials={serialsFor(v.code)} productCode={openProduct.product_code} hsn={openProduct.hsn}
+                    inStock={v.stock.reduce((n, st) => n + st.quantity, 0)} />
                   <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
                     {v.stock.map((s) => (
                       <StockTile key={s.id ?? s.stock_point} stock={s} canEdit={can("inventory.edit")} onSaved={onLocationSaved} />

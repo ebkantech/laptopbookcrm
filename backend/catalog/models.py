@@ -15,6 +15,10 @@ class StockPoint(models.Model):
     address = models.TextField(blank=True)
     phone = models.CharField(max_length=20, blank=True)
     gstin = models.CharField(max_length=20, blank=True)
+    # Inactive = no NEW operations here (sales, repairs, rentals, stock in /
+    # out, staff assignment) -- see catalog.status. Its history, stock and
+    # staff links are untouched, and it can be reactivated at any time.
+    is_active = models.BooleanField(default=True)
 
     class Meta:
         ordering = ["name"]
@@ -25,12 +29,28 @@ class StockPoint(models.Model):
 
 class Product(models.Model):
     """A model of laptop (or an accessory bundle) -- carries its own product ID and HSN if one applies."""
+    LAPTOP, CHARGER, SSD, RAM, ACCESSORIES, OTHER = "laptop", "charger", "ssd", "ram", "accessories", "other"
+    CATEGORY_CHOICES = [
+        (LAPTOP, "Laptop"), (CHARGER, "Charger"), (SSD, "SSD"), (RAM, "RAM"), (ACCESSORIES, "Accessories"), (OTHER, "Other"),
+    ]
+
+    # Set by Inventory -> Add stock -> New product (catalog.new_product);
+    # blank on products created before categories existed.
+    # db_default: rows inserted by code that predates these columns still get a value
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, blank=True, db_index=True, default="", db_default="")
     brand = models.CharField(max_length=40, blank=True)
     model_name = models.CharField(max_length=80)
     processor = models.CharField(max_length=40, blank=True)
     hsn = models.CharField(max_length=12, blank=True, help_text="Leave blank if no HSN applies -- product_code covers it instead.")
     condition = models.CharField(max_length=20, default="New")
     product_code = models.CharField(max_length=32, unique=True, help_text="VC-LAP-#### / VC-ACC-#### -- generated at creation.")
+    description = models.TextField(blank=True, default="", db_default="")
+    # The category's own specifications, e.g. {"ram": "16GB", "storage": "512GB SSD"}
+    # for a laptop or {"wattage": "65W"} for a charger -- keys per category
+    # are listed in catalog.new_product.CATEGORY_FIELDS.
+    specs = models.JSONField(default=dict, blank=True, db_default=models.Value({}, output_field=models.JSONField()))
+    # True: every unit is recorded with its own serial number (StockSerial).
+    serial_tracking = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         ordering = ["brand", "model_name"]
@@ -48,6 +68,10 @@ class Variant(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="variants")
     code = models.CharField(max_length=32, unique=True)
     spec = models.CharField(max_length=80)
+    # Typed in by staff (Add stock), never picked from a list. A product in a
+    # new colour is a new variant of the same product, so existing units
+    # keep their own colour. Blank on variants recorded before colours.
+    colour = models.CharField(max_length=40, blank=True, default="", db_default="")
     mrp = models.PositiveIntegerField()
     sell_price = models.PositiveIntegerField()
     cost = models.PositiveIntegerField()
@@ -109,3 +133,23 @@ class Service(models.Model):
 
     def __str__(self):
         return self.label
+
+
+class StockSerial(models.Model):
+    """
+    One serial-numbered unit received into stock (a product with
+    serial_tracking), recorded by Inventory -> Add stock. A serial number
+    is unique across the business -- here and among rental devices
+    (rentals.RentalAsset.serial_number) -- so the same unit can't be booked in twice.
+    """
+    variant = models.ForeignKey(Variant, on_delete=models.PROTECT, related_name="serials")
+    stock_point = models.ForeignKey(StockPoint, on_delete=models.PROTECT, related_name="serials")
+    serial_number = models.CharField(max_length=80, unique=True)
+    received_by = models.ForeignKey("accounts.User", on_delete=models.PROTECT, related_name="stock_serials_received")
+    received_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["received_at", "id"]
+
+    def __str__(self):
+        return f"{self.serial_number} ({self.variant.code} @ {self.stock_point.name})"

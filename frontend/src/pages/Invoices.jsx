@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Check, IndianRupee, Mail, Plus, Printer, Repeat2, ShieldCheck, X } from "lucide-react";
 import { C, F, fmt, money, todayISO } from "../lib/theme";
 import { api } from "../lib/api";
+import { onStoreChanged } from "../lib/storeEvents";
 import { useSession } from "../context/SessionContext";
 import { Eyebrow, ErrorNote, Pill, PillButton, SearchInput, Spinner, TabBar } from "../components/Atoms";
 import PageHeader from "../components/PageHeader";
@@ -518,8 +519,14 @@ export default function Invoices() {
     // Only products that have something sellable: stock and prices live
     // on variants, so a product with none yet can't go on an invoice.
     api.getAll("/products/").then((all) => setProducts(all.filter((p) => p.variants.length)));
-    api.get("/stock-points/").then((d) => setStockPoints(d.results ?? d));
+    api.get("/stock-points/?active=1").then((d) => setStockPoints(d.results ?? d));
   }, []);
+
+  // a store was edited: invoices show its name, the new-invoice form lists it
+  useEffect(() => onStoreChanged(() => {
+    api.getAll("/invoices/").then(setInvoices).catch(() => {});
+    api.get("/stock-points/?active=1").then((d) => setStockPoints(d.results ?? d)).catch(() => {});
+  }), []);
 
   const create = async (payload) => {
     const inv = await api.post("/invoices/", payload);

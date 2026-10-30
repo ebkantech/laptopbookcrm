@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import {
-  BadgeCheck, BellRing, Check, LogOut, Mail, Minus, Phone, Plus, ShieldCheck, User as UserIcon,
+  BellRing, Check, KeyRound, LogOut, Mail, Minus, Phone, Plus, ShieldCheck, User as UserIcon, Users,
 } from "lucide-react";
 import { C, F } from "../lib/theme";
 import { api } from "../lib/api";
 import { useSession } from "../context/SessionContext";
 import { Eyebrow, ErrorNote, Locked, Pill, PillButton, Spinner, TabBar } from "../components/Atoms";
 import PageHeader from "../components/PageHeader";
+import ChangePassword from "./settings/ChangePassword";
+import StaffManagement from "./settings/StaffManagement";
 
 function Profile() {
   const { me, logout } = useSession();
@@ -63,11 +65,9 @@ function slugify(s) {
   return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
 }
 
-function RolesAccess() {
-  const { can, me } = useSession();
+function RolesAccess({ onManageStaff }) {
+  const { can } = useSession();
   const [roles, setRoles] = useState(null);
-  const [users, setUsers] = useState([]);
-  const [savingId, setSavingId] = useState(null);
   const [error, setError] = useState("");
   const [editMode, setEditMode] = useState(false);
   const [togglingKey, setTogglingKey] = useState(null);
@@ -80,32 +80,12 @@ function RolesAccess() {
   const [formError, setFormError] = useState("");
 
   const loadRoles = () => api.getAll("/roles/").then(setRoles);
-  const loadUsers = () => api.getAll("/users/").then(setUsers);
 
   useEffect(() => {
     loadRoles();
-    loadUsers();
   }, []);
   if (!can("roles.manage")) return <Locked label="Only the owner can view and change role access." />;
   if (!roles) return <Spinner />;
-
-  // The Owner role is tied to the superuser flag, not assignable here --
-  // see accounts.views.UserViewSet.set_role.
-  const assignableRoles = roles.filter((r) => r.slug !== "owner");
-
-  const changeRole = async (user, roleSlug) => {
-    if (roleSlug === user.role_slug) return;
-    setError("");
-    setSavingId(user.id);
-    try {
-      await api.post(`/users/${user.id}/set-role/`, { role: roleSlug });
-      await loadUsers();
-    } catch (e) {
-      setError(e.body?.detail || e.message || "Couldn't change that user's role.");
-    } finally {
-      setSavingId(null);
-    }
-  };
 
   const allPerms = [...new Map(roles.flatMap((r) => r.permissions).map((p) => [p.codename, p])).values()].sort((a, b) => a.codename.localeCompare(b.codename));
 
@@ -132,7 +112,7 @@ function RolesAccess() {
     try {
       await api.del(`/roles/${role.id}/`);
       setConfirmDeleteId(null);
-      await Promise.all([loadRoles(), loadUsers()]);
+      await loadRoles();
     } catch (e) {
       setError(e.body?.detail || e.message || "Couldn't delete that role.");
     } finally {
@@ -271,29 +251,10 @@ function RolesAccess() {
       )}
 
       <div className="mt-8"><Eyebrow>Team</Eyebrow></div>
-      <p className="mt-1 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>Assign a role to change what someone can access -- takes effect on their next request, no re-login needed.</p>
-      {error && <p className="mt-2 text-xs" style={{ fontFamily: F.body, color: C.carbon }}>{error}</p>}
-      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {users.map((u) => (
-          <div key={u.id} data-panel className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5" style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}>
-            <span className="flex items-center gap-2 text-sm" style={{ fontFamily: F.body, color: C.ink }}><BadgeCheck size={14} style={{ color: C.stamp }} />{u.first_name} {u.last_name}</span>
-            {u.is_superuser ? (
-              <Pill color={C.blue}>Superuser</Pill>
-            ) : (
-              <select
-                value={u.role_slug || ""}
-                disabled={savingId === u.id || u.id === me.id}
-                onChange={(e) => changeRole(u, e.target.value)}
-                aria-label={`Role for ${u.first_name} ${u.last_name}`}
-                className="bg-transparent px-2 py-1 text-xs outline-none"
-                style={{ fontFamily: F.body, fontWeight: 600, color: C.ink, border: `1px solid ${C.rule}` }}
-              >
-                {assignableRoles.map((r) => <option key={r.slug} value={r.slug}>{r.label}</option>)}
-              </select>
-            )}
-          </div>
-        ))}
-      </div>
+      <p className="mt-1 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>
+        Assigning roles and Store Locations to people, adding staff, resetting passwords and deactivating accounts now live under Staff management.
+      </p>
+      <div className="mt-3"><PillButton icon={Users} onClick={onManageStaff}>Open Staff management</PillButton></div>
     </div>
   );
 }
@@ -413,9 +374,15 @@ function StaffNotifications() {
 }
 
 export default function Settings() {
+  const { can, me } = useSession();
   const [tab, setTab] = useState("profile");
+  // Staff management: staff administrators only (roles.manage, or the
+  // Owner) -- the /users/ API enforces the same rule.
+  const staffAdmin = !!me?.sees_all_stores || can("roles.manage");
   const tabs = [
     { id: "profile", label: "Profile", icon: UserIcon },
+    { id: "password", label: "My password", icon: KeyRound },
+    ...(staffAdmin ? [{ id: "staff", label: "Staff management", icon: Users }] : []),
     { id: "roles", label: "Roles & access", icon: ShieldCheck },
     { id: "notifications", label: "Staff alerts", icon: BellRing },
   ];
@@ -427,7 +394,9 @@ export default function Settings() {
       </div>
       <div className="mt-5">
         {tab === "profile" && <Profile />}
-        {tab === "roles" && <RolesAccess />}
+        {tab === "password" && <ChangePassword />}
+        {tab === "staff" && staffAdmin && <StaffManagement />}
+        {tab === "roles" && <RolesAccess onManageStaff={() => setTab("staff")} />}
         {tab === "notifications" && <StaffNotifications />}
       </div>
     </div>

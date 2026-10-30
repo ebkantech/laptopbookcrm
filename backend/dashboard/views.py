@@ -6,8 +6,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import IsStaffAccount
+from accounts.store_scope import StoreScope
 from catalog.models import Product, StockPoint
 from rentals.models import Rental
+from rentals.scope import rental_queryset_for
 from repairs.models import RepairTicket
 from sales.models import Invoice
 from sales.services import mark_overdue
@@ -71,6 +73,15 @@ class DashboardView(APIView):
         # user actually holds the permission for that domain -- the same
         # gate the widget layout uses, see dashboard.layouts.
         sections = visible_sections(request.user)
+
+        # Store scope: store staff are pinned to their own store's channel
+        # whatever `channel` they send; unassigned staff get no figures.
+        scope = StoreScope(request.user)
+        if not scope.assigned:
+            sections = {key: False for key in sections}
+        elif not scope.all:
+            channel_slug = request.user.stock_point.slug
+
         show_stock_section = sections["stock"]
         can_sales = sections["sales"]
         can_repairs = sections["repairs"]
@@ -83,6 +94,11 @@ class DashboardView(APIView):
                 "channel": channel_slug,
             },
             "sections": sections,
+            "store_scope": {
+                "all_stores": scope.all,
+                "assigned": scope.assigned,
+                "stock_point": scope.store_id,
+            },
         }
 
         if show_stock_section:
@@ -170,7 +186,8 @@ class DashboardView(APIView):
             months = _last_n_months(6)
             range_start = date(months[0][0], months[0][1], 1)
             by_month = {source: defaultdict(int) for source, _ in Invoice.SOURCE_CHOICES}
-            for inv in Invoice.objects.filter(status__in=Invoice.SETTLED, date__gte=range_start).prefetch_related("items", "refunds"):
+            trend = scope.filter(Invoice.objects.filter(status__in=Invoice.SETTLED, date__gte=range_start), "stock_point")
+            for inv in trend.prefetch_related("items", "refunds"):
                 by_month[inv.source][(inv.date.year, inv.date.month)] += inv.net_total
             response["monthly_revenue"] = [
                 {
@@ -201,18 +218,20 @@ class DashboardView(APIView):
             # tickets" -- not date/channel filtered like the invoice figures
             # above, this is "what's in the shop right now" regardless of
             # when it came in.
-            open_tickets = RepairTicket.objects.exclude(status=RepairTicket.DELIVERED)
+            tickets = scope.filter(RepairTicket.objects.all(), "stock_point")
+            open_tickets = tickets.exclude(status=RepairTicket.DELIVERED)
             response.update({
                 "repair_stage_counts": {
-                    stage: RepairTicket.objects.filter(status=stage).count() for stage in RepairTicket.STAGES
+                    stage: tickets.filter(status=stage).count() for stage in RepairTicket.STAGES
                 },
                 "repair_overdue_count": open_tickets.filter(expected__isnull=False, expected__lt=date.today()).count(),
             })
 
         if can_rentals:
             # -- rentals/churn: global, not affected by the date/channel filters above --
+            scoped_rentals = rental_queryset_for(scope, Rental.objects.all())
             rentals = list(
-                Rental.objects.select_related("party")
+                scoped_rentals.select_related("party")
                 .prefetch_related("issues", "lines")
                 .filter(status__in=[Rental.APPROVED, Rental.ACTIVE])
             )
@@ -261,7 +280,7 @@ class DashboardView(APIView):
                 # approval" -- global count, not scoped to the approved/
                 # active rentals list above (this is specifically the
                 # ones still waiting on a customer decision).
-                "rentals_pending_approval": Rental.objects.filter(status=Rental.PENDING_APPROVAL).count(),
+                "rentals_pending_approval": scoped_rentals.filter(status=Rental.PENDING_APPROVAL).count(),
             })
 
         return Response(response)

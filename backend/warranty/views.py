@@ -1,8 +1,10 @@
 from rest_framework import permissions, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from accounts.permissions import HasPerm
+from accounts.store_scope import StoreScopedMixin
 from crmbook_backend.notify import send_email
 from parties.models import Message, Party
 from repairs.models import RepairTicket
@@ -11,7 +13,11 @@ from .models import Warranty
 from .serializers import WarrantySerializer
 
 
-class WarrantyViewSet(viewsets.ModelViewSet):
+class WarrantyViewSet(StoreScopedMixin, viewsets.ModelViewSet):
+    # Store scope: the sale invoice or repair ticket the warranty covers.
+    # A warranty with neither has no store and stays Owner-only.
+    store_lookups = ("invoice__stock_point", "repair_ticket__stock_point")
+    store_payload_field = None
     queryset = Warranty.objects.select_related("party", "invoice", "repair_ticket").all()
     serializer_class = WarrantySerializer
     permission_classes = [permissions.IsAuthenticated, HasPerm]
@@ -37,7 +43,21 @@ class WarrantyViewSet(viewsets.ModelViewSet):
             qs = qs.filter(invoice_id=invoice_id)
         return qs
 
+    def _check_covered_record(self, serializer):
+        scope = self.store_scope
+        invoice = serializer.validated_data.get("invoice")
+        ticket = serializer.validated_data.get("repair_ticket")
+        if invoice is not None and not scope.allows(invoice.stock_point_id):
+            raise ValidationError({"invoice": "That invoice isn't from your store."})
+        if ticket is not None and not scope.allows(ticket.stock_point_id):
+            raise ValidationError({"repair_ticket": "That repair ticket isn't from your store."})
+
+    def perform_update(self, serializer):
+        self._check_covered_record(serializer)
+        serializer.save()
+
     def perform_create(self, serializer):
+        self._check_covered_record(serializer)
         warranty = serializer.save()
         # "mailed to the customer" -- logged as an outbound email on the
         # party's own thread, same as every other notification in the
@@ -73,14 +93,16 @@ class WarrantyViewSet(viewsets.ModelViewSet):
         covered_ticket_ids = set(Warranty.objects.filter(section=Warranty.REPAIR, repair_ticket__party=party).values_list("repair_ticket_id", flat=True))
 
         invoices = []
-        for inv in Invoice.objects.filter(party=party, status=Invoice.PAID, source=Invoice.SALE).prefetch_related("items__variant__product"):
+        scope = self.store_scope
+        sale_invoices = scope.filter(Invoice.objects.filter(party=party, status=Invoice.PAID, source=Invoice.SALE), "stock_point")
+        for inv in sale_invoices.prefetch_related("items__variant__product"):
             if inv.id in covered_invoice_ids:
                 continue
             names = ", ".join(i.label for i in inv.items.all())
             invoices.append({"id": inv.id, "code": inv.code, "label": f"{inv.code} \u2014 {names}", "date": inv.date})
 
         tickets = []
-        for t in RepairTicket.objects.filter(party=party).prefetch_related("invoices"):
+        for t in scope.filter(RepairTicket.objects.filter(party=party), "stock_point").prefetch_related("invoices"):
             inv = t.original_invoice
             if not inv or t.id in covered_ticket_ids:
                 continue

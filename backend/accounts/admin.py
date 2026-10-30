@@ -18,9 +18,9 @@ class RoleAdmin(admin.ModelAdmin):
 
 @admin.register(User)
 class UserAdmin(DjangoUserAdmin):
-    list_display = ["username", "first_name", "last_name", "role", "is_staff"]
+    list_display = ["username", "first_name", "last_name", "role", "stock_point", "is_staff"]
     fieldsets = DjangoUserAdmin.fieldsets + (
-        ("Role & contact", {"fields": ("role", "phone")}),
+        ("Role & contact", {"fields": ("role", "phone", "stock_point")}),
     )
 
 

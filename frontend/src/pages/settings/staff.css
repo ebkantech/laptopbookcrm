@@ -1,0 +1,264 @@
+/* ------------------------------------------------------------------ *
+ * Settings > Staff management, My password, and the public password
+ * setup page. Everything is scoped under .st-* so no other screen is
+ * affected; colours come from the --cb-* tokens in index.css.
+ * ------------------------------------------------------------------ */
+.st {
+  --st-violet: #6D5BD0;
+  --st-accent-soft: rgba(49, 87, 213, 0.08);
+  --st-amber: #B7791F;
+  --st-amber-soft: rgba(183, 121, 31, 0.12);
+  --st-red-soft: rgba(200, 60, 74, 0.1);
+  --st-green-soft: rgba(22, 132, 91, 0.1);
+  container-type: inline-size;
+  font-family: var(--cb-font-body);
+  color: var(--cb-ink);
+  min-width: 0;
+}
+.st :is(button, a, input, select, [tabindex]):focus-visible { outline: 2px solid var(--cb-accent); outline-offset: 2px; }
+.st-stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+.st-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 0.75rem 1rem; }
+/* the description shrinks first, so the buttons stay beside it (as on Store Locator) until space runs out */
+.st-head > :first-child { flex: 1 1 22rem; }
+.st-title { font-family: var(--cb-font-display); font-weight: 800; font-size: 1.2rem; letter-spacing: -0.01em; }
+.st-desc { margin-top: 0.25rem; font-size: 13px; line-height: 1.55; color: var(--cb-ink-soft); max-width: 46rem; }
+.st-note { font-size: 12px; line-height: 1.5; color: var(--cb-ink-soft); }
+.st-mono { font-family: var(--cb-font-mono); }
+
+/* Buttons ------------------------------------------------------------ */
+.st-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+  min-height: 2.5rem; padding: 0 1rem;
+  border: 1px solid var(--cb-rule); border-radius: 999px;
+  background: var(--cb-surface);
+  font-size: 13px; font-weight: 700; color: var(--cb-ink);
+  white-space: nowrap;
+}
+.st-btn:hover:not(:disabled) { border-color: var(--cb-rule-strong); background: var(--cb-inset); }
+.st-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.st-btn[data-variant="primary"] { background: var(--cb-accent); border-color: var(--cb-accent); color: #fff; }
+.st-btn[data-variant="primary"]:hover:not(:disabled) { filter: brightness(0.95); background: var(--cb-accent); }
+.st-btn[data-variant="danger"] { background: var(--cb-red); border-color: var(--cb-red); color: #fff; }
+.st-btn[data-variant="danger"]:hover:not(:disabled) { filter: brightness(0.95); background: var(--cb-red); }
+.st-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 2.25rem; height: 2.25rem;
+  border: 1px solid var(--cb-rule); border-radius: 999px;
+  background: var(--cb-surface); color: var(--cb-ink-soft);
+}
+.st-icon-btn:hover:not(:disabled) { color: var(--cb-accent); border-color: var(--cb-accent); background: var(--st-accent-soft); }
+.st-icon-btn[data-tone="danger"]:hover:not(:disabled) { color: var(--cb-red); border-color: var(--cb-red); background: var(--st-red-soft); }
+.st-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Badges -------------------------------------------------------------- */
+.st-badge {
+  display: inline-flex; align-items: center; gap: 0.3rem; max-width: 100%;
+  padding: 0.18rem 0.6rem; border-radius: 999px;
+  font-size: 11px; font-weight: 700; line-height: 1.35;
+  color: var(--cb-accent); background: var(--st-accent-soft);
+  overflow-wrap: anywhere;
+}
+.st-badge[data-tone="green"] { color: var(--cb-green); background: var(--st-green-soft); }
+.st-badge[data-tone="amber"] { color: var(--st-amber); background: var(--st-amber-soft); }
+.st-badge[data-tone="red"] { color: var(--cb-red); background: var(--st-red-soft); }
+.st-badge[data-tone="grey"] { color: var(--cb-ink-soft); background: var(--cb-inset); box-shadow: inset 0 0 0 1px var(--cb-rule); }
+.st-badge[data-tone="violet"] { color: var(--st-violet); background: rgba(109, 91, 208, 0.1); }
+
+/* Summary strip ------------------------------------------------------- */
+.st-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; }
+/* Five across once the content (.st container) is 640px wide -- sidebar open
+   or closed on any laptop; padding and label size scale with the width. */
+@container (min-width: 640px) { .st-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: clamp(0.45rem, 0.85cqi, 0.6rem); } }
+.st-stat {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem;
+  padding: 0.75rem clamp(0.6rem, 1.25cqi, 0.9rem); text-align: left; min-width: 0;
+  background: var(--cb-surface); border: 1px solid var(--cb-rule); border-radius: var(--cb-radius-lg);
+}
+button.st-stat:hover { border-color: var(--cb-rule-strong); }
+button.st-stat[aria-pressed="true"] { border-color: var(--cb-accent); box-shadow: 0 0 0 3px var(--cb-accent-ring); }
+.st-stat b { font-family: var(--cb-font-display); font-size: 1.3rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.st-stat span { font-size: clamp(9.5px, 1.36cqi, 11px); font-weight: 700; letter-spacing: clamp(0.03em, 0.08cqi, 0.06em); text-transform: uppercase; color: var(--cb-ink-soft); }
+
+/* Toolbar -------------------------------------------------------------- */
+.st-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; }
+.st-tools > * { max-width: 100%; }
+.st-tools > [data-searchbox] { flex: 1 1 100%; }
+/* Row structure follows the CONTENT width: from 1000px all filters fit one
+   row; 620-999px search + Role + Store on row 1 and the rest together on
+   row 2 (a deliberate break, not a ragged wrap). Search absorbs the rest. */
+@container (min-width: 620px) { .st-tools > [data-searchbox] { flex: 1 1 10rem; min-width: 10rem; } }
+@container (min-width: 620px) and (max-width: 999px) {
+  .st-tools > .st-select:nth-of-type(n+3) { order: 2; }
+  .st-tools:has(> .st-select:nth-of-type(3))::after { content: ""; order: 1; flex-basis: 100%; height: 0; margin-top: -0.6rem; }
+}
+.st-select {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  min-height: 2.6rem; padding: 0 0.35rem 0 0.9rem;
+  background: var(--cb-surface); border: 1px solid var(--cb-rule); border-radius: 999px;
+  font-size: 12px; font-weight: 600; color: var(--cb-ink-soft);
+}
+.st-select:focus-within { border-color: var(--cb-accent); box-shadow: 0 0 0 3px var(--cb-accent-ring); }
+.st .st-select select { border: 0; background: transparent; min-height: 2.4rem; max-width: 10rem; font-size: 13px; font-weight: 700; color: var(--cb-ink); outline: none; padding-inline: 0.2rem 0.4rem; }
+
+/* Staff table: ruled table when wide, labelled cards when narrow ------ */
+.st-table { display: grid; gap: 0.6rem; }
+.st-tr {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem 1rem;
+  padding: 0.9rem 1rem;
+  background: var(--cb-surface); border: 1px solid var(--cb-rule); border-radius: var(--cb-radius-lg);
+  font-size: 13px; min-width: 0;
+}
+.st-tr > * { min-width: 0; }
+.st-tr > [data-label]::before {
+  content: attr(data-label); display: block; margin-bottom: 0.2rem;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--cb-ink-soft);
+}
+.st-th { display: none; }
+.st-person, .st-actions { grid-column: 1 / -1; }
+.st-person { display: flex; align-items: center; gap: 0.7rem; }
+.st-avatar {
+  flex-shrink: 0; width: 2.3rem; height: 2.3rem;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px; font-family: var(--cb-font-display); font-weight: 800; font-size: 12px;
+  color: var(--st-violet); background: rgba(109, 91, 208, 0.1);
+}
+.st-name { display: block; font-weight: 700; font-size: 13.5px; overflow-wrap: anywhere; }
+.st-sub { display: block; font-size: 12px; color: var(--cb-ink-soft); overflow-wrap: anywhere; }
+.st-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.st-tr[data-inactive="true"] .st-person { opacity: 0.65; }
+/* a badge that wraps (long store name) keeps soft corners instead of a stretched pill */
+.st-tr .st-badge { border-radius: 0.7rem; }
+/* A ruled table of single-line rows once the CONTENT is 700px wide (sidebar
+   open or closed on any laptop / desktop), labelled cards below that. Text
+   stays on one line (ellipsis, full text in the tooltip). */
+@container (min-width: 700px) {
+  .st-table { gap: 0; background: var(--cb-surface); border: 1px solid var(--cb-rule); border-radius: var(--cb-radius-xl); box-shadow: var(--cb-shadow-1); overflow: hidden; }
+  .st-tr {
+    /* Status only ever holds one short badge, so it gets a fixed track and
+       the freed space goes to the person column (long usernames / emails). */
+    grid-template-columns: minmax(0, 2.6fr) minmax(0, 1.2fr) minmax(0, 1.4fr) 7.5rem 10.25rem;
+    gap: 0.6rem clamp(0.6rem, 1cqi, 1rem);
+    align-items: center; padding: 0.8rem clamp(0.85rem, 1.1cqi, 1.2rem); border: 0; border-radius: 0;
+  }
+  .st-tr:not(.st-th) :is(.st-name, .st-sub) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
+  .st-tr:not(.st-th) > [data-label="Role"] { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .st-tr:not(.st-th) .st-badge { display: inline-block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; overflow-wrap: normal; }
+  .st-tr:not(.st-th) .st-badge > svg { display: inline; margin-right: 0.3rem; vertical-align: -1px; }
+  .st-actions { flex-wrap: nowrap; }
+  .st-tr + .st-tr { border-top: 1px solid var(--cb-rule); }
+  .st-tr:not(.st-th):hover { background: rgba(49, 87, 213, 0.03); }
+  .st-tr > [data-label]::before { display: none; }
+  .st-th { display: grid; background: var(--cb-inset); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cb-ink-soft); padding-block: 0.7rem; }
+  .st-person, .st-actions { grid-column: auto; }
+  .st-actions { justify-content: flex-end; }
+}
+.st-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.6rem; }
+
+/* States ---------------------------------------------------------------- */
+.st-state {
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.45rem;
+  padding: 2.25rem 1.25rem;
+  border: 1px dashed var(--cb-rule-strong); border-radius: var(--cb-radius-xl);
+  background: rgba(255, 255, 255, 0.65);
+}
+.st-state-title { font-weight: 700; font-size: 14px; }
+.st-alert {
+  display: flex; align-items: flex-start; gap: 0.5rem;
+  padding: 0.7rem 0.85rem; border-radius: var(--cb-radius-md);
+  font-size: 12.5px; line-height: 1.5;
+  color: var(--cb-red); background: var(--st-red-soft); border: 1px solid rgba(200, 60, 74, 0.25);
+}
+.st-alert[data-tone="ok"] { color: var(--cb-green); background: var(--st-green-soft); border-color: rgba(22, 132, 91, 0.25); }
+.st-alert[data-tone="info"] { color: var(--cb-ink); background: var(--st-accent-soft); border-color: rgba(49, 87, 213, 0.2); }
+.st-alert[data-tone="warn"] { color: var(--cb-ink); background: var(--st-amber-soft); border-color: rgba(183, 121, 31, 0.3); }
+.st-alert svg { flex-shrink: 0; margin-top: 0.1rem; }
+.st-skel { display: block; border-radius: 13px; background: linear-gradient(90deg, #EDF0F5 0%, #F7F9FC 50%, #EDF0F5 100%); background-size: 200% 100%; animation: st-shimmer 1.3s ease-in-out infinite; }
+@keyframes st-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
+/* Dialog ----------------------------------------------------------------- */
+.st-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(10, 15, 28, 0.45);
+  padding: 0;
+}
+@media (min-width: 640px) { .st-overlay { align-items: center; padding: 1.5rem; } }
+.st-dialog {
+  width: 100%; max-width: 36rem; max-height: min(92vh, 100%);
+  display: flex; flex-direction: column;
+  background: var(--cb-surface);
+  border-radius: var(--cb-radius-xl) var(--cb-radius-xl) 0 0;
+  box-shadow: var(--cb-shadow-modal);
+  animation: st-pop var(--cb-base) var(--cb-ease);
+  font-family: var(--cb-font-body); color: var(--cb-ink);
+  container-type: inline-size;
+}
+@media (min-width: 640px) { .st-dialog { border-radius: var(--cb-radius-xl); } }
+/* size="wide": a large working dialog (e.g. Store Locator activity logs) --
+   full-screen on phones, near-full-viewport on larger screens */
+.st-dialog[data-size="wide"] { max-width: 72rem; height: 100%; max-height: 100%; border-radius: 0; }
+@media (min-width: 640px) { .st-dialog[data-size="wide"] { height: min(90vh, 60rem); border-radius: var(--cb-radius-xl); } }
+.st-dialog[data-size="wide"] .st-dialog-body { align-content: start; }
+@keyframes st-pop { from { opacity: 0; transform: translateY(8px); } }
+.st-dialog :is(button, a, input, select):focus-visible { outline: 2px solid var(--cb-accent); outline-offset: 2px; }
+.st-dialog-head { display: flex; align-items: flex-start; gap: 0.75rem; padding: 1.1rem 1.25rem 0.9rem; border-bottom: 1px solid var(--cb-rule); }
+.st-dialog-title { font-family: var(--cb-font-display); font-weight: 800; font-size: 1.1rem; }
+.st-dialog-body { flex: 1; min-height: 0; overflow-y: auto; padding: 1.1rem 1.25rem; display: grid; gap: 0.9rem; }
+.st-dialog-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; padding: 0.9rem 1.25rem; border-top: 1px solid var(--cb-rule); background: var(--cb-inset); border-radius: 0 0 var(--cb-radius-xl) var(--cb-radius-xl); }
+
+/* Forms ------------------------------------------------------------------ */
+.st-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.85rem; }
+@container (min-width: 480px) { .st-grid[data-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.st-field { display: grid; gap: 0.3rem; min-width: 0; align-content: start; }
+.st-label { font-size: 12px; font-weight: 700; color: var(--cb-ink); }
+.st-label small { font-weight: 500; color: var(--cb-ink-soft); }
+.st .st-input, .st-dialog .st-input, .st-public .st-input {
+  width: 100%; min-height: 2.6rem; padding: 0 0.8rem;
+  border: 1px solid var(--cb-rule); border-radius: var(--cb-radius-md);
+  background: var(--cb-surface); font-size: 14px; color: var(--cb-ink);
+}
+.st-input:focus { outline: none; border-color: var(--cb-accent); box-shadow: 0 0 0 3px var(--cb-accent-ring); }
+.st-input[aria-invalid="true"] { border-color: var(--cb-red); }
+.st-err { font-size: 12px; color: var(--cb-red); }
+.st-help { font-size: 12px; color: var(--cb-ink-soft); }
+.st-pw { position: relative; }
+.st-pw .st-input { padding-right: 2.9rem; }
+.st-pw button { position: absolute; right: 0.3rem; top: 50%; transform: translateY(-50%); width: 2.2rem; height: 2.2rem; border: 0; background: transparent; color: var(--cb-ink-soft); display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; }
+.st-pw button:hover { color: var(--cb-ink); background: var(--cb-inset); }
+.st-choice { display: grid; gap: 0.5rem; }
+.st-choice label {
+  display: flex; align-items: flex-start; gap: 0.6rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--cb-rule); border-radius: var(--cb-radius-md);
+  cursor: pointer;
+}
+.st-choice label:has(input:checked) { border-color: var(--cb-accent); background: var(--st-accent-soft); }
+.st-choice label:has(input:disabled) { opacity: 0.55; cursor: not-allowed; }
+.st-choice input { margin-top: 0.2rem; }
+.st-choice b { display: block; font-size: 13px; }
+.st-choice span { display: block; font-size: 12px; color: var(--cb-ink-soft); }
+.st-switch { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 13px; font-weight: 600; }
+.st-link-box {
+  display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;
+  padding: 0.6rem 0.7rem; border-radius: var(--cb-radius-md);
+  background: var(--cb-inset); border: 1px solid var(--cb-rule);
+}
+.st-link-box code { flex: 1 1 14rem; min-width: 0; font-family: var(--cb-font-mono); font-size: 12px; overflow-wrap: anywhere; }
+.st-kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.35rem 0.9rem; font-size: 13px; }
+.st-kv dt { color: var(--cb-ink-soft); }
+.st-kv dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+
+/* My password / public page card ----------------------------------------- */
+.st-card {
+  max-width: 34rem;
+  padding: 1.25rem;
+  background: var(--cb-surface); border: 1px solid var(--cb-rule); border-radius: var(--cb-radius-xl); box-shadow: var(--cb-shadow-1);
+  display: grid; gap: 0.9rem;
+}
+.st-public { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1.5rem 1rem; font-family: var(--cb-font-body); color: var(--cb-ink); }
+.st-public .st-card { width: 100%; }
+
+@media (prefers-reduced-motion: reduce) {
+  .st-dialog { animation: none; }
+  .st-skel { animation: none; }
+}

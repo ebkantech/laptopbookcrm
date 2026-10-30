@@ -42,6 +42,14 @@ class User(AbstractUser):
     """
     role = models.ForeignKey(Role, on_delete=models.PROTECT, related_name="users", null=True, blank=True)
     phone = models.CharField(max_length=20, blank=True)
+    # The one shop this staff account works from -- limits every
+    # store-linked record they can see or touch (accounts.store_scope).
+    # Set only by the Owner (UserViewSet.set_store); left empty, a non-owner
+    # account sees no store's records. SET_NULL so removing a shop leaves
+    # its staff unassigned (no access) rather than pointing anywhere else.
+    stock_point = models.ForeignKey(
+        "catalog.StockPoint", on_delete=models.SET_NULL, null=True, blank=True, related_name="assigned_staff",
+    )
 
     def has_perm_code(self, codename: str) -> bool:
         if self.is_superuser:
@@ -131,3 +139,54 @@ class PermissionDeniedLog(models.Model):
 
     def __str__(self):
         return f"{self.user} denied {self.required_perm} at {self.at:%Y-%m-%d %H:%M}"
+
+
+class ActivityLog(models.Model):
+    """
+    Staff Activity Logs: one row per meaningful action a signed-in staff
+    account performed, recorded server-side by accounts.activity (never
+    from a request body). Shown per staff member in Store Locator ->
+    Staff list -> Logs, under the visibility rules in accounts.activity.
+
+    `actor_privileged` is the actor's superuser status at the time, so a
+    privileged entry stays hidden from non-superusers even if the account
+    is later demoted. `source` tells live entries from ones copied out of
+    the older repair / rental histories and the permission-denied log when
+    this table was introduced -- nothing else is reconstructed.
+    """
+    LIVE, IMPORTED = "live", "imported"
+    SOURCE_CHOICES = [(LIVE, "Recorded by Activity Logs"), (IMPORTED, "Copied from an earlier history")]
+    SUCCESS, DENIED = "success", "denied"
+    OUTCOME_CHOICES = [(SUCCESS, "Completed"), (DENIED, "Blocked by permissions")]
+
+    actor = models.ForeignKey(User, on_delete=models.PROTECT, related_name="activity_logs")
+    actor_privileged = models.BooleanField(default=False)
+    at = models.DateTimeField(db_index=True)
+    module = models.CharField(max_length=20)
+    action = models.CharField(max_length=40)
+    description = models.CharField(max_length=300)
+    outcome = models.CharField(max_length=10, choices=OUTCOME_CHOICES, default=SUCCESS)
+    record_type = models.CharField(max_length=40, blank=True)
+    record_id = models.CharField(max_length=40, blank=True)
+    record_label = models.CharField(max_length=120, blank=True)
+    # where it happened, when that can be told from the record; never guessed
+    stock_point = models.ForeignKey("catalog.StockPoint", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    # the actor's own Store Location at that moment (a fact about the actor,
+    # not about the record) -- lets store-scoped viewers see store-less work
+    # (e.g. a customer edit) done while the actor worked at their store,
+    # without ever assigning a store to the record. Unknown for older rows.
+    actor_stock_point = models.ForeignKey("catalog.StockPoint", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    # {field: [before, after]} for edits -- secrets never stored, personal fields masked
+    changes = models.JSONField(default=dict, blank=True)
+    endpoint = models.CharField(max_length=200, blank=True)
+    source = models.CharField(max_length=10, choices=SOURCE_CHOICES, default=LIVE)
+
+    class Meta:
+        ordering = ["-at", "-id"]
+        indexes = [
+            models.Index(fields=["actor", "-at"], name="activity_actor_at"),
+            models.Index(fields=["actor", "module"], name="activity_actor_module"),
+        ]
+
+    def __str__(self):
+        return f"{self.actor} {self.action} {self.record_type}:{self.record_id} at {self.at:%Y-%m-%d %H:%M}"

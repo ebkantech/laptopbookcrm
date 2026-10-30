@@ -8,7 +8,7 @@ from crmbook_backend.testing import client_for, make_user, results
 
 class CashBookTests(TestCase):
     def setUp(self):
-        self.accountant_user = make_user("accountant", ["cashbook.view", "cashbook.edit"])
+        self.accountant_user = make_user("accountant", ["cashbook.view", "cashbook.edit"], owner=True)
         self.accountant = client_for(self.accountant_user)
 
     def test_create_entry_records_who_made_it(self):
@@ -36,7 +36,7 @@ class BankBookTests(TestCase):
         BankEntry.objects.create(account=self.account, date=date.today(), particulars="Customer payment", type=BankEntry.IN, amount=25000)
         self.debit = BankEntry.objects.create(account=self.account, date=date.today(), particulars="Supplier", type=BankEntry.OUT, amount=5000)
         BankEntry.objects.create(account=self.other, date=date.today(), particulars="Interest", type=BankEntry.IN, amount=100)
-        self.banker = client_for(make_user("banker", ["bankbook.view", "bankbook.edit", "bankbook.reconcile"]))
+        self.banker = client_for(make_user("banker", ["bankbook.view", "bankbook.edit", "bankbook.reconcile"], owner=True))
 
     def test_balance_is_opening_plus_credits_minus_debits(self):
         accounts = {a["name"]: a for a in results(self.banker.get("/api/bank-accounts/"))}
@@ -66,7 +66,7 @@ class InvoicePaymentPostingTests(TestCase):
         from sales.models import Invoice, InvoiceItem
 
         self.Invoice = Invoice
-        self.cashier_user = make_user("cashier", ["invoices.view", "invoices.settle", "cashbook.view", "cashbook.edit", "bankbook.view", "bankbook.edit"])
+        self.cashier_user = make_user("cashier", ["invoices.view", "invoices.settle", "cashbook.view", "cashbook.edit", "bankbook.view", "bankbook.edit"], owner=True)
         self.cashier = client_for(self.cashier_user)
         shop = StockPoint.objects.create(slug="shop", name="Shop", kind=StockPoint.SHOP)
         party = Party.objects.create(name="Payer", type=Party.RETAIL, phone="9876543210", joined=date.today())

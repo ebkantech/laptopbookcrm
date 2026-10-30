@@ -70,6 +70,8 @@ bypass, shown here for reference as if it were role-based too, since
 | `portal.manage` | Send customer portal access links | ✅ | ✅ | — | — | — | — |
 | `roles.manage` | Change roles and permissions | ✅ | ✅ | — | — | — | — |
 | `reports.export` | Export accounting reports | ✅ | ✅ | — | — | ✅ | ✅ |
+| `reports.profit_loss` | View store Profit & Loss (Admins only; limited to their stores) — see note below | ✅ | ✅ | — | — | — | — |
+| `expenses.manage` | Record and manage expenses and their attachments (Admins and Accounts only; limited to their stores) — see note below | ✅ | ✅ | — | — | ✅ | — |
 | `parties.view` | View the customer directory and details | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `parties.manage` | Create/edit customer records, message customers, manage portal access | ✅ | ✅ | ✅ | — | — | — |
 | `orders.manage` | View and respond to inbound WhatsApp orders | ✅ | ✅ | ✅ | — | — | — |
@@ -93,9 +95,39 @@ bypass, shown here for reference as if it were role-based too, since
 | `warranty.manage` | `WarrantyViewSet` | `backend/warranty/views.py` |
 | `portal.manage` | `PortalInviteViewSet`, `PortalAccessLogListView` | `backend/portal/views.py` |
 | `parties.view` / `parties.manage` | `PartyViewSet` | `backend/parties/views.py` |
+| `reports.profit_loss` | `ProfitLossView`, `ProfitLossTransactionsView`, `ProfitLossStoresView` via `reports.profit_loss.CanViewProfitLoss` | `backend/reports/views.py`, `backend/reports/profit_loss.py` |
+| `expenses.manage` | `ExpenseViewSet`, `ExpenseCategoryViewSet`, `ExpenseAttachmentFileView` via `accounting.expense_views.CanManageExpenses` | `backend/accounting/expense_views.py`, `backend/accounting/expenses.py` |
 | `roles.manage` | *(seeded, not yet enforced anywhere — reserved for the future admin-facing role-assignment screen)* | — |
 | — (open to any staff) | `StockPointViewSet`, `PartViewSet`, `ServiceViewSet`, `DashboardView` | `backend/catalog/views.py`, `backend/dashboard/views.py` |
 | — (read-only for any staff, editing is Django-admin-only) | `PermissionViewSet`, `RoleViewSet`, `UserViewSet` | `backend/accounts/views.py` |
+
+### Store-wise Profit & Loss (`reports.profit_loss`)
+
+Holding the permission is necessary but not sufficient. Access requires
+**Superuser**, or an **Admin-tier** account (`accounts.staff.is_staff_admin`:
+the Owner role or `roles.manage`) whose role **also** holds
+`reports.profit_loss`. Any other role given the permission (e.g. Accounts) is
+still refused, and `is_staff` plays no part. Stores come from
+`accounts.store_scope.StoreScope`: Superuser / Owner reach every store and
+get the store comparison and consolidated total; a store-assigned Admin
+reaches only their own store (any other `store` id is a 403); an unassigned
+Admin reaches none. Every refusal is a 403, logged in `PermissionDeniedLog`.
+Migration `accounts/0010_profit_loss_permission` grants it to the `owner`
+and `manager` (Admin) roles; remove it from a role to withdraw access.
+
+### Expenses (`expenses.manage`)
+
+Accounting → Expenses: list, bulk entry, details, edit, payments, cancel,
+attachment upload / preview / download. Access requires **Superuser**, or an
+**Admin-tier** account (Owner role or `roles.manage`) or an **Accounts**
+account (role slug `accountant`) whose role **also** holds `expenses.manage`.
+Any other role holding it (e.g. Sales Staff) is still refused with 403, and
+`is_staff` plays no part. Records go through `StoreScope`: store-assigned
+Admin / Accounts users reach only their store's expenses and attachments
+(another store's id is a 404, recording one for another store is refused);
+shared / head-office expenses (no store) are reachable only by an account
+that sees every store. Migration `accounts/0011_expenses_permission` grants
+it to the `owner`, `manager` and `accountant` roles.
 
 ## Known gaps / deliberately deferred
 
