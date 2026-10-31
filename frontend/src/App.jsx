@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   LayoutDashboard,
+  MapPin,
   Package,
   Receipt,
   Users,
@@ -25,6 +26,7 @@ import AnimatedGradientBackground from "./components/AnimatedGradientBackground"
 const Login = lazy(() => import("./pages/Login"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Inventory = lazy(() => import("./pages/Inventory"));
+const StoreLocator = lazy(() => import("./pages/StoreLocator"));
 const Invoices = lazy(() => import("./pages/Invoices"));
 const Parties = lazy(() => import("./pages/Parties"));
 const Rentals = lazy(() => import("./pages/Rentals"));
@@ -37,6 +39,7 @@ const Reports = lazy(() => import("./pages/Reports"));
 const RepairApproval = lazy(() => import("./pages/RepairApproval"));
 const RentalApproval = lazy(() => import("./pages/RentalApproval"));
 const RepairOrderApproval = lazy(() => import("./pages/RepairOrderApproval"));
+const SetPassword = lazy(() => import("./pages/SetPassword"));
 const PortalApp = lazy(() => import("./PortalApp"));
 
 // Grouped the way the redesign reference groups its own nav (Overview /
@@ -59,6 +62,11 @@ const NAV_GROUPS = [
         icon: Package,
         perm: "inventory.edit",
       },
+      // No `perm`: read-only, and its stock-point / product / part data is
+      // already open to every staff account (IsStaffAccount) -- the
+      // repairs / invoices / rentals sections inside are gated server-side
+      // by those modules' own *.view permissions.
+      { id: "storeLocator", label: "Store Locator", icon: MapPin },
       {
         id: "invoices",
         label: "Sales & Invoices",
@@ -173,8 +181,9 @@ const ROUTE_VIEWS = {
   "/invoices": "invoices", "/parties": "parties", "/rentals": "rentals",
   "/repairs": "repairs", "/warranty": "warranty", "/accounting": "accounting",
   "/reports": "reports", "/broadcast": "broadcast", "/settings": "settings",
+  "/store-locator": "storeLocator",
 };
-const VIEW_ROUTES = { home: "/", inventory: "/inventory", invoices: "/sales", parties: "/parties", rentals: "/rentals", repairs: "/repairs", warranty: "/warranty", accounting: "/accounting", reports: "/reports", broadcast: "/broadcast", settings: "/settings" };
+const VIEW_ROUTES = { home: "/", inventory: "/inventory", storeLocator: "/store-locator", invoices: "/sales", parties: "/parties", rentals: "/rentals", repairs: "/repairs", warranty: "/warranty", accounting: "/accounting", reports: "/reports", broadcast: "/broadcast", settings: "/settings" };
 const routeView = () => {
   const path = window.location.pathname.replace(/\/$/, "") || "/";
   if (/^\/parties\/\d+$/.test(path)) return "parties";
@@ -486,6 +495,19 @@ function Shell() {
 
 
 <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+  {/* Non-owner accounts only reach their own store's records
+      (accounts.store_scope); until the Owner assigns one, every
+      store-linked list comes back empty -- say why, everywhere. */}
+  {me && !me.sees_all_stores && !me.stock_point && (
+    <div
+      role="status"
+      className="mx-[1rem] mt-3 flex items-start gap-2 rounded-xl px-3 py-2.5 text-xs sm:mx-[2rem]"
+      style={{ fontFamily: F.body, fontWeight: 600, color: C.ink, backgroundColor: `${C.amber}14`, border: `1px solid ${C.amber}55` }}
+    >
+      <MapPin size={14} style={{ color: C.amber, flexShrink: 0, marginTop: 1 }} />
+      <span>Your Store Location has not been assigned yet. Please contact your administrator.</span>
+    </div>
+  )}
   <Suspense
     fallback={
       <div className="flex min-h-0 flex-1 items-center justify-center">
@@ -495,6 +517,7 @@ function Shell() {
   >
     {view === "home" && <Dashboard onGo={navigate} />}
     {view === "inventory" && <Inventory />}
+    {view === "storeLocator" && <StoreLocator />}
     {view === "invoices" && <Invoices />}
     {view === "parties" && <Parties />}
     {view === "rentals" && <Rentals />}
@@ -523,6 +546,25 @@ function Gate() {
 }
 
 export default function App() {
+  // One-time password-setup link from an administrator (Settings > Staff
+  // management). Public: the link itself is the credential.
+  const setPasswordMatch = window.location.pathname.match(/^\/set-password\/([^/]+)\/([^/]+)\/?$/);
+  if (setPasswordMatch) {
+    return (
+      <Suspense
+        fallback={
+          <div className="cb-shell flex min-h-screen items-center justify-center">
+            <Spinner label="Loading…" />
+          </div>
+        }
+      >
+        <AnimatedGradientBackground />
+        <div className="cb-shell">
+          <SetPassword uid={decodeURIComponent(setPasswordMatch[1])} token={decodeURIComponent(setPasswordMatch[2])} />
+        </div>
+      </Suspense>
+    );
+  }
   const repairOrderMatch = window.location.pathname.match(
     /^\/repair-order-approval\/([^/]+)\/?$/,
   );

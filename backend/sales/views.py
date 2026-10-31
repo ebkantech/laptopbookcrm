@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import HasPerm
+from accounts.store_scope import StoreScopedMixin
 from crmbook_backend.notify import notify_staff
 from parties.models import Message
 
@@ -19,7 +20,10 @@ from .services import CancelError, RefundError, cancel_invoice, mark_overdue, on
 from .serializers import InvoiceSerializer
 
 
-class InvoiceViewSet(viewsets.ModelViewSet):
+class InvoiceViewSet(StoreScopedMixin, viewsets.ModelViewSet):
+    # Store scope: an invoice belongs to the shop/channel it was raised at
+    # (Invoice.stock_point); items, refunds, payment links and print data
+    # all hang off it, so get_object() scoping covers every action below.
     queryset = Invoice.objects.select_related(
         "party", "stock_point", "settled_by", "repair_ticket", "rental",
     ).prefetch_related(

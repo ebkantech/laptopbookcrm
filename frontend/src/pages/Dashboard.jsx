@@ -39,6 +39,7 @@ import {
 
 import { C, F, compact, money } from "../lib/theme";
 import { api } from "../lib/api";
+import { onStoreChanged } from "../lib/storeEvents";
 import PageHeader from "../components/PageHeader";
 
 /* -------------------------------------------------------
@@ -435,6 +436,12 @@ export default function Dashboard({ onGo }) {
       active = false;
     };
   }, []);
+
+  // a store was edited: the channel filter and per-channel figures name it
+  useEffect(() => onStoreChanged(() => {
+    api.get("/stock-points/").then((d) => setStockPoints(d.results ?? d)).catch(() => {});
+    setRefreshKey((k) => k + 1);
+  }), []);
 
   const draftProblem = rangeProblem(draftFrom, draftTo, fromIncomplete, toIncomplete);
 

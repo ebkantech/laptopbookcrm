@@ -3,6 +3,7 @@ from django.db.models import F
 from rest_framework import serializers
 
 from catalog.models import Stock
+from catalog.status import require_active
 from .models import Invoice, InvoiceItem, PaymentLink, Refund
 from .services import create_invoice
 
@@ -111,6 +112,12 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
     def get_settled_by_name(self, obj):
         return (obj.settled_by.get_full_name() or obj.settled_by.username) if obj.settled_by else None
+
+    def validate_stock_point(self, value):
+        # a new invoice can't be raised at an inactive shop / channel; an
+        # existing invoice keeps its stock point whatever its status
+        require_active(value, "invoices", current=self.instance.stock_point_id if self.instance else None)
+        return value
 
     def validate_items(self, items):
         # This endpoint creates product sales only (repair/rental invoices

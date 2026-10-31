@@ -12,14 +12,18 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
-from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
+from rest_framework.exceptions import MethodNotAllowed, NotFound, PermissionDenied, ValidationError
 
+from accounts.models import User
 from accounts.permissions import HasPerm
+from accounts.store_scope import StoreScope, StoreScopedMixin
 from crmbook_backend.notify import whatsapp_provider
 from catalog.models import Stock, StockPoint
+from catalog.status import require_active
 
 from .billing import RentBillingError, period_months, raise_rent_invoice, send_due_rent_invoices, set_payment_plan, too_early_to_raise
 from .models import Rental, RentalApproval, RentalAsset, RentalEvent, RentalIssue, RentalLine
+from .scope import rental_queryset_for
 from .serializers import (
     AssetFromInventorySerializer,
     CreateRentalAgreementSerializer,
@@ -76,7 +80,13 @@ class RentalViewSet(viewsets.ModelViewSet):
     }
 
     def get_queryset(self):
-        return super().get_queryset().order_by("-start")
+        return rental_queryset_for(StoreScope(self.request.user), super().get_queryset()).order_by("-start")
+
+    def create(self, request, *args, **kwargs):
+        # A bare agreement has no devices, so nothing ties it to a store --
+        # store staff go through create-agreement, which checks each device.
+        StoreScope(request.user).require_owner("Create rental agreements with their devices (create-agreement) so they're recorded at your store.")
+        return super().create(request, *args, **kwargs)
 
     def list(self, request, *args, **kwargs):
         # Agreements still needing action (draft / awaiting the customer /
@@ -131,6 +141,16 @@ class RentalViewSet(viewsets.ModelViewSet):
         payload = CreateRentalAgreementSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         data = payload.validated_data
+        scope = StoreScope(request.user)
+        scope.require_assigned()
+        # same rule as rental_queryset_for(): the device's source shop
+        allowed_assets = scope.filter(RentalAsset.objects.all(), "source_stock_point")
+        outside = [line["asset"].asset_tag for line in data["lines"] if not allowed_assets.filter(pk=line["asset"].pk).exists()]
+        if outside:
+            raise ValidationError({"lines": f"These devices aren't at your store: {', '.join(outside)}."})
+        renewed = data.get("renews")
+        if renewed and not rental_queryset_for(scope, Rental.objects.filter(pk=renewed.pk)).exists():
+            raise ValidationError({"renews": "That agreement isn't at your store."})
         with transaction.atomic():
             old = data.pop("renews", None)
             if old:
@@ -245,9 +265,13 @@ class RentalViewSet(viewsets.ModelViewSet):
         Sales & Invoices. Body: {"stock_point": <id of the issuing shop>}.
         """
         rental = self.get_object()
+        StoreScope(request.user).require(request.data.get("stock_point"), "invoices")
         stock_point = StockPoint.objects.filter(pk=request.data.get("stock_point")).first()
         if not stock_point:
             return Response({"detail": "Pick the shop issuing this invoice."}, status=400)
+        # a rent invoice is a new invoice at the issuing shop the user picks
+        require_active(stock_point, "invoices")
+        # rent is billed as it falls due, never months ahead
         early = too_early_to_raise(rental)
         if early:
             return Response({"detail": early}, status=400)
@@ -288,7 +312,12 @@ class RentalViewSet(viewsets.ModelViewSet):
         qp = request.query_params
         want = qp.get("status") or ""
 
+        # store staff only see the rentals of their own store (same rule as the Rentals list)
+        scope = StoreScope(request.user)
+        visible = rental_queryset_for(scope, Rental.objects.all())
         qs = Invoice.objects.filter(source=Invoice.RENTAL).select_related("party", "rental", "settled_by").prefetch_related("items")
+        if not scope.all:
+            qs = qs.filter(rental__in=visible)
         for param, lookup in (("party", "party_id"), ("rental", "rental_id"), ("from", "date__gte"), ("to", "date__lte")):
             if qp.get(param):
                 qs = qs.filter(**{lookup: qp[param]})
@@ -320,7 +349,7 @@ class RentalViewSet(viewsets.ModelViewSet):
 
         # the next invoice each live agreement will send (only when no date range is asked for)
         if want in ("", "Scheduled") and not qp.get("from") and not qp.get("to"):
-            live = Rental.objects.filter(status__in=(Rental.APPROVED, Rental.ACTIVE)).select_related("party").prefetch_related("lines", "invoices")
+            live = visible.filter(status__in=(Rental.APPROVED, Rental.ACTIVE)).select_related("party").prefetch_related("lines", "invoices")
             if qp.get("party"):
                 live = live.filter(party_id=qp["party"])
             if qp.get("rental"):
@@ -356,7 +385,12 @@ class RentalViewSet(viewsets.ModelViewSet):
         raise MethodNotAllowed("DELETE", detail="Rental agreements are retained for audit. Cancel the agreement instead.")
 
 
-class RentalAssetViewSet(viewsets.ModelViewSet):
+class RentalAssetViewSet(StoreScopedMixin, viewsets.ModelViewSet):
+    # Store scope: a device belongs to the shop it was taken from or the one
+    # it was put back on sale at. Its store fields are read-only in the
+    # serializer, so there's no payload field to check.
+    store_lookups = ("source_stock_point", "returned_to")
+    store_payload_field = None
     queryset = RentalAsset.objects.select_related("source_stock_point", "returned_to").all()
     serializer_class = RentalAssetSerializer
     permission_classes = [permissions.IsAuthenticated, HasPerm]
@@ -378,6 +412,8 @@ class RentalAssetViewSet(viewsets.ModelViewSet):
         payload = AssetFromInventorySerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         stock = payload.validated_data["stock"]
+        self.store_scope.require(stock.stock_point_id, "stock")
+        require_active(stock.stock_point, "rentals", field="stock")
         variant, product = stock.variant, stock.variant.product
         returned = RentalAsset.objects.filter(
             serial_number__iexact=payload.validated_data["serial_number"].strip(),
@@ -424,9 +460,12 @@ class RentalAssetViewSet(viewsets.ModelViewSet):
             if not asset.variant_id:
                 raise ValidationError({"detail": "This device wasn't taken from Inventory, so there's no product to add it back to. Add the product in Inventory first, or retire the device."})
             stock_point_id = request.data.get("stock_point") or asset.source_stock_point_id
+            self.store_scope.require(stock_point_id, "stock")
             stock_point = StockPoint.objects.filter(pk=stock_point_id).first() if stock_point_id else None
             if stock_point is None:
                 raise ValidationError({"stock_point": "Choose the shop the device goes back to."})
+            # stock can't be added to an inactive shop -- pick an active one
+            require_active(stock_point, "stock")
             updated = Stock.objects.filter(variant_id=asset.variant_id, stock_point=stock_point).update(quantity=F("quantity") + 1)
             if not updated:
                 Stock.objects.create(variant_id=asset.variant_id, stock_point=stock_point, quantity=1)
@@ -436,6 +475,12 @@ class RentalAssetViewSet(viewsets.ModelViewSet):
             asset.returned_by = request.user
             asset.save(update_fields=["status", "returned_to_stock_at", "returned_to", "returned_by"])
         return Response(RentalAssetSerializer(asset).data)
+
+    def perform_create(self, serializer):
+        # A device registered by store staff is recorded against their store
+        # (taken from the account, never the request) so it stays in scope.
+        scope = self.store_scope
+        serializer.save(**({} if scope.all else {"source_stock_point_id": scope.store_id}))
 
     def perform_update(self, serializer):
         asset = self.get_object()
@@ -500,7 +545,11 @@ class RentalIssueViewSet(viewsets.ModelViewSet):
     }
 
     def get_queryset(self):
+        # an issue belongs to whichever store its rental agreement does
+        scope = StoreScope(self.request.user)
         qs = super().get_queryset()
+        if not scope.all:
+            qs = qs.filter(rental__in=rental_queryset_for(scope, Rental.objects.all()))
         rental_id = self.request.query_params.get("rental")
         status_ = self.request.query_params.get("status")
         if rental_id:
@@ -510,6 +559,9 @@ class RentalIssueViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
+        rental = serializer.validated_data.get("rental")
+        if rental and not rental_queryset_for(StoreScope(self.request.user), Rental.objects.filter(pk=rental.pk)).exists():
+            raise NotFound("No such rental agreement.")
         issue = serializer.save()
         # a raised issue is a real support touchpoint -- factor it into churn scoring
         Rental.objects.filter(pk=issue.rental_id).update(tickets=F("tickets") + 1)
@@ -518,6 +570,9 @@ class RentalIssueViewSet(viewsets.ModelViewSet):
     def assign(self, request, pk=None):
         issue = self.get_object()
         user_id = request.data.get("assigned_to")
+        scope = StoreScope(request.user)
+        if user_id and not scope.all and not User.objects.filter(pk=user_id, stock_point_id=scope.store_id).exists():
+            raise ValidationError({"assigned_to": "Pick someone from your own store."})
         issue.assigned_to_id = user_id
         if issue.status == RentalIssue.OPEN:
             issue.status = RentalIssue.IN_PROGRESS

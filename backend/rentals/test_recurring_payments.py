@@ -11,7 +11,7 @@ from rentals.models import Rental, RentalAsset, RentalEvent, RentalLine
 from sales.models import Invoice
 
 
-def make_rental(start, tenure=12, interval=1, fees=(2000, 2500), status=Rental.ACTIVE, party=None):
+def make_rental(start, tenure=12, interval=1, fees=(2000, 2500), status=Rental.ACTIVE, party=None, shop=None):
     party = party or Party.objects.create(name="Acme Rentals", type=Party.RENTAL, phone="9876543210", joined=start)
     rental = Rental.objects.create(
         party=party, product_label="Laptops", monthly_fee=sum(fees), start=start, tenure_months=tenure,
@@ -20,7 +20,7 @@ def make_rental(start, tenure=12, interval=1, fees=(2000, 2500), status=Rental.A
     rental.agreement_code = f"RNT-{rental.pk:06d}"
     rental.save(update_fields=["agreement_code"])
     for i, fee in enumerate(fees):
-        asset = RentalAsset.objects.create(asset_tag=f"A{rental.pk}-{i}", serial_number=f"S{rental.pk}-{i}", brand="Dell", model_name="5420")
+        asset = RentalAsset.objects.create(asset_tag=f"A{rental.pk}-{i}", serial_number=f"S{rental.pk}-{i}", brand="Dell", model_name="5420", source_stock_point=shop)
         RentalLine.objects.create(rental=rental, asset=asset, monthly_fee=fee)
     return rental
 
@@ -135,9 +135,9 @@ class AutoInvoiceSchedulerTests(TestCase):
 class PaymentPlanApiTests(TestCase):
     def setUp(self):
         self.shop = StockPoint.objects.create(slug="shop", name="Shop", kind=StockPoint.SHOP)
-        self.rental = make_rental(date(2026, 1, 1))
-        self.manager = client_for(make_user("mgr", ["rentals.manage", "rentals.view"]))
-        self.viewer = client_for(make_user("viewer", ["rentals.view"]))
+        self.rental = make_rental(date(2026, 1, 1), shop=self.shop)
+        self.manager = client_for(make_user("mgr", ["rentals.manage", "rentals.view"], stock_point=self.shop))
+        self.viewer = client_for(make_user("viewer", ["rentals.view"], stock_point=self.shop))
 
     def test_change_plan_logs_event_and_validates(self):
         url = f"/api/rentals/{self.rental.id}/payment-plan/"
@@ -152,9 +152,9 @@ class PaymentPlanApiTests(TestCase):
 
     def test_ledger_lists_invoices_sent_with_dates_and_filters(self):
         self.rental.delete()
-        self.rental = make_rental(date.today())
+        self.rental = make_rental(date.today(), shop=self.shop)
         billing.raise_rent_invoice(self.rental, stock_point=self.shop, sent_by=None)
-        other = make_rental(date.today(), party=Party.objects.create(name="Other", type=Party.RENTAL, phone="9000000000", joined=date.today()))
+        other = make_rental(date.today(), party=Party.objects.create(name="Other", type=Party.RENTAL, phone="9000000000", joined=date.today()), shop=self.shop)
         billing.raise_rent_invoice(other, stock_point=self.shop, sent_by=None)
         rows = self.viewer.get("/api/rentals/payment-ledger/").data
         invoices = [r for r in rows if r["kind"] == "invoice"]
@@ -169,7 +169,7 @@ class PaymentPlanApiTests(TestCase):
 
     def test_ledger_history_states_paid_late_overdue_due_and_scheduled(self):
         today = date.today()
-        r = make_rental(today - timedelta(days=100), tenure=12, interval=1, status=Rental.ACTIVE)
+        r = make_rental(today - timedelta(days=100), tenure=12, interval=1, status=Rental.ACTIVE, shop=self.shop)
         # month 1: due 100 days ago, paid 4 days late
         first = billing.raise_rent_invoice(r, stock_point=self.shop, sent_by=None)
         pay(first, on=r.start + timedelta(days=4))
@@ -182,7 +182,7 @@ class PaymentPlanApiTests(TestCase):
         self.assertEqual(b["status"], Invoice.OVERDUE)
         self.assertGreater(b["days_overdue"], 30)
         # a rental whose invoice is not due yet
-        fut = make_rental(today + timedelta(days=10))
+        fut = make_rental(today + timedelta(days=10), shop=self.shop)
         up = billing.raise_rent_invoice(fut, stock_point=self.shop, sent_by=None)
         row = next(x for x in self.viewer.get(f"/api/rentals/payment-ledger/?rental={fut.id}").data if x["kind"] == "invoice")
         self.assertEqual((row["status"], row["due_in_days"], row["days_overdue"]), (Invoice.LINK_SENT, 10, 0))
@@ -199,7 +199,7 @@ class PaymentPlanApiTests(TestCase):
         self.assertIsNone(manual["send_on"])
 
     def test_ledger_status_filters(self):
-        r = make_rental(date.today() - timedelta(days=40), tenure=6)
+        r = make_rental(date.today() - timedelta(days=40), tenure=6, shop=self.shop)
         paid = billing.raise_rent_invoice(r, stock_point=self.shop, sent_by=None)
         pay(paid, on=r.start)
         r.refresh_from_db()
@@ -212,8 +212,8 @@ class PaymentPlanApiTests(TestCase):
         self.assertEqual([x for x in get("from=2999-01-01") if x["kind"] == "invoice"], [])
 
     def test_cannot_raise_an_invoice_ahead_of_its_due_window(self):
-        staff = client_for(make_user("rent-manager", ["rentals.view", "rentals.manage"]))
-        r = make_rental(date.today() - timedelta(days=1), tenure=12, interval=1)
+        staff = client_for(make_user("rent-manager", ["rentals.view", "rentals.manage"], stock_point=self.shop))
+        r = make_rental(date.today() - timedelta(days=1), tenure=12, interval=1, shop=self.shop)
         url = f"/api/rentals/{r.id}/raise-invoice/"
         ok = staff.post(url, {"stock_point": self.shop.id}, format="json")
         self.assertEqual(ok.status_code, 201, ok.content)           # this month is due: allowed
@@ -227,15 +227,15 @@ class PaymentPlanApiTests(TestCase):
         self.assertFalse(shown["can_raise_now"])
         self.assertEqual(shown["raise_from"], str(billing.next_billing_period(r)[0] - timedelta(days=billing.INVOICE_LEAD_DAYS)))
         # inside the 3-day window it opens up
-        soon = make_rental(date.today() + timedelta(days=2))
+        soon = make_rental(date.today() + timedelta(days=2), shop=self.shop)
         self.assertTrue(staff.get(f"/api/rentals/{soon.id}/").json()["next_billing_period"]["can_raise_now"])
         self.assertEqual(staff.post(f"/api/rentals/{soon.id}/raise-invoice/", {"stock_point": self.shop.id}, format="json").status_code, 201)
-        far = make_rental(date.today() + timedelta(days=30))
+        far = make_rental(date.today() + timedelta(days=30), shop=self.shop)
         self.assertEqual(staff.post(f"/api/rentals/{far.id}/raise-invoice/", {"stock_point": self.shop.id}, format="json").status_code, 400)
 
     def test_renewing_a_completed_agreement_reuses_its_devices(self):
-        staff = client_for(make_user("renewer", ["rentals.view", "rentals.manage"]))
-        old = make_rental(date.today() - timedelta(days=200), tenure=6, interval=3, fees=(2500, 1800))
+        staff = client_for(make_user("renewer", ["rentals.view", "rentals.manage"], stock_point=self.shop))
+        old = make_rental(date.today() - timedelta(days=200), tenure=6, interval=3, fees=(2500, 1800), shop=self.shop)
         old.months_paid = 6
         old.save()
         RentalAsset.objects.filter(rental_lines__rental=old).update(status=RentalAsset.RENTED)
@@ -253,15 +253,15 @@ class PaymentPlanApiTests(TestCase):
         self.assertTrue(RentalEvent.objects.filter(rental=new, metadata__renews=old.agreement_code).exists())
 
     def test_cannot_renew_an_unfinished_or_someone_elses_agreement(self):
-        staff = client_for(make_user("renewer2", ["rentals.view", "rentals.manage"]))
-        live = make_rental(date.today(), tenure=6)          # months_paid 0
-        spare = RentalAsset.objects.create(asset_tag="SP1", serial_number="SP1", brand="HP", model_name="X", status=RentalAsset.AVAILABLE)
+        staff = client_for(make_user("renewer2", ["rentals.view", "rentals.manage"], stock_point=self.shop))
+        live = make_rental(date.today(), tenure=6, shop=self.shop)          # months_paid 0
+        spare = RentalAsset.objects.create(asset_tag="SP1", serial_number="SP1", brand="HP", model_name="X", status=RentalAsset.AVAILABLE, source_stock_point=self.shop)
         lines = [{"asset_id": spare.id, "monthly_fee": 1000}]
         base = {"start": str(date.today()), "tenure_months": 6, "lines": lines}
         unfinished = staff.post("/api/rentals/create-agreement/", {**base, "party": live.party_id, "renews": live.id}, format="json")
         self.assertEqual(unfinished.status_code, 400)
         self.assertIn("completed", str(unfinished.json()))
-        done = make_rental(date.today() - timedelta(days=300), tenure=6)
+        done = make_rental(date.today() - timedelta(days=300), tenure=6, shop=self.shop)
         done.months_paid = 6
         done.save()
         other = Party.objects.create(name="Someone Else", type=Party.RENTAL, phone="9000011111", joined=date.today())
@@ -271,8 +271,28 @@ class PaymentPlanApiTests(TestCase):
         done.refresh_from_db()
         self.assertEqual(done.status, Rental.ACTIVE)         # nothing was closed by the refused requests
 
+    def test_store_staff_only_see_their_own_stores_ledger_and_renewals(self):
+        other_shop = StockPoint.objects.create(slug="other-shop", name="Other Shop", kind=StockPoint.SHOP)
+        mine = make_rental(date.today() - timedelta(days=1), shop=self.shop)
+        theirs = make_rental(date.today() - timedelta(days=1), shop=other_shop,
+                             party=Party.objects.create(name="Far Away Ltd", type=Party.RENTAL, phone="9111111111", joined=date.today()))
+        billing.raise_rent_invoice(mine, stock_point=self.shop, sent_by=None)
+        billing.raise_rent_invoice(theirs, stock_point=other_shop, sent_by=None)
+        rows = self.viewer.get("/api/rentals/payment-ledger/").data      # the viewer is assigned to self.shop
+        self.assertEqual({r["rental"] for r in rows if r["kind"] == "invoice"}, {mine.id})
+        self.assertEqual({r["rental"] for r in rows if r["kind"] == "scheduled"}, {mine.id, self.rental.id})   # never theirs.id
+        # and cannot renew another store's finished agreement
+        theirs.months_paid = theirs.tenure_months
+        theirs.save()
+        mgr = self.manager
+        spare = RentalAsset.objects.create(asset_tag="SC1", serial_number="SC1", brand="HP", model_name="X", status=RentalAsset.AVAILABLE, source_stock_point=self.shop)
+        res = mgr.post("/api/rentals/create-agreement/", {"party": theirs.party_id, "start": str(date.today()), "tenure_months": 3,
+                       "lines": [{"asset_id": spare.id, "monthly_fee": 1000}], "renews": theirs.id}, format="json")
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("isn't at your store", str(res.json()))
+
     def test_cron_endpoint_requires_the_token(self):
-        make_rental(date.today(), status=Rental.APPROVED)
+        make_rental(date.today(), status=Rental.APPROVED, shop=self.shop)
         Invoice.objects.all().delete()
         url = "/api/rentals/cron/send-due-invoices/"
         anon = APIClient()
@@ -290,7 +310,7 @@ class PaymentPlanApiTests(TestCase):
         self.assertEqual(anon.post(url, HTTP_X_CRON_TOKEN="").status_code, 403)  # unset token never matches
 
     def test_create_agreement_accepts_interval(self):
-        asset = RentalAsset.objects.create(asset_tag="NEW1", serial_number="NEWS1", brand="HP", model_name="X")
+        asset = RentalAsset.objects.create(asset_tag="NEW1", serial_number="NEWS1", brand="HP", model_name="X", source_stock_point=self.shop)
         party = Party.objects.create(name="New", type=Party.RENTAL, phone="9111111111", joined=date.today())
         body = {"party": party.id, "start": "2026-05-01", "tenure_months": 12, "payment_interval_months": 3,
                 "lines": [{"asset_id": asset.id, "monthly_fee": 1500}]}
@@ -305,10 +325,11 @@ class CreateAgreementValidationTests(TestCase):
     """Server-side limits behind the agreement form -- the browser can be bypassed."""
 
     def setUp(self):
-        self.client = client_for(make_user("mgr2", ["rentals.manage", "rentals.view"]))
+        self.shop = StockPoint.objects.create(slug="val-shop", name="Val Shop", kind=StockPoint.SHOP)
+        self.client = client_for(make_user("mgr2", ["rentals.manage", "rentals.view"], stock_point=self.shop))
         self.party = Party.objects.create(name="Val Co", type=Party.RENTAL, phone="9876500000", joined=date.today())
-        self.asset = RentalAsset.objects.create(asset_tag="V1", serial_number="VS1", brand="HP", model_name="A")
-        self.asset2 = RentalAsset.objects.create(asset_tag="V2", serial_number="VS2", brand="HP", model_name="B")
+        self.asset = RentalAsset.objects.create(asset_tag="V1", serial_number="VS1", brand="HP", model_name="A", source_stock_point=self.shop)
+        self.asset2 = RentalAsset.objects.create(asset_tag="V2", serial_number="VS2", brand="HP", model_name="B", source_stock_point=self.shop)
 
     def post(self, **over):
         body = {"party": self.party.id, "start": date.today().isoformat(), "tenure_months": 6,

@@ -12,7 +12,9 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from accounts.permissions import HasPerm
+from accounts.store_scope import StoreScope, StoreScopedMixin
 from catalog.models import Service
+from catalog.views import part_stock_prefetch
 from crmbook_backend.notify import notify_staff, send_email, send_whatsapp
 from sales.models import Invoice
 from sales.services import cancel_invoice, create_invoice
@@ -68,7 +70,8 @@ def _notify_party(party, subject, text):
     send_email(party.email, subject, text)
 
 
-class RepairTicketViewSet(viewsets.ModelViewSet):
+class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
+    # Store scope: RepairTicket.stock_point (the drop-off shop).
     queryset = (
         RepairTicket.objects
         .select_related("party", "stock_point", "order")
@@ -92,7 +95,8 @@ class RepairTicketViewSet(viewsets.ModelViewSet):
     }
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        # nested services carry their part's stock -- this store's rows only
+        qs = super().get_queryset().prefetch_related(part_stock_prefetch(self.store_scope, "services__part__stock"))
         status = self.request.query_params.get("status")
         if status:
             qs = qs.filter(status=status)
@@ -460,11 +464,28 @@ class RepairOrderViewSet(viewsets.ReadOnlyModelViewSet):
         "approve_on_behalf": "repairs.approve",
     }
 
+    def get_queryset(self):
+        # An order belongs to a store when every one of its tickets does
+        # (orders are created for a single drop-off shop); one with any
+        # ticket elsewhere stays Owner-only rather than leaking that ticket.
+        scope = StoreScope(self.request.user)
+        qs = super().get_queryset()
+        if scope.all:
+            return qs
+        if scope.store_id is None:
+            return qs.none()
+        elsewhere = RepairTicket.objects.exclude(stock_point_id=scope.store_id)
+        return (
+            qs.filter(tickets__stock_point_id=scope.store_id).exclude(tickets__in=elsewhere).distinct()
+            .prefetch_related(part_stock_prefetch(scope, "tickets__services__part__stock"))
+        )
+
     def get_serializer_class(self):
         return CreateRepairOrderSerializer if self.action == "create" else RepairOrderSerializer
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
+        StoreScope(request.user).require(request.data.get("stock_point"), "repair orders")
         payload = CreateRepairOrderSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         data = payload.validated_data

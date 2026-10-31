@@ -21,13 +21,16 @@ export default function RentalDevicesModal({ assets, canManage, onClose, onChang
   const [note, setNote] = useState("");
   const [showRetired, setShowRetired] = useState(false);
 
-  useEffect(() => { if (canManage) api.getAll("/stock-points/").then(setShops); }, [canManage]);
+  // only active shops can take stock back (?active=1)
+  useEffect(() => { if (canManage) api.getAll("/stock-points/?active=1").then(setShops); }, [canManage]);
 
   const start = (asset) => {
     setError("");
     setNote("");
     setReturning(asset.id);
-    setShopId(String(asset.source_stock_point || shops[0]?.id || ""));
+    // the shop it came from, unless that shop is now inactive (not listed)
+    const source = shops.find((s) => s.id === asset.source_stock_point);
+    setShopId(String(source?.id || shops[0]?.id || ""));
   };
 
   const confirm = async (asset) => {

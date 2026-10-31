@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { C, F, money, todayISO } from "../lib/theme";
 import { api } from "../lib/api";
+import { onStoreChanged } from "../lib/storeEvents";
 import { useSession } from "../context/SessionContext";
 import { Locked, Pill, PillButton, Spinner, ErrorNote, Eyebrow, TabBar } from "../components/Atoms";
 import PageHeader from "../components/PageHeader";
@@ -711,9 +712,14 @@ export default function Repairs() {
   useEffect(() => {
     api.getAll("/parties/").then(setParties);
     api.getAll("/services/").then(setServices);
-    api.getAll("/stock-points/").then(setStockPoints);
+    api.getAll("/stock-points/?active=1").then(setStockPoints);
   }, [load]);
   useEffect(() => { load(filter); }, [filter, load]);
+  // a store was edited: tickets show its name, the new-ticket form lists it
+  useEffect(() => onStoreChanged(() => {
+    api.getAll("/stock-points/?active=1").then(setStockPoints).catch(() => {});
+    load(filter);
+  }), [filter, load]);
 
   if (!can("repairs.view")) return <div className="flex-1 px-8 py-10"><Locked label="Your role doesn't include repairs & service access." /></div>;
   if (error) return <div className="flex-1 px-8 py-10"><ErrorNote message={error} /></div>;

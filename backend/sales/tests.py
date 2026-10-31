@@ -23,7 +23,7 @@ class InvoiceApiTests(TestCase):
             product=product, code="TEST-SKU-0001", spec="i5 / 8GB", mrp=40000, sell_price=35000, cost=30000
         )
         self.stock = Stock.objects.create(variant=self.variant, stock_point=self.shop, quantity=10)
-        self.seller = client_for(make_user("seller", ["invoices.view", "invoices.create", "invoices.settle"]))
+        self.seller = client_for(make_user("seller", ["invoices.view", "invoices.create", "invoices.settle"], stock_point=self.shop))
 
     def create_invoice(self, client=None, qty=2, price=35000):
         return (client or self.seller).post("/api/invoices/", {
@@ -115,7 +115,7 @@ class InvoiceApiTests(TestCase):
         self.assertEqual(codes(self.seller.get("/api/invoices/", {"party": other.id})), ["INV-O"])
 
     def test_permissions(self):
-        viewer = client_for(make_user("viewer", ["invoices.view"]))
+        viewer = client_for(make_user("viewer", ["invoices.view"], stock_point=self.shop))
         self.assertEqual(viewer.get("/api/invoices/").status_code, 200)
         self.assertEqual(self.create_invoice(client=viewer).status_code, 403)
 
@@ -135,7 +135,7 @@ class UpiPaymentLinkTests(TestCase):
         variant = Variant.objects.create(product=product, code="TEST-SKU-0001", spec="Black", mrp=600, sell_price=500, cost=300)
         self.invoice = Invoice.objects.create(code="INV-UPI", party=self.party, stock_point=self.shop, date=date.today())
         InvoiceItem.objects.create(invoice=self.invoice, variant=variant, qty=2, price=500)
-        self.sender_user = make_user("sales-person", ["invoices.view", "invoices.settle", "payments.send_link"])
+        self.sender_user = make_user("sales-person", ["invoices.view", "invoices.settle", "payments.send_link"], stock_point=self.shop)
         self.sender_user.first_name, self.sender_user.last_name = "Naina", "Joshi"
         self.sender_user.save()
         self.sender = client_for(self.sender_user)
@@ -185,11 +185,11 @@ class UpiPaymentLinkTests(TestCase):
         self.assertEqual(self.sender.post(f"{self.url}/send-upi-link/", {}, format="json").status_code, 400)
 
     def test_repair_staff_and_people_without_permission_cannot_send(self):
-        repair = make_user("repair-tech", ["invoices.view", "payments.send_link"])
+        repair = make_user("repair-tech", ["invoices.view", "payments.send_link"], stock_point=self.shop)
         repair.role.slug = "repair_staff"
         repair.role.save()
         self.assertEqual(client_for(repair).post(f"{self.url}/send-upi-link/", {}, format="json").status_code, 403)
-        viewer = client_for(make_user("viewer-only", ["invoices.view"]))
+        viewer = client_for(make_user("viewer-only", ["invoices.view"], stock_point=self.shop))
         self.assertEqual(viewer.post(f"{self.url}/send-upi-link/", {}, format="json").status_code, 403)
         self.assertFalse(PaymentLink.objects.exists())
 

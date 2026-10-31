@@ -16,10 +16,10 @@ from sales.services import create_invoice
 @mock.patch.dict(os.environ, {"WHATSAPP_PROVIDER": "console"})
 class RefundTests(TestCase):
     def setUp(self):
-        self.seller = client_for(make_user("seller", ["invoices.view", "invoices.create", "invoices.settle"]))
-        self.accounts_user = make_user("accounts", ["invoices.view", "invoices.refund", "reports.export"])
-        self.accounts = client_for(self.accounts_user)
         self.shop = StockPoint.objects.create(slug="shop", name="Main Shop", kind=StockPoint.SHOP)
+        self.seller = client_for(make_user("seller", ["invoices.view", "invoices.create", "invoices.settle"], stock_point=self.shop))
+        self.accounts_user = make_user("accounts", ["invoices.view", "invoices.refund", "reports.export"], stock_point=self.shop)
+        self.accounts = client_for(self.accounts_user)
         self.party = Party.objects.create(name="Buyer", type=Party.RETAIL, phone="9876543211", joined=date.today())
         product = Product.objects.create(model_name="Laptop", product_code="P-1")
         self.a = Variant.objects.create(product=product, code="V-A", spec="8GB", mrp=1, sell_price=40000, cost=1)

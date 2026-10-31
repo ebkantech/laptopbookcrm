@@ -6,6 +6,7 @@ from unittest import mock
 
 from django.test import TestCase, override_settings
 
+from catalog.models import StockPoint
 from crmbook_backend.testing import client_for, complete_handover, make_user
 from parties.models import Party
 from portal.models import WhatsAppDeliveryLog
@@ -32,7 +33,8 @@ class ApprovalLinkWhatsAppSendTests(TestCase):
         shutil.rmtree(TEST_MEDIA, ignore_errors=True)
 
     def setUp(self):
-        self.user = make_user("rental-wa-manager", ["rentals.view", "rentals.manage"])
+        self.shop = StockPoint.objects.create(slug="wa-shop", name="WA Shop", kind=StockPoint.SHOP)
+        self.user = make_user("rental-wa-manager", ["rentals.view", "rentals.manage"], stock_point=self.shop)
         self.manager = client_for(self.user)
         self.party = Party.objects.create(name="Akif Traders", type=Party.RENTAL, phone="9876543210", joined=date.today())
         self.rental = self._rental("RNT-WA-1", "SN-WA-1")
@@ -46,7 +48,7 @@ class ApprovalLinkWhatsAppSendTests(TestCase):
             start=date.today(), tenure_months=6, last_payment=date.today(),
         )
         asset = RentalAsset.objects.create(asset_tag=f"AST-{serial}", serial_number=serial, brand="Dell",
-                                           model_name="Latitude", status=RentalAsset.RESERVED)
+                                           model_name="Latitude", status=RentalAsset.RESERVED, source_stock_point=self.shop)
         complete_handover(RentalLine.objects.create(rental=rental, asset=asset, monthly_fee=2000), self.user)
         return rental
 
@@ -148,7 +150,7 @@ class ApprovalLinkWhatsAppSendTests(TestCase):
 
     def test_needs_rentals_manage(self):
         data = self.issue()
-        viewer = client_for(make_user("rental-wa-viewer", ["rentals.view"]))
+        viewer = client_for(make_user("rental-wa-viewer", ["rentals.view"], stock_point=self.shop))
         with mock.patch("requests.post") as post:
             response = viewer.post(f"/api/rentals/{self.rental.pk}/approval-link/send-whatsapp/",
                                    {"approval_url": data["approval_url"]}, format="json")

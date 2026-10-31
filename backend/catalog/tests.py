@@ -1,6 +1,6 @@
 from django.test import TestCase
 
-from catalog.models import Product, Stock, StockPoint, Variant
+from catalog.models import Part, PartStock, Product, Stock, StockPoint, Variant
 from catalog.utils import next_code
 from crmbook_backend.testing import client_for, make_user, results
 
@@ -15,8 +15,10 @@ class CatalogTests(TestCase):
         )
         Stock.objects.create(variant=self.variant, stock_point=self.shop, quantity=2)
         Stock.objects.create(variant=self.variant, stock_point=self.web, quantity=1)
-        self.stock_manager = client_for(make_user("stock-manager", ["inventory.edit"]))
-        self.any_staff = client_for(make_user("any-staff"))
+        # Owner-role stock manager (it restocks the online channel too); the
+        # plain staff account works at the shop, so it sees that store only.
+        self.stock_manager = client_for(make_user("stock-manager", ["inventory.edit"], owner=True))
+        self.any_staff = client_for(make_user("any-staff", stock_point=self.shop))
 
     def test_next_code_continues_after_highest_existing(self):
         self.assertEqual(next_code("VC-LAP", Product, "product_code"), "VC-LAP-0008")
@@ -26,7 +28,8 @@ class CatalogTests(TestCase):
         self.assertEqual(len(results(self.any_staff.get("/api/products/"))), 1)
         self.assertEqual(len(results(self.any_staff.get("/api/products/", {"q": "thinkpad"}))), 1)
         self.assertEqual(len(results(self.any_staff.get("/api/products/", {"q": "macbook"}))), 0)
-        self.assertEqual(len(results(self.any_staff.get("/api/stock-points/"))), 2)
+        # store-scoped: only the account's own shop, not the online channel
+        self.assertEqual(len(results(self.any_staff.get("/api/stock-points/"))), 1)
 
     def test_lookup_by_product_or_variant_code(self):
         self.assertEqual(self.any_staff.get("/api/products/lookup/", {"code": "vc-sku-0003"}).json()["id"], self.product.id)
@@ -35,8 +38,9 @@ class CatalogTests(TestCase):
         self.assertEqual(self.any_staff.get("/api/products/lookup/").status_code, 400)
 
     def test_low_stock_lists_variants_with_four_or_fewer_units(self):
+        # counted at the account's own store: 2 at the shop (the web's 1 isn't theirs)
         rows = self.any_staff.get("/api/products/low-stock/").json()
-        self.assertEqual([(r["variant_code"], r["total_stock"]) for r in rows], [("VC-SKU-0003", 3)])
+        self.assertEqual([(r["variant_code"], r["total_stock"]) for r in rows], [("VC-SKU-0003", 2)])
 
     def test_add_stock_to_existing_variant(self):
         response = self.stock_manager.post("/api/inventory/add-stock/", {
@@ -85,8 +89,8 @@ class StockLocationTests(TestCase):
             product=product, code="VC-SKU-0001", spec="i5 / 8GB", mrp=45000, sell_price=40000, cost=32000
         )
         self.stock = Stock.objects.create(variant=self.variant, stock_point=self.shop, quantity=2, location="Rack A / Shelf 1")
-        self.stock_manager = client_for(make_user("stock-manager", ["inventory.edit"]))
-        self.any_staff = client_for(make_user("any-staff"))
+        self.stock_manager = client_for(make_user("stock-manager", ["inventory.edit"], stock_point=self.shop))
+        self.any_staff = client_for(make_user("any-staff", stock_point=self.shop))
 
     def test_product_listing_shows_shop_name_and_location(self):
         stock = results(self.any_staff.get("/api/products/"))[0]["variants"][0]["stock"][0]
@@ -120,7 +124,7 @@ class AddStockWithoutVariantsTests(TestCase):
 
     def setUp(self):
         self.shop = StockPoint.objects.create(slug="test-shop", name="Test Shop", kind=StockPoint.SHOP)
-        self.stock_manager = client_for(make_user("stock-manager", ["inventory.edit"]))
+        self.stock_manager = client_for(make_user("stock-manager", ["inventory.edit"], stock_point=self.shop))
         self.url = "/api/inventory/add-stock/"
 
     def test_product_with_no_variants_gets_a_default_one(self):
@@ -165,3 +169,74 @@ class AddStockWithoutVariantsTests(TestCase):
         }, format="json")
         self.assertEqual(response.status_code, 400)
         self.assertFalse(Product.objects.filter(model_name="Ghost item").exists())
+
+
+class StoreLocatorTests(TestCase):
+    """Read-only Store Locator endpoints: every figure is scoped to one stock point."""
+
+    def setUp(self):
+        from datetime import date
+
+        from parties.models import Party
+        from rentals.models import RentalAsset
+        from repairs.models import RepairTicket
+        from sales.models import Invoice, InvoiceItem
+
+        self.shop = StockPoint.objects.create(slug="test-shop", name="Test Shop", kind=StockPoint.SHOP, address="12 MG Road")
+        self.web = StockPoint.objects.create(slug="test-web", name="Test Website", kind=StockPoint.ONLINE)
+        product = Product.objects.create(brand="Lenovo", model_name="ThinkPad T14", product_code="VC-LAP-0007")
+        self.variant = Variant.objects.create(
+            product=product, code="VC-SKU-0003", spec="i7 / 16GB", mrp=60000, sell_price=55000, cost=45000
+        )
+        Stock.objects.create(variant=self.variant, stock_point=self.shop, quantity=2, location="Rack A")
+        Stock.objects.create(variant=self.variant, stock_point=self.web, quantity=5)
+        part = Part.objects.create(slug="kb", name="Keyboard")
+        PartStock.objects.create(part=part, stock_point=self.shop, quantity=3)
+
+        party = Party.objects.create(name="Private Customer", type=Party.RETAIL, phone="9876543210", joined=date.today())
+        RepairTicket.objects.create(code="RPR-1", party=party, brand="HP", model_name="Pavilion", stock_point=self.shop,
+                                    issue="No boot", status=RepairTicket.DIAGNOSING, received=date.today())
+        RepairTicket.objects.create(code="RPR-2", party=party, brand="HP", model_name="Envy", stock_point=self.web,
+                                    issue="No boot", status=RepairTicket.DELIVERED, received=date.today())
+        paid = Invoice.objects.create(code="INV-1", party=party, stock_point=self.shop, date=date.today(), status=Invoice.PAID)
+        InvoiceItem.objects.create(invoice=paid, variant=self.variant, qty=1, price=55000)
+        owed = Invoice.objects.create(code="INV-2", party=party, stock_point=self.shop, date=date.today(), status=Invoice.LINK_SENT)
+        InvoiceItem.objects.create(invoice=owed, variant=self.variant, qty=1, price=1000)
+        elsewhere = Invoice.objects.create(code="INV-3", party=party, stock_point=self.web, date=date.today(), status=Invoice.PAID)
+        InvoiceItem.objects.create(invoice=elsewhere, variant=self.variant, qty=1, price=99)
+        RentalAsset.objects.create(asset_tag="AST-1", serial_number="S-1", brand="Dell", model_name="Latitude",
+                                   source_stock_point=self.shop)
+
+        self.owner = client_for(make_user("locator-owner", superuser=True))
+        self.any_staff = client_for(make_user("any-staff", stock_point=self.shop))
+        self.full = client_for(make_user("full", ["repairs.view", "invoices.view", "rentals.view"], stock_point=self.shop))
+
+    def test_summary_counts_units_per_stock_point(self):
+        rows = {r["id"]: r for r in self.owner.get("/api/stock-points/summary/").json()}
+        self.assertEqual((rows[self.shop.id]["product_units"], rows[self.shop.id]["part_units"]), (2, 3))
+        self.assertEqual((rows[self.web.id]["product_units"], rows[self.web.id]["part_records"]), (5, 0))
+
+    def test_locator_is_scoped_to_the_selected_stock_point(self):
+        data = self.full.get(f"/api/stock-points/{self.shop.id}/locator/").json()
+        self.assertEqual([(s["variant_code"], s["quantity"], s["location"]) for s in data["stock"]], [("VC-SKU-0003", 2, "Rack A")])
+        self.assertNotIn("cost", data["stock"][0])
+        self.assertEqual([(p["name"], p["quantity"]) for p in data["parts"]], [("Keyboard", 3)])
+        self.assertEqual((data["repairs"]["total"], data["repairs"]["open"]), (1, 1))
+        self.assertEqual((data["invoices"]["count"], data["invoices"]["collected"], data["invoices"]["outstanding"]), (2, 55000, 1000))
+        self.assertEqual([a["asset_tag"] for a in data["rentals"]["assets"]], ["AST-1"])
+        self.assertNotIn("Private Customer", str(data))
+
+    def test_business_sections_follow_existing_view_permissions(self):
+        data = self.any_staff.get(f"/api/stock-points/{self.shop.id}/locator/").json()
+        self.assertEqual(len(data["stock"]), 1)
+        for section in ("repairs", "invoices", "rentals"):
+            self.assertEqual(data[section], {"restricted": True})
+
+    def test_store_staff_summary_and_detail_cover_only_their_store(self):
+        rows = self.any_staff.get("/api/stock-points/summary/").json()
+        self.assertEqual([r["id"] for r in rows], [self.shop.id])
+        self.assertEqual(self.any_staff.get(f"/api/stock-points/{self.web.id}/locator/").status_code, 404)
+
+    def test_unknown_stock_point_is_404(self):
+        self.assertEqual(self.any_staff.get("/api/stock-points/999999/locator/").status_code, 404)
+        self.assertEqual(self.any_staff.get("/api/stock-points/abc/locator/").status_code, 404)

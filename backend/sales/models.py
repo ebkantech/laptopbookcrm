@@ -113,7 +113,10 @@ class InvoiceItem(models.Model):
     def label(self):
         if self.description:
             return self.description
-        return f"{self.variant.product.display_name} ({self.variant.spec})" if self.variant_id else ""
+        if not self.variant_id:
+            return ""
+        colour = f", {self.variant.colour}" if self.variant.colour else ""
+        return f"{self.variant.product.display_name} ({self.variant.spec}{colour})"
 
 
 PAYMENT_METHODS = ["Cash", "UPI", "Bank transfer", "Card", "Cheque", "Other"]

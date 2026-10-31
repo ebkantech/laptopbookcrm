@@ -1,15 +1,19 @@
 from django.test import Client, TestCase, override_settings
 
 from accounts.models import NotificationRule, PermissionDeniedLog, Role, StaffNotification
+from catalog.models import StockPoint
 from crmbook_backend.notify import notify_staff
 from crmbook_backend.testing import client_for, make_user, results
 
 
 class RoleAndUserTests(TestCase):
     def setUp(self):
-        self.admin_user = make_user("role-admin", ["roles.manage"])
+        # both work at the same shop -- a roles.manage holder only manages
+        # their own store's team (the user directory is store-scoped)
+        shop = StockPoint.objects.create(slug="roles-shop", name="Roles Shop", kind=StockPoint.SHOP)
+        self.admin_user = make_user("role-admin", ["roles.manage"], stock_point=shop)
         self.admin = client_for(self.admin_user)
-        self.staff_user = make_user("plain-staff")
+        self.staff_user = make_user("plain-staff", stock_point=shop)
         self.staff = client_for(self.staff_user)
 
     def test_me_returns_own_permissions(self):
@@ -94,3 +98,28 @@ class StaffNotificationTests(TestCase):
         self.assertEqual(self.client_.get("/api/my-notifications/unread_count/").json()["count"], 0)
         # the other user's notification is untouched
         self.assertIsNone(StaffNotification.objects.get(user=self.other).read_at)
+
+
+class StaffLoginTests(TestCase):
+    """POST /api/auth/token/ works whatever the account's Store Location -- store
+    scope limits data, never sign-in."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()  # the login throttle counts attempts in the cache
+        self.shop = StockPoint.objects.create(slug="login-shop", name="Login Shop", kind=StockPoint.SHOP)
+        self.owner = make_user("login-owner", superuser=True)
+        self.assigned = make_user("login-assigned", ["invoices.view"], stock_point=self.shop)
+        self.unassigned = make_user("login-unassigned", ["invoices.view"])
+
+    def login(self, username, password="safe-test-password"):
+        return Client().post("/api/auth/token/", {"username": username, "password": password}, content_type="application/json")
+
+    def test_owner_assigned_and_unassigned_staff_can_all_sign_in(self):
+        for user in (self.owner, self.assigned, self.unassigned):
+            response = self.login(user.username)
+            self.assertEqual(response.status_code, 200, (user.username, response.content))
+            self.assertIn("access", response.json())
+
+    def test_wrong_password_is_401_not_a_server_error(self):
+        self.assertEqual(self.login("login-unassigned", "wrong-password").status_code, 401)

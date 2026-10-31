@@ -6,6 +6,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
+from catalog.models import StockPoint
 from crmbook_backend.testing import FAKE_JPEG, client_for, complete_handover, make_user
 from parties.models import Party
 from rentals.models import Rental, RentalApproval, RentalAsset, RentalLine, RentalLinePhoto
@@ -21,14 +22,16 @@ class DeviceHandoverTests(TestCase):
         shutil.rmtree(TEST_MEDIA, ignore_errors=True)
 
     def setUp(self):
-        self.manager_user = make_user("rental-manager", ["rentals.view", "rentals.manage"])
+        self.shop = StockPoint.objects.create(slug="ho-shop", name="Handover Shop", kind=StockPoint.SHOP)
+        self.manager_user = make_user("rental-manager", ["rentals.view", "rentals.manage"], stock_point=self.shop)
         self.manager = client_for(self.manager_user)
         party = Party.objects.create(name="Handover Customer", type=Party.RENTAL, phone="9876543210", joined=date.today())
         self.rental = Rental.objects.create(
             party=party, agreement_code="RNT-HO-1", product_label="1 device", monthly_fee=2000,
             start=date.today(), tenure_months=6, last_payment=date.today(),
         )
-        asset = RentalAsset.objects.create(asset_tag="AST-HO-1", serial_number="SN-HO-1", brand="Dell", model_name="Latitude 5420")
+        asset = RentalAsset.objects.create(asset_tag="AST-HO-1", serial_number="SN-HO-1", brand="Dell", model_name="Latitude 5420",
+                                           source_stock_point=self.shop)
         self.line = RentalLine.objects.create(rental=self.rental, asset=asset, monthly_fee=2000)
         self.url = f"/api/rental-lines/{self.line.id}"
 
@@ -98,12 +101,12 @@ class DeviceHandoverTests(TestCase):
     def test_only_real_images_are_accepted(self):
         self.assertEqual(self.upload("front", data=b"<html>not a photo</html>").status_code, 400)
         self.assertEqual(self.upload("nonsense").status_code, 400)
-        viewer = client_for(make_user("rental-viewer", ["rentals.view"]))
+        viewer = client_for(make_user("rental-viewer", ["rentals.view"], stock_point=self.shop))
         self.assertEqual(self.upload("front", client=viewer).status_code, 403)
 
     def test_staff_can_view_photos_others_cannot(self):
         photo_id = self.upload("front").json()["id"]
-        viewer = client_for(make_user("rental-viewer", ["rentals.view"]))
+        viewer = client_for(make_user("rental-viewer", ["rentals.view"], stock_point=self.shop))
         response = viewer.get(f"/api/rental-photos/{photo_id}/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "image/jpeg")
@@ -156,8 +159,10 @@ class DeviceHandoverTests(TestCase):
 
 class RentalAssetRegistrationTests(TestCase):
     def setUp(self):
-        self.manager = client_for(make_user("asset-manager", ["rentals.view", "rentals.manage"]))
-        self.existing = RentalAsset.objects.create(asset_tag="AST-0007", serial_number="5CD123ABC", brand="HP", model_name="EliteBook 840")
+        shop = StockPoint.objects.create(slug="reg-shop", name="Reg Shop", kind=StockPoint.SHOP)
+        self.manager = client_for(make_user("asset-manager", ["rentals.view", "rentals.manage"], stock_point=shop))
+        self.existing = RentalAsset.objects.create(asset_tag="AST-0007", serial_number="5CD123ABC", brand="HP", model_name="EliteBook 840",
+                                                   source_stock_point=shop)
 
     def register(self, **data):
         return self.manager.post("/api/rental-assets/", {"brand": "Dell", "model_name": "Latitude", **data}, format="json")
@@ -191,8 +196,8 @@ class RentFromInventoryTests(TestCase):
     def setUp(self):
         from catalog.models import Product, Stock, StockPoint, Variant
 
-        self.manager = client_for(make_user("fleet-manager", ["rentals.view", "rentals.manage"]))
         self.shop = StockPoint.objects.create(slug="kb-test", name="Karol Bagh Test", kind=StockPoint.SHOP)
+        self.manager = client_for(make_user("fleet-manager", ["rentals.view", "rentals.manage"], stock_point=self.shop))
         product = Product.objects.create(brand="Apple", model_name="MacBook Air 13", product_code="VC-LAP-0101")
         self.variant = Variant.objects.create(product=product, code="VC-SKU-0101", spec="M2 / 8GB / 256GB", mrp=1, sell_price=99900, cost=1)
         self.stock = Stock.objects.create(variant=self.variant, stock_point=self.shop, quantity=2)
@@ -233,7 +238,8 @@ class RentFromInventoryTests(TestCase):
 
 class RentalListOrderTests(TestCase):
     def test_new_agreements_stay_at_the_top_after_reload(self):
-        client = client_for(make_user("list-viewer", ["rentals.view"]))
+        # these agreements have no devices, so no store -- Owner-only
+        client = client_for(make_user("list-viewer", ["rentals.view"], owner=True))
         party = Party.objects.create(name="P", type=Party.RENTAL, phone="9876543210", joined=date.today())
         old = date(2025, 1, 1)
         risky = Rental.objects.create(party=party, product_label="risky", monthly_fee=1, start=old, tenure_months=12,

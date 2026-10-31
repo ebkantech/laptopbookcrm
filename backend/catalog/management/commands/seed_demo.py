@@ -37,6 +37,8 @@ PERMS = {
     "portal.manage": "Send customer portal access links",
     "roles.manage": "Change roles and permissions",
     "reports.export": "Export accounting reports",
+    "reports.profit_loss": "View store Profit & Loss (Admins only; limited to their stores)",
+    "expenses.manage": "Record and manage expenses (Admins and Accounts only; limited to their stores)",
     "parties.view": "View the customer directory and details",
     "parties.manage": "Create customer records, message customers, and manage portal access",
     "parties.edit": "Edit existing customer records",
@@ -48,7 +50,7 @@ ROLES = {
     "accountant": ("Accounts", [
         "cashbook.view", "cashbook.edit", "bankbook.view", "bankbook.edit",
         "bankbook.reconcile", "invoices.view", "invoices.settle", "invoices.refund", "reports.export",
-        "parties.view", "payments.send_link",
+        "parties.view", "payments.send_link", "expenses.manage",
     ]),
     "manager": ("Admin", [
         "cashbook.view", "cashbook.edit", "bankbook.view", "bankbook.edit", "bankbook.reconcile",
@@ -56,7 +58,7 @@ ROLES = {
         "rentals.view", "rentals.manage", "rentals.approve",
         "repairs.view", "repairs.manage", "repairs.approve",
         "broadcast.send", "warranty.manage", "portal.manage", "roles.manage", "reports.export",
-        "parties.view", "parties.manage", "parties.edit", "orders.manage",
+        "reports.profit_loss", "expenses.manage", "parties.view", "parties.manage", "parties.edit", "orders.manage",
     ]),
     "sales": ("Sales Staff", [
         "invoices.view", "invoices.create", "invoices.settle", "payments.send_link",

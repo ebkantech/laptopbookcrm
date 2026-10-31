@@ -9,15 +9,34 @@ from accounts.models import Permission, Role
 _role_counter = itertools.count(1)
 
 
-def make_user(username, perms=(), superuser=False):
-    """A staff user whose role holds exactly `perms` (permission codenames)."""
+def make_user(username, perms=(), superuser=False, stock_point=None, owner=False):
+    """
+    A staff user whose role holds exactly `perms` (permission codenames).
+
+    Store scope (accounts.store_scope): pass `stock_point` for a store-
+    assigned account, or `owner=True` for an Owner-role account that sees
+    every store but still only holds `perms`. With neither, the account is
+    unassigned and reaches no store's records. Only one owner=True user per
+    test: the "owner" role slug is unique, so a second call adds its perms
+    to the same role.
+    """
     User = get_user_model()
     if superuser:
         return User.objects.create_user(username=username, password="safe-test-password", is_superuser=True)
-    role = Role.objects.create(slug=f"test-role-{next(_role_counter)}", label=f"Test role for {username}")
+    if owner:
+        role = Role.objects.get_or_create(slug="owner", defaults={"label": "Owner"})[0]
+    else:
+        role = Role.objects.create(slug=f"test-role-{next(_role_counter)}", label=f"Test role for {username}")
     for code in perms:
         role.permissions.add(Permission.objects.get_or_create(codename=code, defaults={"description": code})[0])
-    return User.objects.create_user(username=username, password="safe-test-password", role=role)
+    return User.objects.create_user(username=username, password="safe-test-password", role=role, stock_point=stock_point)
+
+
+def assign_store(stock_point, *users):
+    """Give existing test users a Store Location (as the Owner would)."""
+    for user in users:
+        user.stock_point = stock_point
+        user.save(update_fields=["stock_point"])
 
 
 def client_for(user):

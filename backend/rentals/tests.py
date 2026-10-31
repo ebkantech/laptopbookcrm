@@ -7,6 +7,7 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from accounts.models import Role
+from catalog.models import StockPoint
 from parties.models import Party
 from rentals.models import Rental, RentalApproval, RentalAsset, RentalEvent, RentalLine
 from rentals.services import RentalApprovalLinkGone, customer_decide, issue_approval_link
@@ -39,11 +40,14 @@ class RentalApprovalWorkflowTests(TestCase):
             tenure_months=6,
             last_payment=date.today(),
         )
+        self.shop = StockPoint.objects.create(slug="rent-shop", name="Rent Shop", kind=StockPoint.SHOP)
         self.asset_one = RentalAsset.objects.create(
-            asset_tag="AST-TEST-1", serial_number="SERIAL-TEST-1", brand="Dell", model_name="Latitude 5420"
+            asset_tag="AST-TEST-1", serial_number="SERIAL-TEST-1", brand="Dell", model_name="Latitude 5420",
+            source_stock_point=self.shop,
         )
         self.asset_two = RentalAsset.objects.create(
-            asset_tag="AST-TEST-2", serial_number="SERIAL-TEST-2", brand="Lenovo", model_name="ThinkPad T14"
+            asset_tag="AST-TEST-2", serial_number="SERIAL-TEST-2", brand="Lenovo", model_name="ThinkPad T14",
+            source_stock_point=self.shop,
         )
         complete_handover(RentalLine.objects.create(rental=self.rental, asset=self.asset_one, monthly_fee=2000), self.user)
         complete_handover(RentalLine.objects.create(rental=self.rental, asset=self.asset_two, monthly_fee=2500), self.user)
@@ -175,6 +179,7 @@ class RentalApprovalWorkflowTests(TestCase):
             username="rental-role-admin",
             password="safe-test-password",
             role=Role.objects.get(slug="admin"),
+            stock_point=self.shop,
         )
         admin_client = APIClient()
         admin_client.force_authenticate(admin_user)

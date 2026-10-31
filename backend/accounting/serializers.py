@@ -4,12 +4,14 @@ from .models import BankAccount, BankEntry, CashEntry
 
 
 def _posted_from(entry):
-    """The invoice an automatic entry mirrors: its payment, or a refund on it."""
+    """The record an automatic entry mirrors: an invoice payment, a refund on
+    one, or an expense payment (or its reversal)."""
     if entry.invoice_id:
         return entry.invoice.code
     if entry.refund_id:
         return entry.refund.invoice.code
-    return None
+    payment = entry.expense_payment or entry.expense_reversal
+    return payment.expense.code if payment else None
 
 
 class CashEntrySerializer(serializers.ModelSerializer):

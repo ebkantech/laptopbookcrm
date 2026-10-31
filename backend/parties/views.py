@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Prefetch
 from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from rest_framework import mixins, permissions, status, viewsets
@@ -7,6 +8,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from accounts.permissions import HasPerm
+from accounts.store_scope import StoreScope
 from crmbook_backend.notify import check_whatsapp_number, send_email, send_whatsapp
 from portal.models import PortalAccessLog, PortalInvite, WhatsAppDeliveryLog
 from portal import otp_vault
@@ -16,6 +18,8 @@ from portal.services import (
 )
 from django.core.exceptions import ValidationError
 from django.shortcuts import get_object_or_404
+
+from sales.models import Invoice
 
 from .models import Message, MessageHidden, MessageRevision, Party
 from .serializers import MessageRecordSerializer, MessageSerializer, PartyDetailSerializer, PartySerializer
@@ -178,7 +182,12 @@ class PartyViewSet(viewsets.ModelViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        # The customer directory is shared by every store (a customer has
+        # no home store). Their invoice history and spend, though, come
+        # from store-owned invoices, so only this account's store's are nested.
+        scope = StoreScope(self.request.user)
+        invoices = scope.filter(Invoice.objects.prefetch_related("items").select_related("stock_point"), "stock_point")
+        qs = super().get_queryset().prefetch_related(None).prefetch_related(Prefetch("invoices", queryset=invoices), "messages")
         q = self.request.query_params.get("q")
         if q:
             qs = qs.filter(name__icontains=q)

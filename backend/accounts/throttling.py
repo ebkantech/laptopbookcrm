@@ -1,4 +1,4 @@
-from rest_framework.throttling import SimpleRateThrottle
+from rest_framework.throttling import SimpleRateThrottle, UserRateThrottle
 
 
 class LoginRateThrottle(SimpleRateThrottle):
@@ -63,3 +63,9 @@ class PortalPdfThrottle(SimpleRateThrottle):
         party = getattr(request, "party", None)
         ident = f"party-{party.pk}" if party else self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class PasswordChangeThrottle(UserRateThrottle):
+    """Self-service password change: the same rate as login, keyed by the
+    signed-in account, so the current-password check can't be brute-forced."""
+    scope = "login"
