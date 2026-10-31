@@ -5,7 +5,7 @@ next unbilled month of an agreement) and raises it as a sales.Invoice
 Payment then happens in Sales & Invoices; on_rent_invoice_paid() moves
 the agreement's own counters (months paid, last payment, late count).
 """
-from datetime import timedelta
+from datetime import date, timedelta
 
 from django.conf import settings
 from django.db import transaction
@@ -54,6 +54,27 @@ def next_billing_period(rental):
     start = add_months(rental.start, billed)
     end = add_months(rental.start, billed + months) - timedelta(days=1)
     return start, end
+
+
+def raise_from_date(period_start, lead_days=INVOICE_LEAD_DAYS):
+    """First day the invoice for a period may be raised: a few days before it falls due."""
+    return period_start - timedelta(days=lead_days)
+
+
+def too_early_to_raise(rental, today=None):
+    """A message when the next invoice is not due to be raised yet, else None.
+    Rent is billed as it falls due -- never months ahead -- so the person
+    clicking Raise can't stack up invoices for future periods."""
+    today = today or date.today()
+    period = next_billing_period(rental)
+    if period is None:
+        return None
+    opens = raise_from_date(period[0])
+    if today < opens:
+        auto = " It will be sent to the client automatically then." if rental.auto_invoice else ""
+        return (f"The invoice for {period[0]:%d %b %Y} – {period[1]:%d %b %Y} can be raised from {opens:%d %b %Y} "
+                f"({INVOICE_LEAD_DAYS} days before it falls due).{auto}")
+    return None
 
 
 def rent_lines(rental, months=1):

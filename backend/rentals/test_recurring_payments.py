@@ -211,6 +211,66 @@ class PaymentPlanApiTests(TestCase):
         self.assertEqual(len(get("status=Unpaid")) + len(get("status=Overdue")), 1)
         self.assertEqual([x for x in get("from=2999-01-01") if x["kind"] == "invoice"], [])
 
+    def test_cannot_raise_an_invoice_ahead_of_its_due_window(self):
+        staff = client_for(make_user("rent-manager", ["rentals.view", "rentals.manage"]))
+        r = make_rental(date.today() - timedelta(days=1), tenure=12, interval=1)
+        url = f"/api/rentals/{r.id}/raise-invoice/"
+        ok = staff.post(url, {"stock_point": self.shop.id}, format="json")
+        self.assertEqual(ok.status_code, 201, ok.content)           # this month is due: allowed
+        again = staff.post(url, {"stock_point": self.shop.id}, format="json")
+        self.assertEqual(again.status_code, 400)                      # next month is weeks away: refused
+        self.assertIn("can be raised from", again.json()["detail"])
+        self.assertIn("automatically", again.json()["detail"])        # auto-invoice is on
+        r.refresh_from_db()
+        self.assertEqual(Invoice.objects.filter(party=r.party).count(), 1)
+        shown = staff.get(f"/api/rentals/{r.id}/").json()["next_billing_period"]
+        self.assertFalse(shown["can_raise_now"])
+        self.assertEqual(shown["raise_from"], str(billing.next_billing_period(r)[0] - timedelta(days=billing.INVOICE_LEAD_DAYS)))
+        # inside the 3-day window it opens up
+        soon = make_rental(date.today() + timedelta(days=2))
+        self.assertTrue(staff.get(f"/api/rentals/{soon.id}/").json()["next_billing_period"]["can_raise_now"])
+        self.assertEqual(staff.post(f"/api/rentals/{soon.id}/raise-invoice/", {"stock_point": self.shop.id}, format="json").status_code, 201)
+        far = make_rental(date.today() + timedelta(days=30))
+        self.assertEqual(staff.post(f"/api/rentals/{far.id}/raise-invoice/", {"stock_point": self.shop.id}, format="json").status_code, 400)
+
+    def test_renewing_a_completed_agreement_reuses_its_devices(self):
+        staff = client_for(make_user("renewer", ["rentals.view", "rentals.manage"]))
+        old = make_rental(date.today() - timedelta(days=200), tenure=6, interval=3, fees=(2500, 1800))
+        old.months_paid = 6
+        old.save()
+        RentalAsset.objects.filter(rental_lines__rental=old).update(status=RentalAsset.RENTED)
+        lines = [{"asset_id": l.asset_id, "monthly_fee": l.monthly_fee} for l in old.lines.all()]
+        body = {"party": old.party_id, "start": str(date.today()), "tenure_months": 12, "payment_interval_months": 6, "lines": lines}
+        # without "renews" the devices are still out on rent
+        self.assertEqual(staff.post("/api/rentals/create-agreement/", body, format="json").status_code, 400)
+        ok = staff.post("/api/rentals/create-agreement/", {**body, "renews": old.id}, format="json")
+        self.assertEqual(ok.status_code, 201, ok.content)
+        old.refresh_from_db()
+        self.assertEqual(old.status, Rental.CLOSED)
+        new = Rental.objects.get(pk=ok.json()["id"])
+        self.assertEqual((new.status, new.party_id, new.payment_interval_months), (Rental.DRAFT, old.party_id, 6))
+        self.assertEqual({a.status for a in RentalAsset.objects.filter(rental_lines__rental=new)}, {RentalAsset.RESERVED})
+        self.assertTrue(RentalEvent.objects.filter(rental=new, metadata__renews=old.agreement_code).exists())
+
+    def test_cannot_renew_an_unfinished_or_someone_elses_agreement(self):
+        staff = client_for(make_user("renewer2", ["rentals.view", "rentals.manage"]))
+        live = make_rental(date.today(), tenure=6)          # months_paid 0
+        spare = RentalAsset.objects.create(asset_tag="SP1", serial_number="SP1", brand="HP", model_name="X", status=RentalAsset.AVAILABLE)
+        lines = [{"asset_id": spare.id, "monthly_fee": 1000}]
+        base = {"start": str(date.today()), "tenure_months": 6, "lines": lines}
+        unfinished = staff.post("/api/rentals/create-agreement/", {**base, "party": live.party_id, "renews": live.id}, format="json")
+        self.assertEqual(unfinished.status_code, 400)
+        self.assertIn("completed", str(unfinished.json()))
+        done = make_rental(date.today() - timedelta(days=300), tenure=6)
+        done.months_paid = 6
+        done.save()
+        other = Party.objects.create(name="Someone Else", type=Party.RENTAL, phone="9000011111", joined=date.today())
+        wrong = staff.post("/api/rentals/create-agreement/", {**base, "party": other.id, "renews": done.id}, format="json")
+        self.assertEqual(wrong.status_code, 400)
+        self.assertIn("different customer", str(wrong.json()))
+        done.refresh_from_db()
+        self.assertEqual(done.status, Rental.ACTIVE)         # nothing was closed by the refused requests
+
     def test_cron_endpoint_requires_the_token(self):
         make_rental(date.today(), status=Rental.APPROVED)
         Invoice.objects.all().delete()

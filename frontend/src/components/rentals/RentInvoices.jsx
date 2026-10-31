@@ -7,10 +7,11 @@ import { ErrorNote, Eyebrow, Pill } from "../Atoms";
 const STATUS_COLOR = { Paid: C.green, "Payment link sent": C.amber, Overdue: C.carbon, Cancelled: C.inkSoft, Refunded: C.inkSoft };
 
 /*
- * Rent billing for one agreement. Raising an invoice bills the next
- * unbilled month as a new INV number dated today and sends it to the
- * customer; payment is then taken in Sales & Invoices, which updates
- * this agreement's months paid / last payment / late count.
+ * Rent billing for one agreement. Invoices are raised as they fall due, never
+ * months ahead: with automatic invoicing on, the next one is sent by itself a
+ * few days before its due date; the button only appears once that window is
+ * open (and is the only way when automatic invoicing is off). Payment is then
+ * taken in Sales & Invoices, which updates months paid / last payment / late count.
  */
 export default function RentInvoices({ rental, canRaise, onChanged }) {
   const [shops, setShops] = useState(null);
@@ -23,6 +24,7 @@ export default function RentInvoices({ rental, canRaise, onChanged }) {
   const invoices = rental.rent_invoices || [];
   const next = rental.next_billing_period;
   const billable = ["approved", "active"].includes(rental.status) && next;
+  const dueNow = billable && next.can_raise_now !== false;   // the invoice window is open
 
   const startRaise = async () => {
     setError("");
@@ -53,7 +55,7 @@ export default function RentInvoices({ rental, canRaise, onChanged }) {
     }
   };
 
-  if (!invoices.length && !(canRaise && billable)) return null;
+  if (!invoices.length && !billable) return null;
 
   return (
     <div className="mt-3">
@@ -77,7 +79,17 @@ export default function RentInvoices({ rental, canRaise, onChanged }) {
         </div>
       )}
 
-      {canRaise && billable && !open && (
+      {billable && !dueNow && (
+        <p className="mt-2 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }} data-testid="invoice-not-due">
+          {rental.auto_invoice
+            ? `Next invoice (${money(next.amount)}, ${fmt(next.start)} – ${fmt(next.end)}) is sent to the client automatically on ${fmt(next.raise_from)}.`
+            : `Next invoice (${money(next.amount)}, ${fmt(next.start)} – ${fmt(next.end)}) can be raised from ${fmt(next.raise_from)}.`}
+        </p>
+      )}
+      {canRaise && dueNow && rental.auto_invoice && !open && (
+        <p className="mt-2 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>This invoice goes out automatically with the daily run — or send it now:</p>
+      )}
+      {canRaise && dueNow && !open && (
         <button onClick={startRaise} className="mt-2 flex items-center gap-1.5 px-2.5 py-1.5 text-xs" style={{ border: `1px solid ${C.stamp}`, color: C.stamp, fontFamily: F.body, fontWeight: 600 }}>
           <Send size={12} /> Raise rent invoice for {fmt(next.start)} – {fmt(next.end)}
         </button>

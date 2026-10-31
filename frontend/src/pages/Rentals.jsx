@@ -3,6 +3,7 @@ import {
   AlertOctagon, Camera, Check, CircleCheck, CircleX, Clock3, FileText, Hourglass, Copy, History, Laptop, Link2, MessageCircle, MessageSquareDiff, MessageSquarePlus, MessageSquareText, Phone,
   Plus, Send, ShieldAlert, ShieldCheck, UserPlus, X,
 } from "lucide-react";
+import { ArrowDown, ArrowUp, CheckCheck, RefreshCw } from "lucide-react";
 import { C, F, fmt, money } from "../lib/theme";
 import { api } from "../lib/api";
 import { PARTY_CHANGED_EVENT } from "../lib/partyEvents";
@@ -221,12 +222,19 @@ const chipStyle = (tone = C.ink) => ({ border: `1px solid ${C.rule}`, background
  * ended in a change request and no newer link or final outcome replaced it.
  * Approved includes agreements that have since gone active on their first
  * paid invoice. */
+// A rental is completed once the agreement is closed, or every month of its
+// tenure has been paid -- those clients get their own list instead of
+// staying mixed in with the live ones.
+const isCompleted = (r) => r.status === "closed" || (["approved", "active"].includes(r.status) && r.tenure_months > 0 && r.months_paid >= r.tenure_months);
+
 const DECISION_FILTERS = [
   // saved but not yet sent to the customer (handover still being completed)
   { key: "draft", label: "Draft", icon: FileText, color: C.inkSoft, match: (r) => r.status === "draft" && !r.open_change_request },
   { key: "pending", label: "Pending", icon: Hourglass, color: C.blue, match: (r) => r.status === "pending_approval" && r.approval_status === "pending" },
-  { key: "approved", label: "Approved", icon: CircleCheck, color: C.green, match: (r) => ["approved", "active"].includes(r.status) },
-  { key: "rejected", label: "Rejected", icon: CircleX, color: C.carbon, match: (r) => r.status === "rejected" },
+  { key: "approved", label: "Approved", icon: CircleCheck, color: C.green, match: (r) => ["approved", "active"].includes(r.status) && !isCompleted(r) },
+  { key: "completed", label: "Completed", icon: CheckCheck, color: C.stamp, match: isCompleted },
+  // cancelled agreements, and ones the customer turned down
+  { key: "cancelled", label: "Cancelled", icon: CircleX, color: C.carbon, match: (r) => ["cancelled", "rejected"].includes(r.status) },
   { key: "changes", label: "Request Changes", icon: MessageSquareDiff, color: C.amber, match: (r) => !!r.open_change_request },
 ];
 
@@ -280,8 +288,10 @@ export default function Rentals() {
   const [raisingFor, setRaisingFor] = useState(null);
   const [chatWith, setChatWith] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [renewing, setRenewing] = useState(null);   // the completed agreement a re-agreement renews
   const [showDevices, setShowDevices] = useState(false);
   const [showLedger, setShowLedger] = useState(false);
+  const [bottomFirst, setBottomFirst] = useState(false);   // list order: top to bottom (default) or bottom to top
   const [approvalLink, setApprovalLink] = useState(null);
   const [generatingFor, setGeneratingFor] = useState(null);
   const [historyFor, setHistoryFor] = useState(null);
@@ -375,6 +385,7 @@ export default function Rentals() {
       || (r.party_name || "").toLowerCase().includes(query)
       || (r.agreement_code || "").toLowerCase().includes(query)));
   }, [rentals, activeFilter, query]);
+  const orderedRentals = useMemo(() => (bottomFirst && visibleRentals ? [...visibleRentals].reverse() : visibleRentals), [visibleRentals, bottomFirst]);
   const narrowed = !!activeFilter || !!query;
 
   const sendPortalLink = async (partyId, partyName) => {
@@ -472,6 +483,14 @@ export default function Rentals() {
           </div>
         </div>
       </div>
+      <div className="mt-2 flex justify-end">
+        <button type="button" onClick={() => setBottomFirst((v) => !v)} aria-pressed={bottomFirst} data-testid="sort-order"
+          title={bottomFirst ? "Showing bottom to top — click for top to bottom" : "Showing top to bottom — click for bottom to top"}
+          className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: C.ink, border: `1px solid ${C.rule}`, backgroundColor: C.slip }}>
+          {bottomFirst ? <ArrowUp size={13} /> : <ArrowDown size={13} />}
+          {bottomFirst ? "Bottom to top" : "Top to bottom"}
+        </button>
+      </div>
       {narrowed && (
         <p className="mt-2 flex flex-wrap items-center justify-end gap-x-2 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
           Showing {visibleRentals.length} of {rentals.length} rentals{activeFilter && ` · ${activeFilter.label}`}{query && ` · “${search.trim()}”`}
@@ -485,8 +504,11 @@ export default function Rentals() {
       {approvalLink && <ApprovalLinkPanel link={approvalLink} onDismiss={() => setApprovalLink(null)} />}
 
       <div className={`mt-6 space-y-3${showLedger ? " hidden" : ""}`}>
-        {visibleRentals.map((r) => {
+        {orderedRentals.map((r) => {
           const left = r.tenure_months - r.months_paid;
+          // cancelled / rejected agreements are history only: nothing can be done from the card
+          const completedView = isCompleted(r);
+          const historyOnly = ["cancelled", "rejected"].includes(r.status) || completedView;
           return (
             <div key={r.id} data-panel className="p-4 sm:p-5" style={{ backgroundColor: C.slip }}>
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -515,14 +537,14 @@ export default function Rentals() {
               )}
 
               {/* next payment -- called out on its own row so it can't be missed */}
-              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl px-3 py-2" style={{ backgroundColor: r.next_payment_overdue ? `${C.carbon}14` : C.slip2, border: `1px solid ${r.next_payment_overdue ? `${C.carbon}66` : C.rule}` }}>
+              {!historyOnly && <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl px-3 py-2" style={{ backgroundColor: r.next_payment_overdue ? `${C.carbon}14` : C.slip2, border: `1px solid ${r.next_payment_overdue ? `${C.carbon}66` : C.rule}` }}>
                 <Clock3 size={13} style={{ color: r.next_payment_overdue ? C.carbon : C.inkSoft }} />
                 <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{r.next_payment_date ? "Next recurring payment due" : "Tenure fully paid"}</span>
                 {r.next_payment_date && <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: r.next_payment_overdue ? C.carbon : C.ink }}>{fmt(r.next_payment_date)}</span>}
                 {r.next_payment_overdue && <Pill color={C.carbon}>Overdue</Pill>}
-              </div>
+              </div>}
 
-              <RentPaymentPlan rental={r} canManage={can("rentals.manage")} onChanged={(updated) => setRentals((list) => list.map((x) => (x.id === updated.id ? updated : x)))} />
+              {!historyOnly && <RentPaymentPlan rental={r} canManage={can("rentals.manage")} onChanged={(updated) => setRentals((list) => list.map((x) => (x.id === updated.id ? updated : x)))} />}
 
               <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 px-1 sm:grid-cols-4">
                 <div><p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Tenure</p><p className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{r.months_paid}/{r.tenure_months} mo</p></div>
@@ -531,9 +553,9 @@ export default function Rentals() {
                 <div><p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Last month paid</p><p className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{r.months_paid ? fmt(r.last_payment) : "—"}</p></div>
               </div>
 
-              <RentInvoices rental={r} canRaise={can("rentals.manage")} onChanged={(updated) => setRentals((list) => list.map((x) => (x.id === updated.id ? updated : x)))} />
+              <RentInvoices rental={r} canRaise={can("rentals.manage") && !historyOnly} onChanged={(updated) => setRentals((list) => list.map((x) => (x.id === updated.id ? updated : x)))} />
 
-              {r.lines?.length > 0 && (() => {
+              {!historyOnly && r.lines?.length > 0 && (() => {
                 const pending = r.lines.filter((l) => l.handover_issues?.length).length;
                 return (
                   <button type="button" onClick={() => setHandoverFor(r.id)} className="mt-3 flex w-full flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-xs"
@@ -549,11 +571,15 @@ export default function Rentals() {
               })()}
 
               <div className="mt-4 flex flex-wrap gap-2 border-t pt-4" style={{ borderColor: C.rule }}>
-                <button type="button" onClick={() => setChatWith({ id: r.party, name: r.party_name })} className={chipClass} style={{ backgroundColor: C.green, border: `1px solid ${C.green}`, color: C.onAccent, fontFamily: F.body, fontWeight: 600 }}>
+                {!historyOnly && <button type="button" onClick={() => setChatWith({ id: r.party, name: r.party_name })} className={chipClass} style={{ backgroundColor: C.green, border: `1px solid ${C.green}`, color: C.onAccent, fontFamily: F.body, fontWeight: 600 }}>
                   <MessageCircle size={13} /> Chat on WhatsApp
-                </button>
+                </button>}
                 {can("rentals.manage") && r.lines?.length > 0 && r.approval_status !== "approved" && !["rejected", "cancelled", "closed"].includes(r.status) && <button type="button" onClick={() => generateApprovalLink(r.id)} disabled={generatingFor === r.id} className={chipClass} style={chipStyle()}><Link2 size={13} style={{ color: C.green }} /> {generatingFor === r.id ? "Generating…" : r.open_change_request ? "Send revised approval link" : "Generate approval link"}</button>}
+                {/* A draft only needs the two ways to reach the customer; everything else applies once it is out for approval. */}
+                {r.status !== "draft" && (<>
                 {r.agreement_code && <button type="button" onClick={() => setHistoryFor(r.id)} className={chipClass} style={chipStyle()}><History size={13} style={{ color: C.stamp }} /> Approval history</button>}
+                {completedView && can("rentals.manage") && <button type="button" onClick={() => { setRenewing(r); setCreating(true); }} className={chipClass} style={{ backgroundColor: C.green, border: `1px solid ${C.green}`, color: C.onAccent, fontFamily: F.body, fontWeight: 600 }}><RefreshCw size={13} /> Re-agreement</button>}
+                {!historyOnly && (<>
                 {can("rentals.approve") && r.lines?.length > 0 && r.approval_status !== "approved" && !["cancelled", "closed"].includes(r.status) && <button type="button" onClick={() => setRentalAction({ rental: r, action: "approve" })} className={chipClass} style={chipStyle()}><ShieldCheck size={13} style={{ color: C.blue }} /> Approve on behalf</button>}
                 <button type="button" onClick={() => setRaisingFor(r.id)} className={chipClass} style={chipStyle()}>
                   <MessageSquarePlus size={13} style={{ color: C.inkSoft }} /> Raise issue
@@ -568,9 +594,11 @@ export default function Rentals() {
                 )}
                 {can("rentals.manage") && ["approved", "active"].includes(r.status) && <button type="button" onClick={() => setRentalAction({ rental: r, action: "close" })} className={chipClass} style={chipStyle()}>Close agreement</button>}
                 {can("rentals.manage") && ["draft", "pending_approval", "rejected"].includes(r.status) && <button type="button" onClick={() => setRentalAction({ rental: r, action: "cancel" })} className={chipClass} style={chipStyle(C.carbon)}>Cancel agreement</button>}
+                </>)}
+                </>)}
               </div>
 
-              {can("portal.manage") && accessLogs[r.party] && (
+              {!historyOnly && can("portal.manage") && accessLogs[r.party] && (
                 <p className="mt-2 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>
                   Last portal access: {new Date(accessLogs[r.party].created_at).toLocaleString()} · IP {accessLogs[r.party].ip_address || "unknown"}
                 </p>
@@ -606,7 +634,7 @@ export default function Rentals() {
         onChanged={(updated) => setAssets((list) => list.map((a) => (a.id === updated.id ? updated : a)))} />}
       {chatWith && <PartyChatModal partyId={chatWith.id} partyName={chatWith.name} onClose={() => setChatWith(null)} />}
       {rentalAction && <RentalActionModal {...rentalAction} onClose={() => setRentalAction(null)} onCompleted={(updated) => { setRentals((current) => current.map((item) => item.id === updated.id ? updated : item)); setRentalAction(null); api.getAll("/rental-assets/").then(setAssets); }} />}
-      {creating && <RentalAgreementModal parties={parties} initialAssets={assets} onClose={() => setCreating(false)} onCreated={(created) => { setRentals((current) => [created, ...current]); setCreating(false); setHandoverFor(created.id); api.getAll("/rental-assets/").then(setAssets); }} />}
+      {creating && <RentalAgreementModal parties={parties} initialAssets={assets} initialParty={renewing?.party ?? ""} renewing={renewing} canAddCustomer={can("parties.manage")} onCustomerCreated={(created) => setParties((current) => [...current, created])} onClose={() => { setCreating(false); setRenewing(null); }} onCreated={(created) => { setRentals((current) => [created, ...current]); setCreating(false); setRenewing(null); setHandoverFor(created.id); api.getAll("/rental-assets/").then(setAssets); }} />}
       {historyFor && (
         <ApprovalHistoryModal rentalId={historyFor} refreshKey={historyKey} canManage={can("rentals.manage")}
           onClose={() => setHistoryFor(null)}

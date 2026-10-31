@@ -88,18 +88,36 @@ function DeviceHandover({ lineId, onSaved, allLineIds }) {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState("");
 
-  const load = (body) => {
+  const formFrom = (body) => ({
+    checks: body.checks || {}, working_confirmed: body.working_confirmed, condition_notes: body.condition_notes,
+    accessories: body.accessories || [], warranty_included: body.warranty_included,
+    warranty_months: body.warranty_months ?? "", warranty_terms: body.warranty_terms,
+  });
+  // Unsaved ticks/notes survive a browser refresh (kept in this tab's session storage until saved).
+  const draftKey = `rental-handover-draft-${lineId}`;
+  const readDraft = () => { try { return JSON.parse(sessionStorage.getItem(draftKey) || "null"); } catch { return null; } };
+
+  // Replace the whole screen from the server (first load, after Save).
+  const load = (body, { restore = false } = {}) => {
     setData(body);
-    setForm({
-      checks: body.checks || {}, working_confirmed: body.working_confirmed, condition_notes: body.condition_notes,
-      accessories: body.accessories || [], warranty_included: body.warranty_included,
-      warranty_months: body.warranty_months ?? "", warranty_terms: body.warranty_terms,
-    });
+    const draft = restore && body.editable ? readDraft() : null;
+    setForm(draft || formFrom(body));
+    if (draft) setNote("Restored your unsaved changes — press Save to keep them.");
   };
+  // Refresh only what the server owns (photos, issues) and leave what the user is typing alone.
+  const reloadPhotos = async () => setData(await api.get(`/rental-lines/${lineId}/handover/`));
 
   useEffect(() => {
-    api.get(`/rental-lines/${lineId}/handover/`).then(load).catch((e) => setError(e.message));
+    api.get(`/rental-lines/${lineId}/handover/`).then((body) => load(body, { restore: true })).catch((e) => setError(e.message));
   }, [lineId]);
+
+  useEffect(() => {
+    if (!data || !form || !data.editable) return;
+    try {
+      if (JSON.stringify(form) === JSON.stringify(formFrom(data))) sessionStorage.removeItem(draftKey);
+      else sessionStorage.setItem(draftKey, JSON.stringify(form));
+    } catch { /* storage unavailable — nothing to keep */ }
+  }, [form, data]);
 
   if (error && !data) return <ErrorNote message={error} />;
   if (!data || !form) return <div className="flex items-center gap-2 p-6 text-sm" style={{ color: C.inkSoft }}><Loader2 size={14} className="animate-spin" /> Loading device…</div>;
@@ -139,7 +157,7 @@ function DeviceHandover({ lineId, onSaved, allLineIds }) {
       fd.append("image", await shrinkPhoto(file));
       const res = await api.upload(`/rental-lines/${lineId}/photos/`, fd);
       flagRevoked(res);
-      load(await api.get(`/rental-lines/${lineId}/handover/`));
+      await reloadPhotos();
       onSaved();
     } catch (e) {
       setError(e.body?.detail || e.message);
@@ -152,7 +170,7 @@ function DeviceHandover({ lineId, onSaved, allLineIds }) {
     if (!window.confirm(`Remove this ${photo.kind_label} photo?`)) return;
     try {
       flagRevoked(await api.del(`/rental-photos/${photo.id}/`));
-      load(await api.get(`/rental-lines/${lineId}/handover/`));
+      await reloadPhotos();
       onSaved();
     } catch (e) {
       setError(e.body?.detail || e.message);

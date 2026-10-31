@@ -18,7 +18,7 @@ from accounts.permissions import HasPerm
 from crmbook_backend.notify import whatsapp_provider
 from catalog.models import Stock, StockPoint
 
-from .billing import RentBillingError, period_months, raise_rent_invoice, send_due_rent_invoices, set_payment_plan
+from .billing import RentBillingError, period_months, raise_rent_invoice, send_due_rent_invoices, set_payment_plan, too_early_to_raise
 from .models import Rental, RentalApproval, RentalAsset, RentalEvent, RentalIssue, RentalLine
 from .serializers import (
     AssetFromInventorySerializer,
@@ -132,6 +132,13 @@ class RentalViewSet(viewsets.ModelViewSet):
         payload.is_valid(raise_exception=True)
         data = payload.validated_data
         with transaction.atomic():
+            old = data.pop("renews", None)
+            if old:
+                # renewing: the finished agreement ends and its devices come back
+                # to stock in the same step the new agreement reserves them
+                old = Rental.objects.select_for_update().get(pk=old.pk)
+                if old.status in (Rental.APPROVED, Rental.ACTIVE):
+                    close_agreement(old, request.user, "Renewed with a new agreement")
             lines = data.pop("lines")
             rates_by_asset_id = {line["asset"].pk: line["monthly_fee"] for line in lines}
             asset_ids = list(rates_by_asset_id)
@@ -168,7 +175,8 @@ class RentalViewSet(viewsets.ModelViewSet):
                 rental=rental,
                 event_type=RentalEvent.AGREEMENT_CREATED,
                 actor=request.user,
-                metadata={"rental_type": "bulk" if len(lines) >= 2 else "single", "line_count": len(lines)},
+                metadata={"rental_type": "bulk" if len(lines) >= 2 else "single", "line_count": len(lines),
+                          **({"renews": old.agreement_code} if old else {})},
             )
         return Response(RentalSerializer(self._fresh(rental)).data, status=201)
 
@@ -240,6 +248,9 @@ class RentalViewSet(viewsets.ModelViewSet):
         stock_point = StockPoint.objects.filter(pk=request.data.get("stock_point")).first()
         if not stock_point:
             return Response({"detail": "Pick the shop issuing this invoice."}, status=400)
+        early = too_early_to_raise(rental)
+        if early:
+            return Response({"detail": early}, status=400)
         try:
             invoice = raise_rent_invoice(rental, stock_point=stock_point, sent_by=request.user)
         except RentBillingError as e:

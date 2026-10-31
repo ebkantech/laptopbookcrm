@@ -68,15 +68,20 @@ class RentalSerializer(serializers.ModelSerializer):
         ]
 
     def get_next_billing_period(self, obj):
-        from .billing import next_billing_period
+        from datetime import date
 
-        from .billing import period_months
+        from .billing import next_billing_period, period_months, raise_from_date
 
         period = next_billing_period(obj)
         if not period:
             return None
         months = period_months(*period)
-        return {"start": period[0], "end": period[1], "months": months, "amount": obj.total_monthly_fee * months}
+        opens = raise_from_date(period[0])
+        return {
+            "start": period[0], "end": period[1], "months": months, "amount": obj.total_monthly_fee * months,
+            # invoices are raised as they fall due, never months ahead
+            "raise_from": opens, "can_raise_now": date.today() >= opens,
+        }
 
     def get_open_issue_count(self, obj):
         return sum(1 for i in obj.issues.all() if i.status != RentalIssue.RESOLVED)
@@ -293,6 +298,9 @@ class CreateRentalAgreementSerializer(serializers.Serializer):
     payment_interval_months = serializers.ChoiceField(choices=[c[0] for c in Rental.INTERVAL_CHOICES], default=1)
     auto_invoice = serializers.BooleanField(required=False, default=True)
     lines = CreateRentalLineSerializer(many=True, allow_empty=False)
+    # Re-agreement: the finished agreement this one renews. It is closed, and
+    # its devices released for the new agreement, when this one is saved.
+    renews = serializers.PrimaryKeyRelatedField(queryset=Rental.objects.all(), required=False, allow_null=True)
 
     def validate_start(self, value):
         from django.utils import timezone
@@ -304,13 +312,31 @@ class CreateRentalAgreementSerializer(serializers.Serializer):
             raise serializers.ValidationError("The start date is more than a year ahead -- check the year.")
         return value
 
+    def validate(self, attrs):
+        old = attrs.get("renews")
+        releasing = set()
+        if old:
+            if old.party_id != attrs["party"].pk:
+                raise serializers.ValidationError({"renews": "That agreement belongs to a different customer."})
+            finished = old.status == Rental.CLOSED or (
+                old.status in (Rental.APPROVED, Rental.ACTIVE) and old.months_paid >= old.tenure_months
+            )
+            if not finished:
+                raise serializers.ValidationError({"renews": "Only a completed agreement can be renewed."})
+            # the renewed agreement's devices are released as this one is saved
+            releasing = set(old.lines.values_list("asset_id", flat=True))
+        unavailable = [
+            line["asset"].asset_tag for line in attrs["lines"]
+            if line["asset"].status != RentalAsset.AVAILABLE and line["asset"].id not in releasing
+        ]
+        if unavailable:
+            raise serializers.ValidationError({"lines": f"Assets must be Available before renting: {', '.join(unavailable)}."})
+        return attrs
+
     def validate_lines(self, lines):
         asset_ids = [line["asset"].id for line in lines]
         if len(asset_ids) != len(set(asset_ids)):
             raise serializers.ValidationError("The same asset cannot be added twice to one rental agreement.")
-        unavailable = [line["asset"].asset_tag for line in lines if line["asset"].status != RentalAsset.AVAILABLE]
-        if unavailable:
-            raise serializers.ValidationError(f"Assets must be Available before renting: {', '.join(unavailable)}.")
         return lines
 
 
