@@ -17,6 +17,7 @@ from .models import (
     RepairOrderApproval,
     RepairReopen,
     RepairReopenItem,
+    RepairRevision,
     RepairTicket,
     RepairTicketEvent,
 )
@@ -41,6 +42,42 @@ class FinalizeEstimateSerializer(serializers.Serializer):
     terms = serializers.CharField(required=False, allow_blank=True, max_length=2000)
 
 
+class RevisionLineInputSerializer(EstimateLineInputSerializer):
+    pass
+
+
+class ProposeRevisionSerializer(serializers.Serializer):
+    lines = RevisionLineInputSerializer(many=True, allow_empty=False)
+    reason = serializers.CharField(max_length=1000, allow_blank=False, trim_whitespace=True)
+
+
+class DiagnoseSerializer(serializers.Serializer):
+    note = serializers.CharField(max_length=2000, allow_blank=False, trim_whitespace=True)
+    estimate_ok = serializers.BooleanField(default=True)
+    lines = EstimateLineInputSerializer(many=True, required=False)
+
+
+class DecideRevisionSerializer(serializers.Serializer):
+    decision = serializers.ChoiceField(choices=["accept", "decline"])
+    note = serializers.CharField(required=False, allow_blank=True, max_length=300)
+
+
+class RepairRevisionSerializer(serializers.ModelSerializer):
+    requested_by_name = serializers.SerializerMethodField()
+    decided_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RepairRevision
+        fields = ["id", "status", "reason", "lines", "proposed_total", "previous_total", "requested_by_name",
+                  "decided_by_name", "decision_note", "created_at", "decided_at"]
+
+    def get_requested_by_name(self, obj):
+        return (obj.requested_by.get_full_name() or obj.requested_by.username) if obj.requested_by_id else ""
+
+    def get_decided_by_name(self, obj):
+        return (obj.decided_by.get_full_name() or obj.decided_by.username) if obj.decided_by_id else ""
+
+
 class StaffApprovalSerializer(serializers.Serializer):
     reason = serializers.CharField(max_length=500, allow_blank=False, trim_whitespace=True)
 
@@ -57,8 +94,12 @@ class RepairOrderDeviceInputSerializer(serializers.Serializer):
     serial = serializers.CharField(max_length=60, allow_blank=False, trim_whitespace=True)
     issue = serializers.CharField(allow_blank=False, trim_whitespace=True)
     service_ids = serializers.PrimaryKeyRelatedField(
-        source="services", queryset=Service.objects.all(), many=True, allow_empty=False
+        source="services", queryset=Service.objects.all(), many=True, allow_empty=True, required=False, default=list
     )
+    # Prices are agreed with the customer at the counter, so they're typed in
+    # (not mapped from the catalogue), and so is the advance.
+    estimate_lines = EstimateLineInputSerializer(many=True, required=False, default=list)
+    advance_amount = serializers.IntegerField(min_value=0, required=False, allow_null=True)
 
 
 class CreateRepairOrderSerializer(serializers.Serializer):
@@ -231,6 +272,16 @@ class RepairTicketSerializer(serializers.ModelSerializer):
     order_device_count = serializers.SerializerMethodField()
     order_progress = serializers.SerializerMethodField()
     combined_approval_ready = serializers.SerializerMethodField()
+    assigned_to_name = serializers.SerializerMethodField()
+    assigned_to_store = serializers.SerializerMethodField()
+    estimate_lines = EstimateLineInputSerializer(many=True, write_only=True, required=False)
+    advance_amount = serializers.IntegerField(min_value=0, write_only=True, required=False, allow_null=True)
+    pending_revision = serializers.SerializerMethodField()
+    revisions = RepairRevisionSerializer(many=True, read_only=True)
+    on_hold_reason = serializers.CharField(read_only=True)
+    due_at = serializers.SerializerMethodField()
+    awaiting_diagnosis = serializers.BooleanField(read_only=True)
+    diagnosed_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = RepairTicket
@@ -242,10 +293,29 @@ class RepairTicketSerializer(serializers.ModelSerializer):
             "warranty_active", "warranty_end_date", "can_reopen", "pending_invoice", "advance_invoice", "current_estimate",
             "approval_status", "events",
             "order_id", "order_code", "repair_type", "order_device_count",
-            "order_progress", "combined_approval_ready",
+            "order_progress", "combined_approval_ready", "assigned_to", "assigned_to_name", "assigned_to_store",
+            "estimate_lines", "advance_amount", "assigned_at", "started_at", "ready_at", "due_at", "pending_revision", "revisions", "on_hold_reason",
+            "diagnosed_at", "diagnosis_note", "diagnosed_by_name", "awaiting_diagnosis",
         ]
-        # advance_paid only changes when the advance invoice is paid or refunded
-        read_only_fields = ["code", "status", "advance_paid"]
+        # advance_paid only changes when the advance invoice is paid or refunded;
+        # assignment only goes through the assign action
+        read_only_fields = ["code", "status", "advance_paid", "assigned_to", "assigned_at", "started_at", "ready_at", "diagnosed_at", "diagnosis_note"]
+
+    def get_pending_revision(self, obj):
+        revision = obj.pending_revision
+        return RepairRevisionSerializer(revision).data if revision else None
+
+    def get_diagnosed_by_name(self, obj):
+        return (obj.diagnosed_by.get_full_name() or obj.diagnosed_by.username) if obj.diagnosed_by_id else ""
+
+    def get_due_at(self, obj):
+        return obj.due_at
+
+    def get_assigned_to_name(self, obj):
+        return (obj.assigned_to.get_full_name() or obj.assigned_to.username) if obj.assigned_to_id else ""
+
+    def get_assigned_to_store(self, obj):
+        return obj.assigned_to.stock_point.name if obj.assigned_to_id and obj.assigned_to.stock_point_id else ""
 
     def validate_stock_point(self, value):
         # no new drop-off at an inactive shop; an existing ticket keeps its
@@ -254,6 +324,10 @@ class RepairTicketSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
+        lines = attrs.get("estimate_lines") or []
+        amount = attrs.get("advance_amount")
+        if amount is not None and lines and amount > sum(l["quantity"] * (l.get("unit_price") or 0) for l in lines):
+            raise serializers.ValidationError({"advance_amount": "The advance can't be more than the estimate total."})
         if self.instance is None:
             serial = (attrs.get("serial") or "").strip()
             if not serial or serial == "—":

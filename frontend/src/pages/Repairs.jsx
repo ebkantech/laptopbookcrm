@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Check, Cpu, IndianRupee, LayoutGrid, List, MapPinned, PackageCheck, Plus,
-  Terminal, Truck, Wrench, X,
+  BarChart3, Check, Cpu, IndianRupee, LayoutGrid, List, MapPinned, PackageCheck, Plus,
+  Terminal, Truck, UserCheck, Wrench, X,
 } from "lucide-react";
 import { C, F, money, todayISO } from "../lib/theme";
 import { api } from "../lib/api";
@@ -10,6 +10,12 @@ import { useSession } from "../context/SessionContext";
 import { Locked, Pill, PillButton, Spinner, ErrorNote, Eyebrow, TabBar } from "../components/Atoms";
 import PageHeader from "../components/PageHeader";
 import EstimateApprovalPanel from "../components/repairs/EstimateApprovalPanel";
+import ApprovalLinkCard from "../components/repairs/ApprovalLinkCard";
+import RevisionPanel from "../components/repairs/RevisionPanel";
+import DiagnosisPanel from "../components/repairs/DiagnosisPanel";
+import StaffPerformance from "../components/repairs/StaffPerformance";
+import ManualLines from "../components/repairs/ManualLines";
+import { blankLine, linesTotal, pricingPayload, validatePricing } from "../components/repairs/bookingModel";
 
 const STAGES = ["Received", "Diagnosing", "In progress", "Ready for pickup", "Delivered"];
 const STAGE_COLOR = { Received: C.blue, Diagnosing: C.amber, "In progress": C.stamp, "Ready for pickup": C.green, Delivered: C.inkSoft };
@@ -136,7 +142,9 @@ function QuickAddParty({ onClose, onAdded }) {
 }
 
 function NewTicketModal({ parties, services, stockPoints, onClose, onCreate }) {
-  const blankDevice = () => ({ brand: "Dell", model_name: "", serial: "", issue: "", service_ids: [] });
+  const { can } = useSession();
+  const canPrice = can("repairs.approve");
+  const blankDevice = () => ({ brand: "Dell", model_name: "", serial: "", issue: "", lines: [blankLine()], advance: "" });
   const [entryType, setEntryType] = useState("single");
   const [localParties, setLocalParties] = useState(parties);
   const [party, setParty] = useState(parties[0]?.id);
@@ -146,24 +154,24 @@ function NewTicketModal({ parties, services, stockPoints, onClose, onCreate }) {
   const [serial, setSerial] = useState("");
   const [stockPointId, setStockPointId] = useState(stockPoints.find((s) => s.kind === "shop")?.id);
   const [issue, setIssue] = useState("");
-  const [selected, setSelected] = useState([]);
+  const [lines, setLines] = useState([blankLine()]);
+  const [advanceInput, setAdvanceInput] = useState("");
   const [payment, setPayment] = useState("advance");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [bulkDevices, setBulkDevices] = useState([blankDevice(), blankDevice()]);
 
   const stockPoint = stockPoints.find((s) => s.id === stockPointId);
-  const toggle = (id) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
-  const singleTotal = selected.reduce((s, id) => s + (services.find((sv) => sv.id === id)?.charge || 0), 0);
-  const bulkTotal = bulkDevices.reduce((sum, device) => sum + device.service_ids.reduce((deviceSum, id) => deviceSum + (services.find((service) => service.id === id)?.charge || 0), 0), 0);
-  const total = entryType === "bulk" ? bulkTotal : singleTotal;
-  const advance = Math.round(total * 0.25);
+  const total = entryType === "bulk" ? bulkDevices.reduce((sum, d) => sum + linesTotal(d.lines), 0) : linesTotal(lines);
   const updateBulkDevice = (index, patch) => setBulkDevices((current) => current.map((device, deviceIndex) => deviceIndex === index ? { ...device, ...patch } : device));
-  const toggleBulkService = (index, serviceId) => setBulkDevices((current) => current.map((device, deviceIndex) => deviceIndex !== index ? device : ({ ...device, service_ids: device.service_ids.includes(serviceId) ? device.service_ids.filter((id) => id !== serviceId) : [...device.service_ids, serviceId] })));
 
   const submit = async () => {
-    if (entryType === "single" && (!model.trim() || !serial.trim() || !issue.trim() || !selected.length)) return setError("Model, serial / asset tag, issue, and at least one service are required.");
-    if (entryType === "bulk" && bulkDevices.some((device) => !device.model_name.trim() || !device.serial.trim() || !device.issue.trim() || !device.service_ids.length)) return setError("Every bulk device needs model, serial / asset tag, issue, and at least one service.");
+    if (entryType === "single" && (!model.trim() || !serial.trim() || !issue.trim())) return setError("Model, serial / asset tag and the reported issue are required.");
+    if (entryType === "bulk" && bulkDevices.some((device) => !device.model_name.trim() || !device.serial.trim() || !device.issue.trim())) return setError("Every bulk device needs model, serial / asset tag and issue.");
+    const problems = entryType === "bulk"
+      ? bulkDevices.map((d) => validatePricing({ lines: d.lines, payment, advance: d.advance, needLines: canPrice })).find(Boolean)
+      : validatePricing({ lines, payment, advance: advanceInput, needLines: canPrice });
+    if (problems) return setError(problems);
     setBusy(true);
     setError("");
     try {
@@ -171,14 +179,14 @@ function NewTicketModal({ parties, services, stockPoints, onClose, onCreate }) {
         await onCreate({
           party, stock_point: stockPointId, payment,
           received: todayISO(),
-          devices: bulkDevices.map((device) => ({ ...device, model_name: device.model_name.trim(), serial: device.serial.trim(), issue: device.issue.trim() })),
+          devices: bulkDevices.map(({ lines: l, advance, ...device }) => ({ ...device, model_name: device.model_name.trim(), serial: device.serial.trim(), issue: device.issue.trim(), ...pricingPayload({ lines: l, payment, advance, canPrice }) })),
         }, true);
         return;
       }
       await onCreate({
         party, brand, model_name: model.trim(), serial: serial.trim() || "—",
         stock_point: stockPointId, issue: issue.trim() || "Not specified",
-        service_ids: selected, payment,
+        payment, ...pricingPayload({ lines, payment, advance: advanceInput, canPrice }),
         received: todayISO(),
       }, false);
     } catch (e) {
@@ -233,8 +241,10 @@ function NewTicketModal({ parties, services, stockPoints, onClose, onCreate }) {
           <textarea value={issue} onChange={(e) => setIssue(e.target.value)} rows={2} className="mt-1 w-full resize-none bg-transparent px-3 py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
         </label>
 
-        <p className="mt-4 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em", color: C.inkSoft }}>Work needed</p>
-        <div className="mt-2"><ServiceChecklist services={services} stockPointSlug={stockPoint?.slug} brand={brand} selected={selected} onToggle={toggle} /></div>
+        {canPrice ? <>
+          <p className="mt-4 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em", color: C.inkSoft }}>Agreed work &amp; price</p>
+          <div className="mt-2"><ManualLines lines={lines} onChange={setLines} /></div>
+        </> : <p className="mt-4 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>The Admin sets the price and sends the customer's approval link.</p>}
         </>}
 
         {entryType === "bulk" && <div className="mt-4 space-y-4">
@@ -246,21 +256,30 @@ function NewTicketModal({ parties, services, stockPoints, onClose, onCreate }) {
               <input value={device.serial} onChange={(event) => updateBulkDevice(index, { serial: event.target.value })} placeholder="Serial / asset tag · required" className="bg-transparent px-2 py-2 text-sm" style={{ border: `1px solid ${C.rule}` }} />
             </div>
             <textarea value={device.issue} onChange={(event) => updateBulkDevice(index, { issue: event.target.value })} placeholder="Reported issue · required" rows={2} className="mt-2 w-full bg-transparent px-2 py-2 text-sm" style={{ border: `1px solid ${C.rule}` }} />
-            <div className="mt-3"><ServiceChecklist services={services} stockPointSlug={stockPoint?.slug} brand={device.brand} selected={device.service_ids} onToggle={(serviceId) => toggleBulkService(index, serviceId)} /></div>
+            {canPrice && <div className="mt-3"><ManualLines lines={device.lines} onChange={(l) => updateBulkDevice(index, { lines: l })} /></div>}
+            {payment === "advance" && <label className="mt-3 block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Advance for this device (₹)
+              <input type="number" min="0" value={device.advance} onChange={(e) => updateBulkDevice(index, { advance: e.target.value })} placeholder="0 = none" className="mt-1 w-full bg-transparent px-2 py-1.5 text-sm" style={{ border: `1px solid ${C.rule}` }} />
+            </label>}
           </section>)}
           <button type="button" onClick={() => setBulkDevices((current) => [...current, blankDevice()])} className="flex w-full items-center justify-center gap-1 py-2 text-xs uppercase" style={{ border: `1px dashed ${C.stamp}`, color: C.stamp }}><Plus size={13} /> Add another device</button>
         </div>}
 
         <div className="mt-4 flex overflow-hidden rounded-xl" style={{ border: `1px solid ${C.rule}` }}>
-          {[["advance", "25% advance"], ["full", "Pay on delivery"]].map(([k, label]) => (
+          {[["advance", "Take an advance"], ["full", "Pay on delivery"]].map(([k, label]) => (
             <button key={k} onClick={() => setPayment(k)} className="flex-1 py-2 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, color: payment === k ? C.onAccent : C.inkSoft, backgroundColor: payment === k ? C.stamp : "transparent" }}>{label}</button>
           ))}
         </div>
 
-        <div className="mt-3 flex items-center justify-between px-3 py-2 rounded-xl" style={{ backgroundColor: C.slip2 }}>
-          <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Estimated total{payment === "advance" ? " · advance due now" : ""}</span>
-          <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{money(total)}{payment === "advance" && total > 0 ? ` (${money(advance)} now)` : ""}</span>
-        </div>
+        {payment === "advance" && entryType === "single" && (
+          <label className="mt-3 block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Advance (₹) — typed in, leave blank for none
+            <input type="number" min="0" value={advanceInput} onChange={(e) => setAdvanceInput(e.target.value)} placeholder="e.g. 1000" className="mt-1 w-full bg-transparent px-3 py-2 text-sm" style={{ border: `1px solid ${C.rule}` }} />
+          </label>
+        )}
+
+        {canPrice && <div className="mt-3 flex items-center justify-between px-3 py-2 rounded-xl" style={{ backgroundColor: C.slip2 }}>
+          <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Estimate total</span>
+          <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{money(total)}</span>
+        </div>}
 
         <ErrorNote message={error} />
         <button onClick={submit} disabled={busy} className="mt-4 flex w-full items-center justify-center gap-1.5 py-2.5 text-xs uppercase" style={{ backgroundColor: C.green, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em", opacity: busy ? 0.7 : 1 }}>
@@ -422,21 +441,90 @@ function RepairInvoiceRow({ label, invoice }) {
   );
 }
 
+/* Who is working this ticket. The Super Admin can give it to staff of any
+ * store, an Admin to staff of their own store; either can take it over when
+ * the assigned person is away. */
+function AssignPanel({ ticket, meId, canAssign, isOwner, onChanged }) {
+  const [staff, setStaff] = useState(null);
+  const [choice, setChoice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const delivered = ticket.status === "Delivered";
+
+  const send = async (assigned_to) => {
+    setBusy(true);
+    setError("");
+    try {
+      onChanged(await api.post(`/tickets/${ticket.id}/assign/`, { assigned_to }));
+      setChoice("");
+    } catch (e) {
+      setError(e.body?.assigned_to ? [].concat(e.body.assigned_to).join(" ") : e.body?.detail || e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (canAssign && !delivered) api.get("/tickets/staff/").then(setStaff).catch(() => setStaff([]));
+  }, [canAssign, delivered]);
+
+  const mine = ticket.assigned_to === meId;
+  return (
+    <div className="mt-4 p-3" data-panel style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip2 }}>
+      <div className="flex items-center justify-between gap-2">
+        <Eyebrow>Assigned to</Eyebrow>
+        {ticket.assigned_to ? <Pill color={mine ? C.green : C.stamp}>{mine ? "You" : ticket.assigned_to_name}</Pill> : <Pill color={C.inkSoft}>Unassigned</Pill>}
+      </div>
+      <p className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
+        {ticket.assigned_to
+          ? `${ticket.assigned_to_name}${ticket.assigned_to_store ? ` · ${ticket.assigned_to_store}` : ""} works this job.${canAssign || mine ? "" : " Only they or an Admin can move it forward."}`
+          : "Any repair staff at the store can pick this up until it is assigned."}
+      </p>
+      {canAssign && !delivered && (
+        <div className="mt-2">
+          <div className="flex flex-wrap gap-2">
+            <select value={choice} onChange={(e) => { setChoice(e.target.value); setError(""); }} aria-label="Staff member" className="min-w-0 flex-1 bg-transparent px-2.5 py-1.5 text-sm outline-none" style={{ border: `1px solid ${C.rule}`, color: C.ink, fontFamily: F.body }}>
+              <option value="">{staff && !staff.length ? "No staff available" : "Choose staff…"}</option>
+              {(staff || []).filter((u) => u.id !== ticket.assigned_to).map((u) => <option key={u.id} value={u.id}>{u.name} — {u.stock_point_name}</option>)}
+            </select>
+            <button type="button" disabled={!choice || busy} onClick={() => send(Number(choice))} className="px-3 py-1.5 text-xs uppercase disabled:opacity-50" style={{ backgroundColor: C.orange, color: C.onAccent, fontFamily: F.body, fontWeight: 700, letterSpacing: "0.08em" }}>{ticket.assigned_to ? "Reassign" : "Assign"}</button>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {!mine && !isOwner && <button type="button" disabled={busy} onClick={() => send(meId)} className="flex items-center gap-1 px-3 py-1.5 text-xs" style={{ border: `1px solid ${C.rule}`, color: C.ink, fontWeight: 700 }}><UserCheck size={12} /> {ticket.assigned_to ? "Take over this job" : "Take it myself"}</button>}
+            {ticket.assigned_to && <button type="button" disabled={busy} onClick={() => send(null)} className="px-3 py-1.5 text-xs" style={{ border: `1px solid ${C.rule}`, color: C.inkSoft }}>Unassign</button>}
+          </div>
+        </div>
+      )}
+      <ErrorNote message={error} />
+    </div>
+  );
+}
+
 function TicketDetail({ ticketId, onClose, onChanged }) {
-  const { can } = useSession();
+  const { can, me } = useSession();
   const [ticket, setTicket] = useState(null);
   const [services, setServices] = useState([]);
   const [reopening, setReopening] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
+  const [overrideError, setOverrideError] = useState("");
 
   const load = useCallback(() => api.get(`/tickets/${ticketId}/`).then(setTicket), [ticketId]);
   useEffect(() => { load(); api.getAll("/services/").then(setServices); }, [load]);
   if (!ticket) return null;
 
+  // a job given to someone else is theirs to move forward; an Admin / Super Admin can always step in
+  const locked = !!ticket.assigned_to && ticket.assigned_to !== me?.id && !can("repairs.assign");
+  const canWork = can("repairs.manage") && !locked;
   const nextStage = STAGES[STAGES.indexOf(ticket.status) + 1];
   const activeReopen = ticket.reopens.find((r) => !r.invoice);
   const settledReopens = ticket.reopens.filter((r) => r.invoice);
 
   const advance = async () => { const t = await api.post(`/tickets/${ticket.id}/advance/`); setTicket(t); onChanged(t); };
+  const startAnyway = async () => {
+    setOverrideError("");
+    try { const t = await api.post(`/tickets/${ticket.id}/advance/`, { override_reason: overrideReason.trim() }); setTicket(t); onChanged(t); setOverrideReason(""); }
+    catch (e) { setOverrideError(e.body?.detail || e.message); }
+  };
   const settle = async () => { const t = await api.post(`/tickets/${ticket.id}/settle/`); setTicket(t); onChanged(t); };
 
   return (
@@ -456,6 +544,8 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
 
         <div className="mt-5"><StageStepper status={ticket.status} /></div>
 
+        <AssignPanel ticket={ticket} meId={me?.id} isOwner={!!(me?.is_superuser || me?.role_slug === "owner")} canAssign={can("repairs.assign")} onChanged={(t) => { setTicket(t); onChanged(t); }} />
+
         <div className="mt-5 p-3" data-panel style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip2 }}>
           <Eyebrow>Reported issue</Eyebrow>
           <p className="mt-1 text-sm" style={{ fontFamily: F.body, color: C.ink }}>{ticket.issue}</p>
@@ -465,7 +555,24 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
           key={`${ticket.id}-${ticket.current_estimate?.id || "new"}`}
           ticket={ticket}
           services={services}
-          canManage={can("repairs.manage")}
+          canManage={canWork}
+          canApprove={can("repairs.approve")}
+          onChanged={(updated) => { setTicket(updated); onChanged(updated); }}
+        />
+
+        <DiagnosisPanel
+          key={`diag-${ticket.id}-${ticket.diagnosed_at || 0}`}
+          ticket={ticket}
+          canWork={canWork && ticket.assigned_to === me?.id}
+          canApprove={can("repairs.approve")}
+          onChanged={(updated) => { setTicket(updated); onChanged(updated); }}
+        />
+
+        <RevisionPanel
+          key={`rev-${ticket.id}-${ticket.pending_revision?.id || 0}-${ticket.current_estimate?.id || 0}`}
+          ticket={ticket}
+          services={services}
+          canWork={canWork}
           canApprove={can("repairs.approve")}
           onChanged={(updated) => { setTicket(updated); onChanged(updated); }}
         />
@@ -524,7 +631,7 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
                 Payment is collected in Sales &amp; Invoices — record it or send a UPI link there.
               </p>
             )}
-            {can("repairs.manage") && ticket.can_reopen && (
+            {canWork && can("repairs.book") && ticket.can_reopen && (
               <button onClick={async () => { setTicket(await api.get(`/tickets/${ticket.id}/`)); setReopening(true); }} className="mt-3 flex w-full items-center justify-center gap-1.5 py-2.5 text-xs uppercase" style={{ backgroundColor: C.amber, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em" }}>
                 <Truck size={13} /> Device came back -- reopen ticket
               </button>
@@ -540,12 +647,24 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
                 </p>
               </>
             )}
-            {can("repairs.manage") && nextStage && nextStage !== "Delivered" && !ticket.pending_invoice && (
+            {canWork && nextStage === "In progress" && ticket.awaiting_diagnosis && (
+              <div className="mt-4 p-3" style={{ border: `1px dashed ${C.amber}`, backgroundColor: `${C.amber}0D` }}>
+                <p className="text-xs" style={{ fontFamily: F.body, color: C.ink }}>Work can't start yet — waiting for {ticket.assigned_to_name}'s diagnosis.</p>
+                {can("repairs.assign") && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <input value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} placeholder="Reason to start anyway" className="min-w-0 flex-1 px-2 py-1.5 text-xs" style={{ border: `1px solid ${C.rule}` }} aria-label="Reason to start without the diagnosis" />
+                    <button type="button" disabled={!overrideReason.trim()} onClick={startAnyway} className="px-3 py-1.5 text-xs uppercase disabled:opacity-50" style={{ border: `1px solid ${C.stamp}`, color: C.stamp, fontWeight: 600 }}>Start anyway</button>
+                  </div>
+                )}
+                {overrideError && <p className="mt-1 text-xs" style={{ color: C.carbon }}>{overrideError}</p>}
+              </div>
+            )}
+            {canWork && nextStage && nextStage !== "Delivered" && !ticket.pending_invoice && !(nextStage === "In progress" && ticket.awaiting_diagnosis) && (
               <button onClick={advance} className="mt-4 flex w-full items-center justify-center gap-1.5 py-2.5 text-xs uppercase" style={{ backgroundColor: C.stamp, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em" }}>
-                <Truck size={13} /> Move to "{nextStage}" & notify customer
+                <Truck size={13} /> {can("repairs.book") ? `Move to "${nextStage}" & notify customer` : nextStage === "Ready for pickup" ? "Job done — send back to Admin" : `Move to "${nextStage}"`}
               </button>
             )}
-            {ticket.status === "Ready for pickup" && can("repairs.manage") && !ticket.pending_invoice && (
+            {ticket.status === "Ready for pickup" && canWork && can("repairs.book") && !ticket.pending_invoice && (
               <button onClick={settle} className="mt-2 flex w-full items-center justify-center gap-1.5 py-2.5 text-xs uppercase" style={{ backgroundColor: C.green, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em" }}>
                 <IndianRupee size={13} /> Raise invoice — delivered once paid
               </button>
@@ -596,11 +715,13 @@ function KanbanCard({ ticket, draggable, onDragStart, onClick }) {
       </div>
       <p className="mt-1 truncate text-xs" style={{ fontFamily: F.body, color: C.ink }}>{ticket.party_name}</p>
       <p className="truncate text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{ticket.brand} {ticket.model_name}</p>
+      <p className="mt-1 flex items-center gap-1 truncate text-[11px]" style={{ fontFamily: F.body, color: ticket.assigned_to ? C.stamp : C.inkSoft }}><UserCheck size={11} />{ticket.assigned_to ? ticket.assigned_to_name : "Unassigned"}</p>
     </div>
   );
 }
 
-function KanbanBoard({ tickets, canManage, onOpen, onMoved, onError }) {
+function KanbanBoard({ tickets, canManage, meId, canAssign, onOpen, onMoved, onError }) {
+  const mayMove = (t) => canManage && (!t.assigned_to || t.assigned_to === meId || canAssign);
   const [dragTicket, setDragTicket] = useState(null);
   const [dragOverCol, setDragOverCol] = useState(null);
   const [busyId, setBusyId] = useState(null);
@@ -612,6 +733,7 @@ function KanbanBoard({ tickets, canManage, onOpen, onMoved, onError }) {
     const ticket = dragTicket;
     setDragTicket(null);
     if (!ticket || ticket.status === targetStage) return;
+    if (!mayMove(ticket)) { onError(`This job is assigned to ${ticket.assigned_to_name}. Ask an Admin to take it over or reassign it.`); return; }
 
     if (targetStage === "Delivered") {
       if (ticket.status !== "Ready for pickup") {
@@ -679,7 +801,7 @@ function KanbanBoard({ tickets, canManage, onOpen, onMoved, onError }) {
                 <div key={t.id} style={{ opacity: busyId === t.id ? 0.5 : 1 }}>
                   <KanbanCard
                     ticket={t}
-                    draggable={canManage}
+                    draggable={mayMove(t)}
                     onDragStart={() => setDragTicket(t)}
                     onClick={() => onOpen(t.id)}
                   />
@@ -695,7 +817,8 @@ function KanbanBoard({ tickets, canManage, onOpen, onMoved, onError }) {
 }
 
 export default function Repairs() {
-  const { can } = useSession();
+  const { can, me } = useSession();
+  const [mineOnly, setMineOnly] = useState(false);
   const [tickets, setTickets] = useState(null);
   const [parties, setParties] = useState([]);
   const [services, setServices] = useState([]);
@@ -706,6 +829,7 @@ export default function Repairs() {
   const [openId, setOpenId] = useState(null);
   const [view, setView] = useState("list");
   const [flash, setFlash] = useState("");
+  const [created, setCreated] = useState(null);
 
   const load = useCallback((status) => api.getAll(`/tickets/${status !== "all" ? `?status=${encodeURIComponent(status)}` : ""}`).then(setTickets).catch((e) => setError(e.message)), []);
 
@@ -729,9 +853,12 @@ export default function Repairs() {
     const result = await api.post(isBulk ? "/repair-orders/" : "/tickets/", payload);
     setTickets((current) => isBulk ? [...result.tickets, ...current] : [result, ...current]);
     setAdding(false);
+    // estimate fixed by the Admin at booking: the client's approval link goes out now
+    if (result.approval) setCreated({ code: isBulk ? result.code : result.code, approval: result.approval });
   };
 
   const onChanged = (t) => setTickets((l) => l.map((x) => (x.id === t.id ? t : x)));
+  const shown = mineOnly ? tickets.filter((t) => t.assigned_to === me?.id) : tickets;
 
   const showError = (msg) => {
     setFlash(msg);
@@ -743,11 +870,12 @@ export default function Repairs() {
       <PageHeader title="Repairs & service" subtitle="Ticket to bill, with parts availability checked against shared stock" />
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <TabBar
-          tabs={[{ id: "list", label: "List", icon: List }, { id: "board", label: "Board", icon: LayoutGrid }]}
+          tabs={[{ id: "list", label: "List", icon: List }, { id: "board", label: "Board", icon: LayoutGrid }, ...(can("repairs.assign") ? [{ id: "staff", label: "Staff performance", icon: BarChart3 }] : [])]}
           value={view}
           onChange={setView}
         />
-        {can("repairs.manage") && (
+        <PillButton icon={UserCheck} primary={mineOnly} onClick={() => setMineOnly((v) => !v)}>My jobs ({tickets.filter((t) => t.assigned_to === me?.id).length})</PillButton>
+        {can("repairs.book") && (
           <PillButton icon={Plus} primary onClick={() => setAdding(true)}>New ticket</PillButton>
         )}
       </div>
@@ -759,7 +887,11 @@ export default function Repairs() {
         </div>
       )}
 
-      {view === "list" ? (
+      {created && (
+        <div className="mt-3"><ApprovalLinkCard approval={created.approval} title={`${created.code} created · send the estimate for approval`} onClose={() => setCreated(null)} /></div>
+      )}
+
+      {view === "staff" && can("repairs.assign") ? <StaffPerformance /> : view === "list" ? (
         <>
           <div className="mt-5 overflow-x-auto">
             <TabBar
@@ -770,18 +902,19 @@ export default function Repairs() {
           </div>
 
           <div className="mt-3 space-y-2">
-            {tickets.map((t) => (
+            {shown.map((t) => (
               <button key={t.id} onClick={() => setOpenId(t.id)} data-panel className="flex w-full flex-wrap items-center gap-3 px-4 py-3 text-left" style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip }}>
                 <div className="min-w-[160px] flex-1">
                   <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{t.code}{t.repair_type === "bulk" ? ` · ${t.order_code}` : ""}</span>
                   <p className="mt-0.5 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{t.party_name} · {t.brand} {t.model_name}</p>
                 </div>
                 <span className="flex items-center gap-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}><MapPinned size={12} />{t.stock_point_name}</span>
+                <span className="flex items-center gap-1 text-xs" style={{ fontFamily: F.body, color: t.assigned_to ? C.stamp : C.inkSoft }}><UserCheck size={12} />{t.assigned_to ? t.assigned_to_name : "Unassigned"}</span>
                 <span className="text-sm sm:min-w-20 sm:text-right" style={{ fontFamily: F.mono, fontWeight: 600, color: C.ink }}>{money(t.total)}</span>
                 <Pill color={STAGE_COLOR[t.status]}>{t.status}</Pill>
               </button>
             ))}
-            {!tickets.length && <p className="px-2 py-10 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>No tickets in this view.</p>}
+            {!shown.length && <p className="px-2 py-10 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>No tickets in this view.</p>}
           </div>
         </>
       ) : (
@@ -789,7 +922,7 @@ export default function Repairs() {
           {!can("repairs.manage") && (
             <p className="mt-4 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Your role can view the board but not drag tickets between stages.</p>
           )}
-          <KanbanBoard tickets={tickets} canManage={can("repairs.manage")} onOpen={setOpenId} onMoved={onChanged} onError={showError} />
+          <KanbanBoard tickets={shown} canManage={can("repairs.manage")} meId={me?.id} canAssign={can("repairs.assign")} onOpen={setOpenId} onMoved={onChanged} onError={showError} />
         </>
       )}
 

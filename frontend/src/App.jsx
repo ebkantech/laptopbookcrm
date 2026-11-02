@@ -6,6 +6,7 @@ import {
   Receipt,
   Users,
   Repeat2,
+  Briefcase,
   Landmark,
   Megaphone,
   Wrench,
@@ -38,6 +39,8 @@ const Warranty = lazy(() => import("./pages/Warranty"));
 const Reports = lazy(() => import("./pages/Reports"));
 const RepairApproval = lazy(() => import("./pages/RepairApproval"));
 const RentalApproval = lazy(() => import("./pages/RentalApproval"));
+const LeadApproval = lazy(() => import("./pages/LeadApproval"));
+const Leads = lazy(() => import("./pages/Leads"));
 const RepairOrderApproval = lazy(() => import("./pages/RepairOrderApproval"));
 const SetPassword = lazy(() => import("./pages/SetPassword"));
 const PortalApp = lazy(() => import("./PortalApp"));
@@ -51,7 +54,7 @@ const PortalApp = lazy(() => import("./PortalApp"));
 const NAV_GROUPS = [
   {
     label: "Overview",
-    items: [{ id: "home", label: "Dashboard", icon: LayoutDashboard }],
+    items: [{ id: "home", label: "Dashboard", icon: LayoutDashboard, perm: "dashboard.view" }],
   },
   {
     label: "Manage",
@@ -62,11 +65,7 @@ const NAV_GROUPS = [
         icon: Package,
         perm: "inventory.edit",
       },
-      // No `perm`: read-only, and its stock-point / product / part data is
-      // already open to every staff account (IsStaffAccount) -- the
-      // repairs / invoices / rentals sections inside are gated server-side
-      // by those modules' own *.view permissions.
-      { id: "storeLocator", label: "Store Locator", icon: MapPin },
+      { id: "storeLocator", label: "Store Locator", icon: MapPin, perm: "storelocator.view" },
       {
         id: "invoices",
         label: "Sales & Invoices",
@@ -75,6 +74,7 @@ const NAV_GROUPS = [
       },
       { id: "parties", label: "Parties", icon: Users, perm: "parties.view" },
       { id: "rentals", label: "Rentals", icon: Repeat2, perm: "rentals.view" },
+      { id: "leads", label: "On-site Service", icon: Briefcase, perm: "leads.view" },
       {
         id: "repairs",
         label: "Repairs & Service",
@@ -97,14 +97,7 @@ const NAV_GROUPS = [
         id: "reports",
         label: "Reports",
         icon: BarChart3,
-        perm: [
-          "reports.export",
-          "rentals.view",
-          "repairs.view",
-          "parties.view",
-          "portal.manage",
-          "inventory.edit",
-        ],
+        perm: "reports.view",
       },
       {
         id: "broadcast",
@@ -178,12 +171,12 @@ const focusRing = "";
 
 const ROUTE_VIEWS = {
   "/": "home", "/inventory": "inventory", "/sales": "invoices",
-  "/invoices": "invoices", "/parties": "parties", "/rentals": "rentals",
+  "/invoices": "invoices", "/parties": "parties", "/rentals": "rentals", "/leads": "leads",
   "/repairs": "repairs", "/warranty": "warranty", "/accounting": "accounting",
   "/reports": "reports", "/broadcast": "broadcast", "/settings": "settings",
   "/store-locator": "storeLocator",
 };
-const VIEW_ROUTES = { home: "/", inventory: "/inventory", storeLocator: "/store-locator", invoices: "/sales", parties: "/parties", rentals: "/rentals", repairs: "/repairs", warranty: "/warranty", accounting: "/accounting", reports: "/reports", broadcast: "/broadcast", settings: "/settings" };
+const VIEW_ROUTES = { home: "/", inventory: "/inventory", storeLocator: "/store-locator", invoices: "/sales", parties: "/parties", rentals: "/rentals", leads: "/leads", repairs: "/repairs", warranty: "/warranty", accounting: "/accounting", reports: "/reports", broadcast: "/broadcast", settings: "/settings" };
 const routeView = () => {
   const path = window.location.pathname.replace(/\/$/, "") || "/";
   if (/^\/parties\/\d+$/.test(path)) return "parties";
@@ -357,8 +350,10 @@ function Shell() {
   useEffect(() => {
     const allowed = groups.flatMap((group) => group.items).some((item) => item.id === view);
     if (!allowed) {
-      window.history.replaceState({ view: "home" }, "", `/${window.location.search}${window.location.hash}`);
-      setView("home");
+      // land on the first app this role can open (always at least Settings)
+      const first = groups.flatMap((group) => group.items)[0]?.id || "settings";
+      window.history.replaceState({ view: first }, "", `${VIEW_ROUTES[first] || "/"}${window.location.search}${window.location.hash}`);
+      setView(first);
     }
   }, [view, groups]);
 
@@ -521,6 +516,7 @@ function Shell() {
     {view === "invoices" && <Invoices />}
     {view === "parties" && <Parties />}
     {view === "rentals" && <Rentals />}
+    {view === "leads" && <Leads />}
     {view === "accounting" && <Accounting />}
     {view === "reports" && <Reports />}
     {view === "repairs" && <Repairs />}
@@ -605,6 +601,23 @@ export default function App() {
             token={portalMatch[1] ? decodeURIComponent(portalMatch[1]) : null}
           />
         }
+      </Suspense>
+    );
+  }
+  const leadMatch = window.location.pathname.match(/^\/lead-approval\/([^/]+)\/?$/);
+  if (leadMatch) {
+    return (
+      <Suspense
+        fallback={
+          <div className="cb-shell flex min-h-screen items-center justify-center">
+            <Spinner label="Loading secure approval…" />
+          </div>
+        }
+      >
+        <>
+          <AnimatedGradientBackground />
+          <LeadApproval token={decodeURIComponent(leadMatch[1])} />
+        </>
       </Suspense>
     );
   }

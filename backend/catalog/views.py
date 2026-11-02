@@ -118,6 +118,8 @@ class StockPointViewSet(mixins.CreateModelMixin, mixins.UpdateModelMixin, viewse
         stock rows (catalog.Stock) and spare-part units and rows
         (catalog.PartStock) it holds. Two grouped queries, no per-store loop.
         """
+        if not request.user.has_perm_code("storelocator.view"):
+            raise PermissionDenied("Your role doesn't include the Store Locator.")
         scope = StoreScope(request.user)
         rows = {sp.id: {"id": sp.id, "product_units": 0, "stock_records": 0, "out_of_stock": 0, "low_stock": 0,
                         "part_units": 0, "part_records": 0}
@@ -154,6 +156,8 @@ class StockPointViewSet(mixins.CreateModelMixin, mixins.UpdateModelMixin, viewse
         those stock points (quantity and bin). A missing record is simply
         absent from `stock` -- it is not reported as zero. No cost prices.
         """
+        if not request.user.has_perm_code("storelocator.view"):
+            raise PermissionDenied("Your role doesn't include the Store Locator.")
         scope = StoreScope(request.user)
         points = list(self.get_queryset())
         payload = {

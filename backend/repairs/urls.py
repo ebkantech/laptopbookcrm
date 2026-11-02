@@ -1,6 +1,7 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
+from .reports import RepairStaffReportView
 from .views import (
     RepairApprovalPublicView,
     RepairOrderApprovalPublicView,
@@ -13,6 +14,7 @@ router.register("tickets", RepairTicketViewSet, basename="repairticket")
 router.register("repair-orders", RepairOrderViewSet, basename="repairorder")
 
 urlpatterns = [
+    path("repair-staff-report/", RepairStaffReportView.as_view(), name="repair-staff-report"),
     path(
         "public/repair-approvals/<str:token>/",
         RepairApprovalPublicView.as_view(),

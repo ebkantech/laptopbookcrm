@@ -38,7 +38,7 @@ def default_bank_account():
 
 
 def _particulars(invoice):
-    what = {"sale": "Sale", "repair": "Repair", "rental": "Rent"}.get(invoice.source, "Invoice")
+    what = {"sale": "Sale", "repair": "Repair", "rental": "Rent", "onsite": "On-site service"}.get(invoice.source, "Invoice")
     return f"{what} {invoice.code} -- {invoice.party.name}"[:160]
 
 

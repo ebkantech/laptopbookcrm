@@ -63,3 +63,20 @@ def on_repair_invoice_paid(invoice):
     ticket.save(update_fields=["status"])
     text = f"Thank you! Payment received for invoice {invoice.code}. Your {ticket.brand} {ticket.model_name} ({ticket.code}) is ready to collect from {ticket.stock_point.name}."
     _tell(ticket, text, f"Payment received -- {invoice.code}")
+
+
+def reconcile_delivery(ticket):
+    """Self-heal: a ticket still at Ready for pickup whose bill has been paid
+    is delivered. Normally payment does this itself (on_repair_invoice_paid);
+    this catches a payment whose follow-up step didn't complete."""
+    from django.db import transaction
+
+    if ticket.status != RepairTicket.READY or ticket.active_reopen or ticket.unpaid_invoice:
+        return False
+    paid = ticket.invoices.filter(is_advance=False, status__in=("Paid", "Refunded")).order_by("-id").first()
+    if not paid:
+        return False
+    with transaction.atomic():
+        on_repair_invoice_paid(paid)
+    ticket.refresh_from_db(fields=["status"])
+    return ticket.status == RepairTicket.DELIVERED

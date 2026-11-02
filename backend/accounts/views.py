@@ -108,9 +108,30 @@ class RoleViewSet(viewsets.ModelViewSet):
             return RoleWriteSerializer
         return RoleSerializer
 
+    @action(detail=False, methods=["get"])
+    def apps(self, request):
+        """The apps and which permissions belong to each (for the access screen)."""
+        from .app_catalog import catalog
+
+        return Response(catalog(Permission.objects.values_list("codename", flat=True)))
+
+    def _check_no_escalation(self, request, role, new_codes):
+        """An Admin hands out only what they hold themselves; the Owner /
+        Super Admin can grant anything."""
+        if request.user.is_superuser or new_codes is None:
+            return
+        mine = set(request.user.role.permissions.values_list("codename", flat=True)) if request.user.role_id else set()
+        before = set(role.permissions.values_list("codename", flat=True)) if role else set()
+        known = set(Permission.objects.filter(codename__in=new_codes).values_list("codename", flat=True))  # unknown codes are rejected (400) when saving
+        changed = (known ^ before) if not set(new_codes) - known else set()
+        beyond = sorted(changed - mine)
+        if beyond:
+            raise PermissionDenied(f"You can only grant or remove access you hold yourself. Not allowed: {', '.join(beyond)}.")
+
     def create(self, request, *args, **kwargs):
         writer = self.get_serializer(data=request.data)
         writer.is_valid(raise_exception=True)
+        self._check_no_escalation(request, None, request.data.get("permission_codes") or [])
         role = writer.save()
         return Response(RoleSerializer(role).data, status=status.HTTP_201_CREATED)
 
@@ -119,6 +140,7 @@ class RoleViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         writer = self.get_serializer(instance, data=request.data, partial=partial)
         writer.is_valid(raise_exception=True)
+        self._check_no_escalation(request, instance, request.data.get("permission_codes"))
         role = writer.save()
         return Response(RoleSerializer(role).data)
 

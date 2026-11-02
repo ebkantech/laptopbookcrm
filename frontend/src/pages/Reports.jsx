@@ -34,7 +34,7 @@ const ALL_TABS = [
 
 export default function Reports() {
   const { can } = useSession();
-  const tabs = ALL_TABS.filter((t) => can(t.perm));
+  const tabs = can("reports.view") ? ALL_TABS.filter((t) => can(t.perm)) : [];
   const [tab, setTab] = useState(tabs[0]?.id);
 
   if (!tabs.length) {

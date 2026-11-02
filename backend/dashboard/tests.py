@@ -18,7 +18,8 @@ class DashboardLayoutTests(TestCase):
         User = get_user_model()
         self.owner = User.objects.create_user(username="dash-owner", password="safe-test-password", is_superuser=True)
         self.repair_role = Role.objects.create(slug="test_repair_only", label="Test repair only")
-        self.repair_role.permissions.add(Permission.objects.get_or_create(codename="repairs.view", defaults={"description": "View repairs"})[0])
+        for code in ("repairs.view", "dashboard.view"):
+            self.repair_role.permissions.add(Permission.objects.get_or_create(codename=code, defaults={"description": code})[0])
         # a store-assigned technician -- unassigned staff get no dashboard figures
         shop = StockPoint.objects.create(slug="dash-shop", name="Dash Shop", kind=StockPoint.SHOP)
         self.tech = User.objects.create_user(username="dash-tech", password="safe-test-password", role=self.repair_role, stock_point=shop)

@@ -493,8 +493,9 @@ const SOURCE_TABS = [
   { id: "sale", label: "Sales" },
   { id: "repair", label: "Repairs" },
   { id: "rental", label: "Rentals" },
+  { id: "onsite", label: "On-site" },
 ];
-const SOURCE_COLOR = { sale: C.stamp, repair: C.amber, rental: C.blue };
+const SOURCE_COLOR = { sale: C.stamp, repair: C.amber, rental: C.blue, onsite: C.green };
 
 /*
  * Every invoice the business raises -- product sales, repair jobs and

@@ -62,7 +62,7 @@ from accounting.models import Expense
 from sales.models import Invoice, InvoiceItem, Refund, RefundItem
 
 PROFIT_LOSS_PERM = "reports.profit_loss"
-SOURCES = (Invoice.SALE, Invoice.REPAIR, Invoice.RENTAL)
+SOURCES = (Invoice.SALE, Invoice.REPAIR, Invoice.RENTAL, Invoice.ONSITE)
 PERIODS = ("today", "yesterday", "this_week", "this_month", "last_month", "this_year", "custom")
 DEFAULT_PERIOD = "this_month"
 MAX_CUSTOM_DAYS = 366 * 5
@@ -299,7 +299,7 @@ def statement(fig):
     gross = revenue - cogs
     product_gross = by_source[Invoice.SALE] - cogs
     # revenue nothing in the CRM records a direct cost for
-    uncosted = by_source[Invoice.REPAIR] + by_source[Invoice.RENTAL] + fig["unlinked_sale_value"]
+    uncosted = by_source[Invoice.REPAIR] + by_source[Invoice.RENTAL] + by_source[Invoice.ONSITE] + fig["unlinked_sale_value"]
     cogs_complete = uncosted == 0 and fig["missing_cost_lines"] == 0
     status = expense_status(fig)
     known = status == EXPENSES_RECORDED

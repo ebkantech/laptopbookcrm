@@ -9,7 +9,7 @@ from rentals.models import Rental, RentalAsset, RentalLine
 from repairs.models import RepairTicket
 from sales.models import Invoice
 
-WORK = ["invoices.view", "invoices.create", "invoices.settle", "repairs.view", "repairs.manage",
+WORK = ["dashboard.view", "storelocator.view", "invoices.view", "invoices.create", "invoices.settle", "repairs.view", "repairs.manage", "repairs.book",
         "inventory.edit", "rentals.view", "rentals.manage"]
 
 

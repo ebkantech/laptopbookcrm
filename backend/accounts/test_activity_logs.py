@@ -12,7 +12,7 @@ from repairs.models import RepairTicket, RepairTicketEvent
 
 SELL = ["invoices.view", "invoices.create", "invoices.settle", "parties.view", "parties.manage", "parties.edit",
         "inventory.edit", "repairs.view"]
-ADMIN = ["roles.manage", *SELL, "repairs.manage", "rentals.view"]
+ADMIN = ["roles.manage", *SELL, "repairs.manage", "repairs.book", "rentals.view"]
 
 
 class ActivityLogTests(TestCase):

@@ -73,6 +73,7 @@ INSTALLED_APPS = [
     'parties',
     'sales',
     'rentals',
+    'leads',
     'repairs',
     'accounting',
     'broadcast',
@@ -106,6 +107,7 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'login': os.environ.get('LOGIN_THROTTLE_RATE', '5/min'),
         'repair_approval': os.environ.get('REPAIR_APPROVAL_THROTTLE_RATE', '60/hour'),
+        'lead_approval': os.environ.get('LEAD_APPROVAL_THROTTLE_RATE', '60/hour'),
         'rental_approval': os.environ.get('RENTAL_APPROVAL_THROTTLE_RATE', '60/hour'),
         # Task 6 security checklist: brute-force protection on the portal
         # OTP verify step -- see accounts.throttling.OTPVerifyThrottle.

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import {
   BellRing, Check, KeyRound, LogOut, Mail, Minus, Phone, Plus, ShieldCheck, User as UserIcon, Users,
 } from "lucide-react";
@@ -9,6 +9,7 @@ import { Eyebrow, ErrorNote, Locked, Pill, PillButton, Spinner, TabBar } from ".
 import PageHeader from "../components/PageHeader";
 import ChangePassword from "./settings/ChangePassword";
 import StaffManagement from "./settings/StaffManagement";
+import { appEnabled, grantedCount, groupByApp, toggleAppCodes } from "./settings/appAccess";
 
 function Profile() {
   const { me, logout } = useSession();
@@ -79,15 +80,36 @@ function RolesAccess({ onManageStaff }) {
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState("");
 
+  const [apps, setApps] = useState(null);
+  const [allPermissions, setAllPermissions] = useState([]);
+
   const loadRoles = () => api.getAll("/roles/").then(setRoles);
 
   useEffect(() => {
     loadRoles();
+    api.get("/roles/apps/").then(setApps).catch(() => setApps([]));
+    api.getAll("/permissions/").then(setAllPermissions).catch(() => {});
   }, []);
-  if (!can("roles.manage")) return <Locked label="Only the owner can view and change role access." />;
-  if (!roles) return <Spinner />;
+  if (!can("roles.manage")) return <Locked label="Your role can't view or change role access." />;
+  if (!roles || !apps) return <Spinner />;
 
-  const allPerms = [...new Map(roles.flatMap((r) => r.permissions).map((p) => [p.codename, p])).values()].sort((a, b) => a.codename.localeCompare(b.codename));
+  const allPerms = [...new Map([...allPermissions, ...roles.flatMap((r) => r.permissions)].map((p) => [p.codename, p])).values()].sort((a, b) => a.codename.localeCompare(b.codename));
+  const groups = groupByApp(apps, allPerms);
+
+  const toggleApp = async (role, app) => {
+    if (role.slug === "owner") return;
+    const key = `${role.id}:app:${app.key}`;
+    setError("");
+    setTogglingKey(key);
+    try {
+      await api.patch(`/roles/${role.id}/`, { permission_codes: toggleAppCodes(role, app) });
+      await loadRoles();
+    } catch (e) {
+      setError(e.body?.detail || e.message || "Couldn't update that app.");
+    } finally {
+      setTogglingKey(null);
+    }
+  };
 
   const togglePerm = async (role, codename) => {
     if (role.slug === "owner") return;
@@ -148,7 +170,7 @@ function RolesAccess({ onManageStaff }) {
           {editMode ? "Done editing" : "Edit roles"}
         </PillButton>
       </div>
-      <p className="mt-1 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>Every action in accounting, sales, and inventory is a named permission below — a role is just the set it's allowed to touch.</p>
+      <p className="mt-1 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>Decide which apps each role can open, then fine-tune what they may do inside. Switch an app off and that role no longer sees it in the menu or reaches it at all. An Admin can only give access they hold themselves.</p>
       {error && <div className="mt-2"><ErrorNote message={error} /></div>}
       <div className="mt-4 overflow-x-auto" data-panel style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip }}>
         <table className="w-full table table-borderless table-sm mb-0" style={{ borderCollapse: "collapse" }}>
@@ -175,34 +197,58 @@ function RolesAccess({ onManageStaff }) {
             ))}
           </tr></thead>
           <tbody>
-            {allPerms.map((p) => (
-              <tr key={p.codename}>
-                <td className="sticky left-0 z-[1] min-w-[180px] px-3 py-2 text-xs" style={{ fontFamily: F.body, color: C.ink, borderBottom: `1px solid ${C.rule}`, backgroundColor: C.slip }}>{p.description}</td>
-                {roles.map((r) => {
-                  const has = r.permission_codes.includes(p.codename);
-                  const editable = editMode && r.slug !== "owner";
-                  const key = `${r.id}:${p.codename}`;
-                  return (
-                    <td key={r.id} className="px-3 py-2 text-center" style={{ borderBottom: `1px solid ${C.rule}` }}>
-                      {editable ? (
-                        <button
-                          type="button"
-                          onClick={() => togglePerm(r, p.codename)}
-                          disabled={togglingKey === key}
-                          aria-pressed={has}
-                          aria-label={`${has ? "Remove" : "Grant"} ${p.codename} for ${r.label}`}
-                          className="inline-flex h-6 w-6 items-center justify-center disabled:opacity-50"
-                          style={{ borderRadius: 4, border: `1px solid ${has ? C.green : C.rule}`, backgroundColor: has ? `${C.green}18` : "transparent" }}
-                        >
-                          {has && <Check size={12} style={{ color: C.green }} />}
-                        </button>
-                      ) : (
-                        has ? <Check size={13} style={{ color: C.green, display: "inline" }} /> : <Minus size={13} style={{ color: C.rule, display: "inline" }} />
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
+            {groups.map((app) => (
+              <Fragment key={app.key}>
+                <tr>
+                  <td className="sticky left-0 z-[1] px-3 py-2 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 700, letterSpacing: "0.08em", color: C.ink, backgroundColor: C.slip2, borderBottom: `1px solid ${C.rule}` }}>{app.label} <span style={{ fontWeight: 400, color: C.inkSoft }}>· app access</span></td>
+                  {roles.map((r) => {
+                    const on = appEnabled(r, app);
+                    const key = `${r.id}:app:${app.key}`;
+                    const editable = editMode && r.slug !== "owner" && !!app.view;
+                    return (
+                      <td key={r.id} className="px-3 py-2 text-center" style={{ backgroundColor: C.slip2, borderBottom: `1px solid ${C.rule}` }}>
+                        {editable ? (
+                          <button type="button" onClick={() => toggleApp(r, app)} disabled={togglingKey === key} role="switch" aria-checked={on} aria-label={`${on ? "Turn off" : "Turn on"} ${app.label} for ${r.label}`}
+                            className="inline-flex h-5 w-9 items-center rounded-full px-0.5 disabled:opacity-50" style={{ backgroundColor: on ? C.green : C.rule, justifyContent: on ? "flex-end" : "flex-start" }}>
+                            <span className="h-4 w-4 rounded-full" style={{ backgroundColor: "#fff" }} />
+                          </button>
+                        ) : (
+                          <span className="text-[11px]" style={{ fontFamily: F.body, fontWeight: 700, color: on ? C.green : C.inkSoft }}>{on ? `On · ${grantedCount(r, app)}/${app.permissions.length}` : grantedCount(r, app) ? `Off · ${grantedCount(r, app)} left` : "Off"}</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+                {app.perms.map((p) => (
+                  <tr key={p.codename}>
+                    <td className="sticky left-0 z-[1] min-w-[180px] px-3 py-2 text-xs" style={{ fontFamily: F.body, color: C.ink, borderBottom: `1px solid ${C.rule}`, backgroundColor: C.slip }}>{p.description}</td>
+                    {roles.map((r) => {
+                      const has = r.permission_codes.includes(p.codename);
+                      const editable = editMode && r.slug !== "owner";
+                      const key = `${r.id}:${p.codename}`;
+                      return (
+                        <td key={r.id} className="px-3 py-2 text-center" style={{ borderBottom: `1px solid ${C.rule}` }}>
+                          {editable ? (
+                            <button
+                              type="button"
+                              onClick={() => togglePerm(r, p.codename)}
+                              disabled={togglingKey === key}
+                              aria-pressed={has}
+                              aria-label={`${has ? "Remove" : "Grant"} ${p.codename} for ${r.label}`}
+                              className="inline-flex h-6 w-6 items-center justify-center disabled:opacity-50"
+                              style={{ borderRadius: 4, border: `1px solid ${has ? C.green : C.rule}`, backgroundColor: has ? `${C.green}18` : "transparent" }}
+                            >
+                              {has && <Check size={12} style={{ color: C.green }} />}
+                            </button>
+                          ) : (
+                            has ? <Check size={13} style={{ color: C.green, display: "inline" }} /> : <Minus size={13} style={{ color: C.rule, display: "inline" }} />
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </Fragment>
             ))}
           </tbody>
         </table>

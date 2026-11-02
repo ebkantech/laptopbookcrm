@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.permissions import IsStaffAccount
+from accounts.permissions import HasPerm, IsStaffAccount
 from accounts.store_scope import StoreScope
 from catalog.models import Product, StockPoint
 from rentals.models import Rental
@@ -59,7 +59,8 @@ class DashboardView(APIView):
     Rentals/churn aren't tied to a sales channel or invoice date, so
     that section stays global regardless of these filters.
     """
-    permission_classes = [IsAuthenticated, IsStaffAccount]
+    permission_classes = [IsAuthenticated, IsStaffAccount, HasPerm]
+    required_perm = "dashboard.view"
 
     def get(self, request):
         date_from = _parse_date(request.query_params.get("date_from"))
@@ -195,6 +196,7 @@ class DashboardView(APIView):
                     "sales": by_month[Invoice.SALE].get((y, m), 0),
                     "repairs": by_month[Invoice.REPAIR].get((y, m), 0),
                     "rentals": by_month[Invoice.RENTAL].get((y, m), 0),
+                    "onsite": by_month[Invoice.ONSITE].get((y, m), 0),
                 }
                 for (y, m) in months
             ]
@@ -293,7 +295,8 @@ class DashboardLayoutView(APIView):
     Pairs with DashboardView -- this says *what* to draw, summary/ holds
     the figures each widget's data_keys point into.
     """
-    permission_classes = [IsAuthenticated, IsStaffAccount]
+    permission_classes = [IsAuthenticated, IsStaffAccount, HasPerm]
+    required_perm = "dashboard.view"
 
     def get(self, request):
         return Response(effective_layout(request.user))

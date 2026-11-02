@@ -208,8 +208,8 @@ class StoreLocatorTests(TestCase):
                                    source_stock_point=self.shop)
 
         self.owner = client_for(make_user("locator-owner", superuser=True))
-        self.any_staff = client_for(make_user("any-staff", stock_point=self.shop))
-        self.full = client_for(make_user("full", ["repairs.view", "invoices.view", "rentals.view"], stock_point=self.shop))
+        self.any_staff = client_for(make_user("any-staff", ["storelocator.view"], stock_point=self.shop))
+        self.full = client_for(make_user("full", ["dashboard.view", "storelocator.view", "repairs.view", "invoices.view", "rentals.view"], stock_point=self.shop))
 
     def test_summary_counts_units_per_stock_point(self):
         rows = {r["id"]: r for r in self.owner.get("/api/stock-points/summary/").json()}

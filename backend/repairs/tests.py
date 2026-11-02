@@ -88,9 +88,12 @@ class RepairApprovalWorkflowTests(TestCase):
         first_ticket = order.tickets.order_by("id").first()
         readiness_before = self.client.get(f"/api/tickets/{first_ticket.pk}/")
         self.assertEqual(readiness_before.status_code, 200)
-        self.assertFalse(readiness_before.data["combined_approval_ready"])
+        # The Admin fixed the estimate when booking the ticket in, so the
+        # combined approval link was issued at creation.
+        self.assertTrue(readiness_before.data["combined_approval_ready"])
+        self.assertIn("/", created.data["approval"]["url"])
         self.assertEqual(len(readiness_before.data["order_progress"]), 2)
-        self.assertTrue(all(not item["estimate_finalized"] for item in readiness_before.data["order_progress"]))
+        self.assertTrue(all(item["estimate_finalized"] for item in readiness_before.data["order_progress"]))
 
         for ticket in order.tickets.all():
             ticket.status = RepairTicket.DIAGNOSING

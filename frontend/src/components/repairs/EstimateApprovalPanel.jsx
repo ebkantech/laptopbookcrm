@@ -93,7 +93,7 @@ export default function EstimateApprovalPanel({ ticket, services, canManage, can
   return (
     <section className="mt-5 p-3" data-panel style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip2 }}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div><Eyebrow>{isBulk ? `Bulk approval · ${ticket.order_code}` : "Customer approval"}</Eyebrow><p className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{isBulk ? `Finalize every device in this ${ticket.order_device_count}-device order, then generate one combined approval link.` : "Final work and cost must be approved before original repair work starts."}</p></div>
+        <div><Eyebrow>{isBulk ? `Bulk approval · ${ticket.order_code}` : "Customer approval"}</Eyebrow><p className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{isBulk ? `Finalize every device in this ${ticket.order_device_count}-device order, then generate one combined approval link.` : (canApprove ? "Final work and cost must be approved before original repair work starts." : "The Admin fixes the estimate when the ticket is booked. If it changes after diagnosis, propose a revision below.")}</p></div>
         <Pill color={approved ? C.green : status === "pending" ? C.amber : C.inkSoft}>{statusLabel(status)}</Pill>
       </div>
 
@@ -119,7 +119,7 @@ export default function EstimateApprovalPanel({ ticket, services, canManage, can
         </div>
       )}
 
-      {canManage && !approved && ticket.status === "Diagnosing" && (
+      {canApprove && canManage && !approved && ["Received", "Diagnosing"].includes(ticket.status) && (
         <button onClick={() => setEditing((value) => !value)} className="mt-3 flex w-full items-center justify-center gap-1.5 py-2 text-xs uppercase" style={{ backgroundColor: C.stamp, color: C.onAccent, fontFamily: F.body, fontWeight: 600 }}>
           <FileCheck2 size={13} /> {editing ? "Close estimate editor" : estimate ? "Revise final estimate" : "Prepare final estimate"}
         </button>
@@ -136,7 +136,7 @@ export default function EstimateApprovalPanel({ ticket, services, canManage, can
         </div>
       )}
 
-      {estimate && !approved && canManage && !editing && <button onClick={generateLink} disabled={busy === "link" || !combinedReady} className="mt-3 flex w-full items-center justify-center gap-1.5 py-2 text-xs uppercase" style={{ backgroundColor: C.green, color: C.onAccent, fontFamily: F.body, fontWeight: 600, opacity: busy === "link" || !combinedReady ? 0.55 : 1, cursor: !combinedReady ? "not-allowed" : "pointer" }}><Send size={13} /> {busy === "link" ? "Generating…" : isBulk ? "Generate combined 24-hour link" : "Generate 24-hour approval link"}</button>}
+      {estimate && !approved && canApprove && canManage && !editing && <button onClick={generateLink} disabled={busy === "link" || !combinedReady} className="mt-3 flex w-full items-center justify-center gap-1.5 py-2 text-xs uppercase" style={{ backgroundColor: C.green, color: C.onAccent, fontFamily: F.body, fontWeight: 600, opacity: busy === "link" || !combinedReady ? 0.55 : 1, cursor: !combinedReady ? "not-allowed" : "pointer" }}><Send size={13} /> {busy === "link" ? "Generating…" : isBulk ? "Generate combined 24-hour link" : "Generate 24-hour approval link"}</button>}
 
       {links && <div className="mt-3 space-y-2"><input readOnly value={links.approval_url} className="w-full px-2 py-1.5 text-xs" style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip }} /><div className={`grid gap-2 ${links.whatsapp_url ? "grid-cols-2" : "grid-cols-1"}`}><button onClick={() => copy(links.approval_url)} className="flex items-center justify-center gap-1 py-2 text-xs" style={{ border: `1px solid ${C.rule}` }}><Copy size={13} /> Copy direct link</button>{links.whatsapp_url && <a href={links.whatsapp_url} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-1 py-2 text-xs" style={{ backgroundColor: C.green, color: C.onAccent }}><ExternalLink size={13} /> Open WhatsApp</a>}</div></div>}
 

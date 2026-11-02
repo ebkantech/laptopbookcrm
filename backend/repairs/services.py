@@ -19,6 +19,7 @@ from .models import (
     RepairEstimateLine,
     RepairOrder,
     RepairOrderApproval,
+    RepairRevision,
     RepairTicket,
     RepairTicketEvent,
 )
@@ -80,15 +81,16 @@ def build_whatsapp_url(phone, message):
 
 
 @transaction.atomic
-def finalize_estimate(ticket, user, lines, terms=""):
+def finalize_estimate(ticket, user, lines, terms="", revision=False):
     ticket = RepairTicket.objects.select_for_update().select_related("party").get(pk=ticket.pk)
-    if ticket.status != RepairTicket.DIAGNOSING:
-        raise ValidationError({"detail": "The final estimate can only be prepared while the ticket is Diagnosing."})
+    allowed = (RepairTicket.RECEIVED, RepairTicket.DIAGNOSING) + ((RepairTicket.IN_PROGRESS,) if revision else ())
+    if ticket.status not in allowed:
+        raise ValidationError({"detail": "The final estimate can only be prepared while the ticket is Received or Diagnosing."})
     if not lines:
         raise ValidationError({"lines": "Add at least one work or cost line."})
 
     current = _current_estimate(ticket)
-    if current and current.is_approved:
+    if current and current.is_approved and not revision:
         raise ValidationError({"detail": "The approved estimate is locked. Later changes are managed separately by the client."})
     if current:
         _expire_pending_links(current)
@@ -176,9 +178,40 @@ def approve_on_behalf(ticket, user, reason):
             source = RepairApproval.SUPERADMIN if user.is_superuser else RepairApproval.ADMIN
             approval = RepairApproval.objects.create(estimate=estimate, status=RepairApproval.APPROVED, source=source, sent_to_phone=estimate.customer_phone, requested_by=user, decided_by=user, reason=reason, created_at=now, decided_at=now)
             _record_event(ticket, RepairTicketEvent.APPROVAL_DECIDED, actor=user, estimate=estimate, metadata={"decision": "approved", "source": source, "reason": reason})
+            _revised_estimate_approved(ticket, estimate, user)
             return approval
     except IntegrityError as exc:
         raise ApprovalConflict() from exc
+
+
+def _alert(users, key, subject, body):
+    """In-app alert to specific people (never raises)."""
+    from accounts.models import StaffNotification
+
+    try:
+        for user in {u.pk: u for u in users if u}.values():
+            StaffNotification.objects.create(user=user, event_key=key, subject=subject[:200], body=body)
+    except Exception:
+        pass
+
+
+def _approvers_for(ticket):
+    """Admins of the ticket's store plus every Super Admin / superuser."""
+    from accounts.models import User
+
+    return [u for u in User.objects.filter(is_active=True).select_related("role")
+            if u.has_perm_code("repairs.approve") and (u.is_superuser or u.stock_point_id in (None, ticket.stock_point_id) )]
+
+
+def _revised_estimate_approved(ticket, estimate, actor=None):
+    """A revised estimate got its approval: the job goes back to the staff
+    member working it."""
+    if not hasattr(estimate, "revision"):
+        return
+    _record_event(ticket, RepairTicketEvent.REVISION_APPROVED, actor=actor, estimate=estimate, metadata={"version": estimate.version, "total_amount": estimate.total_amount})
+    staff = ticket.assigned_to
+    text = f"Revised estimate for {ticket.code} is approved (₹{estimate.total_amount}). You can carry on with the job."
+    _alert([staff], "repair_revision_approved", f"Revised estimate approved -- {ticket.code}", text)
 
 
 def get_public_approval(raw_token, for_update=False):
@@ -228,6 +261,7 @@ def customer_decide(raw_token, decision, consent=False, reason=""):
             Notification.objects.create(ticket=estimate.ticket, channel=Notification.WHATSAPP, text=f"Customer {desired_status} final estimate v{estimate.version} for {estimate.ticket.code}.")
             if desired_status == RepairApproval.APPROVED:
                 ticket = estimate.ticket
+                _revised_estimate_approved(ticket, estimate)
                 notify_staff(
                     "repair_approved",
                     f"Repair estimate approved -- {ticket.code}",
@@ -496,3 +530,147 @@ def approve_order_on_behalf(order, user, reason):
             )
     except IntegrityError as exc:
         raise ApprovalConflict() from exc
+
+
+# --------------------------------------------------------------- revisions
+
+def _clean_revision_lines(lines):
+    out, total = [], 0
+    if not lines:
+        raise ValidationError({"lines": "Add at least one work or cost line."})
+    for line in lines:
+        service = line.get("service")
+        description = (line.get("description") or (service.label if service else "")).strip()
+        quantity = line.get("quantity", 1)
+        price = line.get("unit_price") if line.get("unit_price") is not None else (service.charge if service else None)
+        if not description:
+            raise ValidationError({"lines": "Every line needs a description."})
+        if quantity < 1:
+            raise ValidationError({"lines": "Quantity must be at least 1."})
+        if price is None or price < 0:
+            raise ValidationError({"lines": "Unit price must be zero or greater."})
+        total += quantity * price
+        out.append({"service": service.pk if service else None, "description": description, "quantity": quantity, "unit_price": price})
+    return out, total
+
+
+def _revision_lines_for_estimate(revision):
+    from catalog.models import Service
+
+    ids = [row["service"] for row in revision.lines if row["service"]]
+    found = {s.pk: s for s in Service.objects.filter(pk__in=ids)}
+    return [{"service": found.get(row["service"]), "description": row["description"], "quantity": row["quantity"], "unit_price": row["unit_price"]} for row in revision.lines]
+
+
+@transaction.atomic
+def propose_revision(ticket, user, lines, reason):
+    """Repair staff: the estimate no longer fits what diagnosis found. An
+    Admin / Super Admin (repairs.approve) revising it themselves skips the
+    review step -- it is accepted straight away."""
+    ticket = RepairTicket.objects.select_for_update(of=("self",)).select_related("party", "assigned_to").get(pk=ticket.pk)
+    if ticket.status not in (RepairTicket.RECEIVED, RepairTicket.DIAGNOSING, RepairTicket.IN_PROGRESS):
+        raise ValidationError({"detail": "An estimate can be revised until the job is ready for pickup."})
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValidationError({"reason": "Say what changed and why the estimate needs revising."})
+    if ticket.revisions.filter(status=RepairRevision.PENDING).exists():
+        raise ValidationError({"detail": "A revision is already waiting for the Admin's review."})
+    current = ticket.current_estimate
+    clean, total = _clean_revision_lines(lines)
+    revision = RepairRevision.objects.create(
+        ticket=ticket, reason=reason[:1000], lines=clean, proposed_total=total,
+        previous_total=current.total_amount if current else 0, requested_by=user,
+    )
+    _record_event(ticket, RepairTicketEvent.REVISION_REQUESTED, actor=user, estimate=current, metadata={"revision": revision.pk, "reason": reason, "from": revision.previous_total, "to": total})
+    if user.has_perm_code("repairs.approve"):
+        return accept_revision(revision, user, "Revised by Admin"), True
+    _alert(_approvers_for(ticket), "repair_revision_requested", f"Estimate revision needs approval -- {ticket.code}",
+           f"{user} asked to change the estimate for {ticket.code} from ₹{revision.previous_total} to ₹{total}. Reason: {reason}")
+    return revision, False
+
+
+@transaction.atomic
+def accept_revision(revision, user, note=""):
+    """Admin / Super Admin: turn the proposal into a new estimate version.
+    The client then has to approve it again (link or on their behalf)."""
+    if not user.has_perm_code("repairs.approve"):
+        raise PermissionDenied("Only an Admin or Super Admin can accept an estimate revision.")
+    revision = RepairRevision.objects.select_for_update().get(pk=revision.pk)
+    if revision.status != RepairRevision.PENDING:
+        raise ValidationError({"detail": "This revision has already been reviewed."})
+    estimate = finalize_estimate(revision.ticket, user, _revision_lines_for_estimate(revision), revision=True)
+    revision.status, revision.decided_by, revision.decided_at = RepairRevision.ACCEPTED, user, timezone.now()
+    revision.decision_note, revision.estimate = (note or "")[:300], estimate
+    revision.save()
+    _record_event(revision.ticket, RepairTicketEvent.REVISION_DECIDED, actor=user, estimate=estimate, metadata={"revision": revision.pk, "decision": "accepted", "version": estimate.version, "total_amount": estimate.total_amount})
+    return revision
+
+
+@transaction.atomic
+def decline_revision(revision, user, note):
+    if not user.has_perm_code("repairs.approve"):
+        raise PermissionDenied("Only an Admin or Super Admin can review an estimate revision.")
+    note = (note or "").strip()
+    if not note:
+        raise ValidationError({"note": "Tell the staff member why it was declined."})
+    revision = RepairRevision.objects.select_for_update().get(pk=revision.pk)
+    if revision.status != RepairRevision.PENDING:
+        raise ValidationError({"detail": "This revision has already been reviewed."})
+    revision.status, revision.decided_by, revision.decided_at, revision.decision_note = RepairRevision.DECLINED, user, timezone.now(), note[:300]
+    revision.save()
+    _record_event(revision.ticket, RepairTicketEvent.REVISION_DECIDED, actor=user, metadata={"revision": revision.pk, "decision": "declined", "note": note})
+    _alert([revision.requested_by], "repair_revision_declined", f"Revision declined -- {revision.ticket.code}", f"Your estimate revision was declined: {note}")
+    return revision
+
+
+def stamp_stage(ticket, new_status, actor):
+    """Record the work timeline when a ticket changes stage (for the staff
+    performance report). Credit for reaching Ready goes to whoever the job
+    is assigned to, else to the person who moved it."""
+    now = timezone.now()
+    old = ticket.status
+    fields = []
+    if new_status == RepairTicket.IN_PROGRESS and not ticket.started_at:
+        ticket.started_at = now
+        fields.append("started_at")
+    if new_status == RepairTicket.READY:
+        ticket.ready_at = now
+        ticket.worked_by = ticket.assigned_to or actor
+        fields += ["ready_at", "worked_by"]
+    elif old == RepairTicket.READY and new_status != RepairTicket.DELIVERED:
+        ticket.ready_at, ticket.worked_by = None, None  # moved back for more work
+        fields += ["ready_at", "worked_by"]
+    return fields
+
+
+@transaction.atomic
+def report_diagnosis(ticket, user, note, estimate_ok, lines=None):
+    """Repair staff: "Diagnosis done". Either the booked estimate holds, or
+    the staff member sends a revised one to the Admin (which holds the job
+    until it is approved again). Moves a Received ticket on to Diagnosing."""
+    ticket = RepairTicket.objects.select_for_update(of=("self",)).get(pk=ticket.pk)
+    if ticket.status not in (RepairTicket.RECEIVED, RepairTicket.DIAGNOSING):
+        raise ValidationError({"detail": "Diagnosis is reported while the ticket is Received or Diagnosing."})
+    if ticket.diagnosed_at:
+        raise ValidationError({"detail": "The diagnosis has already been reported."})
+    note = (note or "").strip()
+    if not note:
+        raise ValidationError({"note": "Write what you found."})
+    if not estimate_ok and not lines:
+        raise ValidationError({"lines": "Add the revised work and prices."})
+    if not estimate_ok and ticket.revisions.filter(status=RepairRevision.PENDING).exists():
+        raise ValidationError({"detail": "A revision is already waiting for the Admin's review."})
+    now = timezone.now()
+    ticket.diagnosed_at, ticket.diagnosis_note, ticket.diagnosed_by = now, note[:2000], user
+    fields = ["diagnosed_at", "diagnosis_note", "diagnosed_by"]
+    if ticket.status == RepairTicket.RECEIVED:
+        ticket.status = RepairTicket.DIAGNOSING
+        fields.append("status")
+    ticket.save(update_fields=fields)
+    _record_event(ticket, RepairTicketEvent.DIAGNOSIS_DONE, actor=user, metadata={"note": note, "estimate_ok": bool(estimate_ok)})
+    revision, applied = None, False
+    if estimate_ok:
+        _alert(_approvers_for(ticket), "repair_diagnosis_done", f"Diagnosis done -- {ticket.code}", f"{user} reports on {ticket.code}: {note}. The estimate stands -- you can start the work.")
+    else:
+        revision, applied = propose_revision(ticket, user, lines, note)
+    return ticket, revision, applied

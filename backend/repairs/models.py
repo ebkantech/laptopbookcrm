@@ -68,6 +68,24 @@ class RepairTicket(models.Model):
     expected = models.DateField(null=True, blank=True)
     payment = models.CharField(max_length=10, choices=PAYMENT_CHOICES, default=ADVANCE)
     advance_paid = models.PositiveIntegerField(default=0)
+    # The repair staff member working this ticket. Set by an Admin (staff of
+    # their own store) or the Super Admin (staff of any store); blank = any
+    # repair staff at the store may pick it up.
+    assigned_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="assigned_repairs",
+    )
+    # Work timeline, for the staff performance report: when it was given out,
+    # when work began, when it reached Ready for pickup and whose work that was.
+    assigned_at = models.DateTimeField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    ready_at = models.DateTimeField(null=True, blank=True)
+    # The repair staff's report back after looking at the device ("Diagnosis done").
+    diagnosed_at = models.DateTimeField(null=True, blank=True)
+    diagnosis_note = models.TextField(blank=True)
+    diagnosed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="diagnosed_repairs")
+    worked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="completed_repairs",
+    )
 
     class Meta:
         ordering = ["-received", "-id"]
@@ -96,6 +114,38 @@ class RepairTicket(models.Model):
         if prefetched is not None:
             return next((estimate for estimate in prefetched if estimate.is_current), None)
         return self.estimates.filter(is_current=True).first()
+
+    @property
+    def due_at(self):
+        """When the job should be done: the promised date, else the shop's
+        default turnaround after it was received."""
+        from datetime import datetime, time, timedelta
+
+        from django.conf import settings
+        from django.utils import timezone
+
+        day = self.expected or (self.received + timedelta(days=getattr(settings, "REPAIR_TURNAROUND_DAYS", 3)))
+        return timezone.make_aware(datetime.combine(day, time.max))
+
+    @property
+    def pending_revision(self):
+        return self.revisions.filter(status="pending").first()
+
+    @property
+    def on_hold_reason(self):
+        """Why work can't go forward right now, or "" -- a revision waiting
+        for the Admin, or a revised estimate the client hasn't approved."""
+        if self.pending_revision:
+            return "Estimate revision waiting for Admin review"
+        estimate = self.current_estimate
+        if estimate and not estimate.is_approved and hasattr(estimate, "revision") and self.status in (self.DIAGNOSING, self.IN_PROGRESS):
+            return "Revised estimate waiting for client approval"
+        return ""
+
+    @property
+    def awaiting_diagnosis(self):
+        """A job given to repair staff that hasn't had their diagnosis report yet."""
+        return bool(self.assigned_to_id and not self.diagnosed_at and self.status in (self.RECEIVED, self.DIAGNOSING))
 
     @property
     def has_repair_approval(self):
@@ -202,6 +252,37 @@ class RepairEstimate(models.Model):
                 RepairApproval.SUPERADMIN: "superadmin_approved",
             }.get(approval.source, "approved")
         return approval.effective_status
+
+
+class RepairRevision(models.Model):
+    """
+    After diagnosis the repair staff member finds the estimate is wrong and
+    proposes a revised one. It goes to the Admin / Super Admin, who accepts
+    it (a new estimate version that the client must approve) or declines it.
+    Once the revised estimate is approved the job goes back to the staff.
+    """
+    PENDING, ACCEPTED, DECLINED = "pending", "accepted", "declined"
+    STATUS_CHOICES = [(PENDING, "Pending review"), (ACCEPTED, "Accepted"), (DECLINED, "Declined")]
+
+    ticket = models.ForeignKey(RepairTicket, on_delete=models.CASCADE, related_name="revisions")
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=PENDING)
+    reason = models.TextField()
+    # proposed lines: [{"service": id|null, "description", "quantity", "unit_price"}]
+    lines = models.JSONField(default=list)
+    proposed_total = models.PositiveIntegerField()
+    previous_total = models.PositiveIntegerField(default=0)
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="repair_revisions_requested")
+    decided_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="repair_revisions_decided")
+    decision_note = models.CharField(max_length=300, blank=True)
+    estimate = models.OneToOneField(RepairEstimate, on_delete=models.SET_NULL, null=True, blank=True, related_name="revision")
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(fields=["ticket"], condition=Q(status="pending"), name="one_pending_repair_revision"),
+        ]
 
 
 class RepairEstimateLine(models.Model):
@@ -331,6 +412,11 @@ class RepairTicketEvent(models.Model):
     STAGE_CHANGED = "stage_changed"
     SETTLED = "settled"
     MODIFIED_AFTER_APPROVAL = "modified_after_approval"
+    ASSIGNED = "assigned"
+    DIAGNOSIS_DONE = "diagnosis_done"
+    REVISION_REQUESTED = "revision_requested"
+    REVISION_DECIDED = "revision_decided"
+    REVISION_APPROVED = "revision_approved"
     EVENT_CHOICES = [
         (TICKET_CREATED, "Ticket created"),
         (ESTIMATE_FINALIZED, "Estimate finalized"),
@@ -339,6 +425,11 @@ class RepairTicketEvent(models.Model):
         (STAGE_CHANGED, "Stage changed"),
         (SETTLED, "Settled"),
         (MODIFIED_AFTER_APPROVAL, "Modified internally after approval"),
+        (ASSIGNED, "Assigned"),
+        (DIAGNOSIS_DONE, "Diagnosis reported"),
+        (REVISION_REQUESTED, "Estimate revision requested"),
+        (REVISION_DECIDED, "Estimate revision reviewed"),
+        (REVISION_APPROVED, "Revised estimate approved"),
     ]
 
     ticket = models.ForeignKey(RepairTicket, on_delete=models.CASCADE, related_name="events")

@@ -4,13 +4,16 @@ from uuid import uuid4
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from accounts.models import User
 from accounts.permissions import HasPerm
 from accounts.store_scope import StoreScope, StoreScopedMixin
 from catalog.models import Service
@@ -19,11 +22,14 @@ from crmbook_backend.notify import notify_staff, send_email, send_whatsapp
 from sales.models import Invoice
 from sales.services import cancel_invoice, create_invoice
 
-from .billing import advance_amount, raise_advance_invoice
-from .models import Notification, RepairOrder, RepairReopen, RepairReopenItem, RepairTicket, RepairTicketEvent
+from .billing import advance_amount, raise_advance_invoice, reconcile_delivery
+from .models import Notification, RepairOrder, RepairReopen, RepairReopenItem, RepairRevision, RepairTicket, RepairTicketEvent
 from .serializers import (
     CreateRepairOrderSerializer,
+    DecideRevisionSerializer,
+    DiagnoseSerializer,
     FinalizeEstimateSerializer,
+    ProposeRevisionSerializer,
     PublicApprovalDecisionSerializer,
     PublicRepairApprovalSerializer,
     PublicRepairOrderApprovalSerializer,
@@ -32,15 +38,20 @@ from .serializers import (
     StaffApprovalSerializer,
 )
 from .services import (
+    accept_revision,
     approve_on_behalf,
     approve_order_on_behalf,
     customer_decide,
     customer_decide_order,
+    decline_revision,
     finalize_estimate,
     get_public_approval,
     get_public_order_approval,
     issue_approval_link,
     issue_order_approval_link,
+    propose_revision,
+    report_diagnosis,
+    stamp_stage,
 )
 
 
@@ -70,6 +81,66 @@ def _notify_party(party, subject, text):
     send_email(party.email, subject, text)
 
 
+def _issue_link_payload(ticket, user):
+    approval, url, whatsapp_url = issue_approval_link(ticket, user)
+    estimate = ticket.current_estimate
+    return {"url": url, "whatsapp_url": whatsapp_url, "expires_at": approval.expires_at, "total": estimate.total_amount if estimate else None}
+
+
+def _booking_lines(services, lines):
+    """The estimate lines typed in at booking; only if none were typed (an
+    older client) fall back to the chosen catalogue services' list prices."""
+    if lines:
+        return [{"service": l.get("service"), "description": l["description"], "quantity": l["quantity"], "unit_price": l.get("unit_price")} for l in lines]
+    return [{"service": s, "description": s.label, "quantity": 1, "unit_price": s.charge} for s in services]
+
+
+def _booking_advance(payment, amount, services):
+    """Advance asked for at booking: the amount typed in; 25% of the catalogue
+    prices only when an older client sends no amount at all."""
+    if payment != RepairTicket.ADVANCE:
+        return 0
+    return amount if amount is not None else advance_amount(services)
+
+
+def _auto_estimate(ticket, user, services, lines=()):
+    """Admin / Super Admin booking a ticket in fixes the estimate there and
+    then, so the client's approval link goes out at ticket generation."""
+    built = _booking_lines(services, lines)
+    if not built or not user.has_perm_code("repairs.approve"):
+        return None
+    finalize_estimate(ticket, user, built)
+    return _issue_link_payload(ticket, user)
+
+
+def _start_gate(ticket, target, request):
+    """Work (In progress) starts only after the repair staff report their
+    diagnosis, and not while an estimate revision is unresolved. An Admin /
+    Super Admin can override the first with a reason (logged)."""
+    if target != RepairTicket.IN_PROGRESS or ticket.status not in (RepairTicket.RECEIVED, RepairTicket.DIAGNOSING):
+        return None
+    if ticket.pending_revision:
+        return Response({"detail": "Estimate revision waiting for Admin review. Resolve it before work starts."}, status=400)
+    if ticket.awaiting_diagnosis:
+        reason = (request.data.get("override_reason") or "").strip()
+        if reason and request.user.has_perm_code("repairs.assign"):
+            RepairTicketEvent.objects.create(ticket=ticket, event_type=RepairTicketEvent.STAGE_CHANGED, actor=request.user,
+                                             metadata={"override": "started without the staff diagnosis", "reason": reason})
+            return None
+        return Response({"detail": f"Waiting for {ticket.assigned_to}'s diagnosis. Work starts once they report back.", "code": "awaiting_diagnosis"}, status=400)
+    return None
+
+
+def _move(ticket, new_status, actor):
+    """Change stage, stamping the work timeline and logging who did it."""
+    old = ticket.status
+    fields = ["status"] + stamp_stage(ticket, new_status, actor)
+    ticket.status = new_status
+    ticket.save(update_fields=fields)
+    RepairTicketEvent.objects.create(ticket=ticket, event_type=RepairTicketEvent.STAGE_CHANGED, actor=actor,
+                                     metadata={"from": old, "to": new_status})
+
+
 class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
     # Store scope: RepairTicket.stock_point (the drop-off shop).
     queryset = (
@@ -77,7 +148,7 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         .select_related("party", "stock_point", "order")
         .prefetch_related(
             "services__part", "notifications", "invoices", "reopens__items", "reopens__invoice",
-            "estimates__lines", "estimates__approvals", "events",
+            "estimates__lines", "estimates__approvals", "events", "revisions__requested_by", "revisions__decided_by",
             "order__tickets__estimates__lines", "order__tickets__estimates__approvals",
         )
         .all()
@@ -86,21 +157,112 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, HasPerm]
     required_perms = {
         "list": "repairs.view", "retrieve": "repairs.view",
-        "create": "repairs.manage", "update": "repairs.manage",
-        "partial_update": "repairs.manage", "destroy": "repairs.manage",
-        "advance": "repairs.manage", "settle": "repairs.manage",
-        "set_stage": "repairs.manage", "reopen": "repairs.manage",
-        "finalize_estimate": "repairs.manage", "approval_link": "repairs.manage",
+        # Repair staff (repairs.manage) receive a job, do it and move it along;
+        # booking, billing, reopening and editing a ticket are Admin / Super Admin (repairs.book).
+        "create": "repairs.book", "update": "repairs.book",
+        "partial_update": "repairs.book", "destroy": "repairs.book",
+        "advance": "repairs.manage", "settle": "repairs.book",
+        "set_stage": "repairs.manage", "reopen": "repairs.book",
+        "finalize_estimate": "repairs.approve", "approval_link": "repairs.approve",
+        "revise": "repairs.manage", "diagnose": "repairs.manage", "decide_revision": "repairs.approve",
         "approve_on_behalf": "repairs.approve",
+        "assign": "repairs.assign", "staff": "repairs.view",
     }
 
     def get_queryset(self):
         # nested services carry their part's stock -- this store's rows only
-        qs = super().get_queryset().prefetch_related(part_stock_prefetch(self.store_scope, "services__part__stock"))
+        # Store staff see their store's tickets plus any ticket the Super Admin
+        # gave them personally, even one from another store.
+        scope = self.store_scope
+        qs = RepairTicket.objects.select_related("party", "stock_point", "order", "assigned_to").prefetch_related(
+            *self.queryset._prefetch_related_lookups
+        )
+        user = self.request.user
+        # Repair staff (work-only role) see just the jobs given to them -- not the
+        # store's other jobs, and not what an Admin has given to someone else.
+        worker = user.has_perm_code("repairs.manage") and not any(user.has_perm_code(c) for c in ("repairs.assign", "repairs.book", "repairs.approve"))
+        if worker and not user.is_superuser:
+            qs = qs.filter(assigned_to=user)
+        elif not scope.all:
+            qs = qs.filter(Q(stock_point_id=scope.store_id) | Q(assigned_to=user)) if scope.store_id is not None else qs.filter(assigned_to=user)
+        qs = qs.prefetch_related(part_stock_prefetch(scope, "services__part__stock"))
+        if self.action in ("list", "retrieve", "settle"):
+            # a paid bill that didn't deliver its ticket (see reconcile_delivery)
+            stuck = list(qs.filter(status=RepairTicket.READY, invoices__is_advance=False, invoices__status__in=("Paid", "Refunded")).distinct())
+            if any(reconcile_delivery(t) for t in stuck):
+                qs = qs.all()
         status = self.request.query_params.get("status")
         if status:
             qs = qs.filter(status=status)
+        if self.request.query_params.get("mine") == "1":
+            qs = qs.filter(assigned_to=self.request.user)
         return qs
+
+    def _require_can_work(self, ticket):
+        """A ticket given to someone is theirs to progress; an Admin / Super
+        Admin (repairs.assign) can step in when they're unavailable."""
+        user = self.request.user
+        if ticket.assigned_to_id and ticket.assigned_to_id != user.id and not user.has_perm_code("repairs.assign"):
+            raise PermissionDenied(f"This job is assigned to {ticket.assigned_to}. Ask an Admin to take it over or reassign it.")
+
+    def get_object(self):
+        ticket = super().get_object()
+        if self.action in ("advance", "set_stage", "settle", "reopen", "finalize_estimate", "approval_link", "revise", "diagnose", "update", "partial_update"):
+            self._require_can_work(ticket)
+        return ticket
+
+    @action(detail=False, methods=["get"])
+    def staff(self, request):
+        """Repair staff who can be given a job: the Super Admin sees every
+        store's, an Admin only their own store's."""
+        # The Super Admin / Owner doesn't take repair jobs: diagnosis and the work are done by repair staff.
+        qs = User.objects.filter(is_active=True, is_superuser=False, role__permissions__codename="repairs.manage").exclude(role__slug="owner").distinct()
+        scope = self.store_scope
+        if not scope.all:
+            qs = qs.filter(stock_point_id=scope.store_id) if scope.store_id is not None else qs.none()
+        return Response([{"id": u.id, "name": u.get_full_name() or u.username, "stock_point": u.stock_point_id,
+                          "stock_point_name": u.stock_point.name if u.stock_point_id else "No store"}
+                         for u in qs.select_related("stock_point").order_by("first_name", "username")])
+
+    @action(detail=True, methods=["post"])
+    def assign(self, request, pk=None):
+        """Give the ticket to a repair staff member (or take it back with
+        assigned_to: null). Super Admin: any store's staff. Admin: staff of
+        their own store only. Taking over -- assigning it to yourself -- is how
+        an Admin steps in when the assigned person is away."""
+        ticket = super().get_object()
+        raw = request.data.get("assigned_to")
+        if raw in (None, "", 0, "0"):
+            target = None
+        else:
+            try:
+                target = User.objects.get(pk=raw, is_active=True)
+            except (User.DoesNotExist, TypeError, ValueError):
+                raise ValidationError({"assigned_to": "Pick a staff member."})
+            if target.is_superuser or (target.role_id and target.role.slug == "owner"):
+                raise ValidationError({"assigned_to": "The Super Admin doesn't take repair jobs -- give it to a repair staff member."})
+            if not target.has_perm_code("repairs.manage"):
+                raise ValidationError({"assigned_to": "That person can't work on repair jobs."})
+            scope = self.store_scope
+            if not scope.all and target.id != request.user.id and target.stock_point_id != scope.store_id:
+                raise ValidationError({"assigned_to": "You can only give jobs to staff of your own store."})
+        if ticket.status == RepairTicket.DELIVERED:
+            raise ValidationError({"detail": "A delivered ticket can't be reassigned."})
+        previous = ticket.assigned_to
+        ticket.assigned_to = target
+        ticket.assigned_at = timezone.now() if target else None
+        ticket.save(update_fields=["assigned_to", "assigned_at"])
+        RepairTicketEvent.objects.create(
+            ticket=ticket, event_type=RepairTicketEvent.ASSIGNED, actor=request.user,
+            metadata={"to": str(target) if target else None, "from": str(previous) if previous else None,
+                      "took_over": bool(target and target.id == request.user.id)},
+        )
+        if target and target.id != request.user.id:
+            notify_staff("repair_assigned", f"Repair {ticket.code} assigned to you",
+                         f"{ticket.code} ({ticket.brand} {ticket.model_name}, {ticket.party.name}) at {ticket.stock_point.name} was given to {target}.")
+            if getattr(target, "phone", ""):
+                send_whatsapp(target.phone, f"You have a new repair job {ticket.code}: {ticket.brand} {ticket.model_name} at {ticket.stock_point.name}.")
+        return Response(RepairTicketSerializer(self._fresh(ticket)).data)
 
     def perform_update(self, serializer):
         ticket = self.get_object()
@@ -129,18 +291,30 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
             return
         serializer.save()
 
+    def create(self, request, *args, **kwargs):
+        self._approval = None
+        response = super().create(request, *args, **kwargs)
+        if self._approval:
+            response.data["approval"] = self._approval
+        return response
+
     @transaction.atomic
     def perform_create(self, serializer):
         services = serializer.validated_data.get("services", [])
+        lines = serializer.validated_data.pop("estimate_lines", [])
+        typed_advance = serializer.validated_data.pop("advance_amount", None)
         ticket = serializer.save(code=f"TMP-{uuid4().hex[:16]}", status=RepairTicket.RECEIVED)
         ticket.code = f"RPR-{1044 + ticket.pk}"
         ticket.save(update_fields=["code"])
         device = f"{ticket.brand} {ticket.model_name}"
         wa_text = f"Ticket {ticket.code} created for your {device}. We'll keep you posted."
         if ticket.payment == RepairTicket.ADVANCE:
-            advance_invoice = raise_advance_invoice(ticket, advance_amount(services))
+            advance_invoice = raise_advance_invoice(ticket, _booking_advance(ticket.payment, typed_advance, services))
             if advance_invoice:
                 wa_text += f" Advance invoice {advance_invoice.code} for Rs {advance_invoice.total} has been raised."
+        self._approval = _auto_estimate(ticket, self.request.user, services, lines)
+        if self._approval:
+            wa_text += f" Please review and approve the estimate (INR {self._approval['total']}): {self._approval['url']}"
         email_text = f"Repair ticket {ticket.code} acknowledged -- {device}, drop-off at {ticket.stock_point.name}."
         Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=wa_text)
         Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=email_text)
@@ -197,6 +371,56 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         return Response(self.serialized_ticket(ticket.pk))
 
     @action(detail=True, methods=["post"])
+    def revise(self, request, pk=None):
+        """Repair staff: the estimate no longer fits -- send a revised one to
+        the Admin / Super Admin. (Their own revision is applied at once.)"""
+        payload = ProposeRevisionSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        ticket = self.get_object()
+        revision, applied = propose_revision(ticket, request.user, payload.validated_data["lines"], payload.validated_data["reason"])
+        data = {"ticket": self.serialized_ticket(ticket.pk), "applied": applied}
+        if applied:
+            approval = _issue_link_payload(ticket, request.user)
+            data["approval"] = approval
+            data["ticket"] = self.serialized_ticket(ticket.pk)
+        return Response(data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"])
+    def diagnose(self, request, pk=None):
+        """Repair staff: "Diagnosis done" -- the estimate holds, or send a revised one."""
+        payload = DiagnoseSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        ticket = self.get_object()
+        if ticket.assigned_to_id != request.user.id:
+            raise PermissionDenied("Only the repair staff member this job is assigned to reports the diagnosis.")
+        data = payload.validated_data
+        _, revision, applied = report_diagnosis(ticket, request.user, data["note"], data["estimate_ok"], data.get("lines"))
+        out = {"ticket": self.serialized_ticket(ticket.pk), "applied": applied}
+        if applied:
+            out["approval"] = _issue_link_payload(ticket, request.user)
+            out["ticket"] = self.serialized_ticket(ticket.pk)
+        return Response(out, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="decide-revision")
+    def decide_revision(self, request, pk=None):
+        """Admin / Super Admin: accept (-> new estimate + client link) or
+        decline the pending revision."""
+        payload = DecideRevisionSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        ticket = self.get_object()
+        revision = ticket.pending_revision
+        if not revision:
+            raise ValidationError({"detail": "There is no revision waiting for review."})
+        data = {}
+        if payload.validated_data["decision"] == "accept":
+            accept_revision(revision, request.user, payload.validated_data.get("note", ""))
+            data["approval"] = _issue_link_payload(ticket, request.user)
+        else:
+            decline_revision(revision, request.user, payload.validated_data.get("note", ""))
+        data["ticket"] = self.serialized_ticket(ticket.pk)
+        return Response(data)
+
+    @action(detail=True, methods=["post"])
     def advance(self, request, pk=None):
         ticket = self.get_object()
         stage = ticket.next_stage()
@@ -211,8 +435,13 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
             return Response({"detail": f"Advance invoice {adv.code} (Rs {adv.total}) is awaiting payment -- collect it in Sales & Invoices, or cancel it there to start without an advance."}, status=400)
         if stage == RepairTicket.IN_PROGRESS and not ticket.has_repair_approval:
             return Response({"detail": "Final customer, Admin, or Super Admin approval is required before work starts."}, status=400)
-        ticket.status = stage
-        ticket.save(update_fields=["status"])
+        blocked = _start_gate(ticket, stage, request)
+        if blocked:
+            return blocked
+        hold = ticket.on_hold_reason
+        if hold and stage == RepairTicket.READY:
+            return Response({"detail": f"{hold}. The job can't be finished until it's resolved."}, status=400)
+        _move(ticket, stage, request.user)
         text = (
             f"Your {ticket.brand} {ticket.model_name} is ready! Please collect it from {ticket.stock_point.name}."
             if stage == RepairTicket.READY
@@ -259,8 +488,13 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         target_idx = RepairTicket.STAGES.index(target)
         is_forward = target_idx > current_idx
 
-        ticket.status = target
-        ticket.save(update_fields=["status"])
+        blocked = _start_gate(ticket, target, request)
+        if blocked:
+            return blocked
+        hold = ticket.on_hold_reason
+        if hold and target == RepairTicket.READY:
+            return Response({"detail": f"{hold}. The job can't be finished until it's resolved."}, status=400)
+        _move(ticket, target, request.user)
 
         if is_forward:
             text = (
@@ -304,7 +538,8 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
             what = f"follow-up visit on {ticket.code}"
         else:
             if ticket.original_invoice:
-                return Response({"detail": "Already invoiced."}, status=400)
+                reconcile_delivery(ticket)
+                return Response({"detail": "Already invoiced." if ticket.status != RepairTicket.DELIVERED else "Already invoiced and paid -- the ticket is now marked Delivered."}, status=400)
             if not ticket.has_repair_approval:
                 return Response({"detail": "A final customer, Admin, or Super Admin approval is required before settlement."}, status=400)
             estimate = ticket.current_estimate
@@ -459,8 +694,8 @@ class RepairOrderViewSet(viewsets.ReadOnlyModelViewSet):
     required_perms = {
         "list": "repairs.view",
         "retrieve": "repairs.view",
-        "create": "repairs.manage",
-        "approval_link": "repairs.manage",
+        "create": "repairs.book",
+        "approval_link": "repairs.approve",
         "approve_on_behalf": "repairs.approve",
     }
 
@@ -497,8 +732,11 @@ class RepairOrderViewSet(viewsets.ReadOnlyModelViewSet):
         order.code = f"RPR-ORD-{order.pk:06d}"
         order.save(update_fields=["code"])
 
+        auto = []
         for device in devices:
-            services = device.pop("services")
+            services = device.pop("services", [])
+            lines = device.pop("estimate_lines", [])
+            typed_advance = device.pop("advance_amount", None)
             ticket = RepairTicket.objects.create(
                 order=order,
                 code=f"RPR-TEMP-{order.pk}-{len(order.tickets.all()) + 1}",
@@ -515,10 +753,13 @@ class RepairOrderViewSet(viewsets.ReadOnlyModelViewSet):
             ticket.code = f"RPR-{1044 + ticket.pk}"
             ticket.save(update_fields=["code"])
             ticket.services.set(services)
+            built = _booking_lines(services, lines)
+            if typed_advance is not None and built and typed_advance > sum(l["quantity"] * l["unit_price"] for l in built if l["unit_price"] is not None):
+                raise ValidationError({"advance_amount": f"The advance for {ticket.brand} {ticket.model_name} can't be more than its estimate."})
             device_label = f"{ticket.brand} {ticket.model_name}"
             wa_text = f"Ticket {ticket.code} created for your {device_label} under order {order.code}."
             if ticket.payment == RepairTicket.ADVANCE:
-                advance_invoice = raise_advance_invoice(ticket, advance_amount(services))
+                advance_invoice = raise_advance_invoice(ticket, _booking_advance(ticket.payment, typed_advance, services))
                 if advance_invoice:
                     wa_text += f" Advance invoice {advance_invoice.code} for Rs {advance_invoice.total} has been raised."
             email_text = f"Repair ticket {ticket.code} acknowledged under {order.code} -- {device_label}."
@@ -526,8 +767,19 @@ class RepairOrderViewSet(viewsets.ReadOnlyModelViewSet):
             Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=email_text)
             send_whatsapp(ticket.party.phone, wa_text)
             send_email(ticket.party.email, f"Repair ticket {ticket.code} acknowledged", email_text)
+            if built and request.user.has_perm_code("repairs.approve"):
+                finalize_estimate(ticket, request.user, built)
+                auto.append(ticket)
         fresh = self.get_queryset().get(pk=order.pk)
-        return Response(RepairOrderSerializer(fresh).data, status=status.HTTP_201_CREATED)
+        body = RepairOrderSerializer(fresh).data
+        if auto and len(auto) == order.tickets.count():
+            if len(auto) >= 2:
+                approval, url = issue_order_approval_link(order, request.user)
+                link = {"url": url, "expires_at": approval.expires_at}
+            else:
+                link = _issue_link_payload(auto[0], request.user)
+            body = {**RepairOrderSerializer(self.get_queryset().get(pk=order.pk)).data, "approval": link}
+        return Response(body, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], url_path="approval-link")
     def approval_link(self, request, pk=None):

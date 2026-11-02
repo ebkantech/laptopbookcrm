@@ -25,7 +25,7 @@ class InvoiceViewSet(StoreScopedMixin, viewsets.ModelViewSet):
     # (Invoice.stock_point); items, refunds, payment links and print data
     # all hang off it, so get_object() scoping covers every action below.
     queryset = Invoice.objects.select_related(
-        "party", "stock_point", "settled_by", "repair_ticket", "rental",
+        "party", "stock_point", "settled_by", "repair_ticket", "rental", "lead",
     ).prefetch_related(
         "items__variant__product", "items__refund_items", "payment_links__sent_by",
         "refunds__by", "refunds__items__invoice_item__variant__product",
@@ -61,6 +61,7 @@ class InvoiceViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         return qs
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def settle(self, request, pk=None):
         """
         Record a payment received outside any gateway: how it was paid,

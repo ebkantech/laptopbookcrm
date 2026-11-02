@@ -14,8 +14,8 @@ class Invoice(models.Model):
     only against these rows (settle / UPI link), and
     sales.services.on_invoice_paid tells the originating module.
     """
-    SALE, REPAIR, RENTAL = "sale", "repair", "rental"
-    SOURCE_CHOICES = [(SALE, "Sale"), (REPAIR, "Repair"), (RENTAL, "Rental")]
+    SALE, REPAIR, RENTAL, ONSITE = "sale", "repair", "rental", "onsite"
+    SOURCE_CHOICES = [(SALE, "Sale"), (REPAIR, "Repair"), (RENTAL, "Rental"), (ONSITE, "On-site service")]
 
     PAID, LINK_SENT, OVERDUE, CANCELLED, REFUNDED = "Paid", "Payment link sent", "Overdue", "Cancelled", "Refunded"
     STATUS_CHOICES = [
@@ -48,6 +48,11 @@ class Invoice(models.Model):
     is_advance = models.BooleanField(default=False)
     rental = models.ForeignKey(
         "rentals.Rental", on_delete=models.PROTECT, null=True, blank=True, related_name="invoices",
+    )
+    # On-site service: the lead this invoice (advance, visit charge or
+    # final bill) was raised for.
+    lead = models.ForeignKey(
+        "leads.Lead", on_delete=models.PROTECT, null=True, blank=True, related_name="invoices",
     )
     # Rental rent invoices: the month being billed.
     period_start = models.DateField(null=True, blank=True)

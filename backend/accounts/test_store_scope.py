@@ -17,7 +17,7 @@ from repairs.models import RepairTicket
 from sales.models import Invoice, InvoiceItem
 from warranty.models import Warranty
 
-ALL_VIEW = ["invoices.view", "repairs.view", "rentals.view", "cashbook.view", "bankbook.view", "parties.view", "reports.export", "inventory.edit"]
+ALL_VIEW = ["dashboard.view", "storelocator.view", "invoices.view", "repairs.view", "rentals.view", "cashbook.view", "bankbook.view", "parties.view", "reports.export", "inventory.edit"]
 
 
 class StoreScopeFixture(TestCase):
@@ -45,7 +45,7 @@ class StoreScopeFixture(TestCase):
         self.np_rental = self._rental("RNT-NP", "SN-NP", self.np)
 
         self.owner = client_for(make_user("owner", superuser=True))
-        self.kb_user = make_user("kb-staff", ALL_VIEW + ["invoices.create", "invoices.settle", "repairs.manage", "rentals.manage", "cashbook.edit"], stock_point=self.kb)
+        self.kb_user = make_user("kb-staff", ALL_VIEW + ["invoices.create", "invoices.settle", "repairs.manage", "repairs.book", "rentals.manage", "cashbook.edit"], stock_point=self.kb)
         self.kb_staff = client_for(self.kb_user)
         self.pending_user = make_user("pending", ALL_VIEW)
         self.pending = client_for(self.pending_user)

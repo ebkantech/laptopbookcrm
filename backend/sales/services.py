@@ -69,6 +69,10 @@ def on_invoice_paid(invoice):
         from rentals.billing import on_rent_invoice_paid
 
         on_rent_invoice_paid(invoice)
+    if invoice.source == Invoice.ONSITE and invoice.lead_id:
+        from leads.services import on_lead_invoice_paid
+
+        on_lead_invoice_paid(invoice)
 
 
 def mark_overdue():
@@ -111,6 +115,10 @@ def cancel_invoice(invoice, user, reason):
             updated = Stock.objects.filter(variant_id=item.variant_id, stock_point_id=invoice.stock_point_id).update(quantity=F("quantity") + item.qty)
             if not updated:
                 Stock.objects.create(variant_id=item.variant_id, stock_point_id=invoice.stock_point_id, quantity=item.qty)
+    if invoice.source == Invoice.ONSITE and invoice.lead_id:
+        from leads.services import on_lead_invoice_cancelled
+
+        on_lead_invoice_cancelled(invoice, user)
     for link in invoice.payment_links.filter(status=PaymentLink.SENT):
         from .payments import cancel_provider_link
 

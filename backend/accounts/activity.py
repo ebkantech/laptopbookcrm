@@ -124,6 +124,10 @@ TRACKED = {
     "rentals.rentalevent": Track("rentals", "rental agreement", lambda o: o.rental.agreement_code or f"#{o.rental_id}",
                                  parent=lambda o: ("rentals.rental", o.rental_id),
                                  domain_label=lambda o: o.get_event_type_display()),
+    "leads.lead": Track("leads", "on-site job", _code("code"), _fk("stock_point")),
+    "leads.leadevent": Track("leads", "on-site job", lambda o: o.lead.code, _via("lead.stock_point_id"),
+                             parent=lambda o: ("leads.lead", o.lead_id),
+                             domain_label=lambda o: o.text or o.event),
     "repairs.repairticket": Track("repairs", "repair ticket", _code("code"), _fk("stock_point")),
     "repairs.repairorder": Track("repairs", "repair order", _code("code")),
     "repairs.repairreopen": Track("repairs", "repair ticket", lambda o: o.ticket.code, _via("ticket.stock_point_id"),
@@ -191,12 +195,12 @@ KIND_TEXT = {"created": "Created {target}", "updated": "Updated {target}", "dele
 # empty tuple: readable by every log viewer (catalogue / stores are shared).
 MODULE_PERMS = {
     "sales": ("invoices.view",), "payments": ("invoices.view",), "rentals": ("rentals.view",),
-    "repairs": ("repairs.view",), "parties": ("parties.view",), "accounting": ("cashbook.view", "bankbook.view"),
+    "repairs": ("repairs.view",), "leads": ("leads.view",), "parties": ("parties.view",), "accounting": ("cashbook.view", "bankbook.view"),
     "broadcast": ("broadcast.send", "orders.manage"), "inventory": (), "stores": (), "warranty": (),
     "staff": ("roles.manage",),
 }
 MODULE_LABELS = {
-    "sales": "Sales", "payments": "Payments", "rentals": "Rentals", "repairs": "Repairs", "inventory": "Inventory",
+    "sales": "Sales", "payments": "Payments", "rentals": "Rentals", "repairs": "Repairs", "leads": "On-site service", "inventory": "Inventory",
     "parties": "Customers", "accounting": "Accounting", "warranty": "Warranty", "broadcast": "Broadcast",
     "stores": "Store Management", "staff": "Staff Management",
 }

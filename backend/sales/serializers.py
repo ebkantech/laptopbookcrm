@@ -79,7 +79,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
         fields = [
             "id", "code", "source", "source_label", "reference", "party", "party_name", "stock_point", "stock_point_name",
             "date", "status", "pay_method", "paid_on", "payment_reference", "settled_by_name",
-            "recurring_interval", "recurring_next", "repair_ticket", "rental", "period_start", "period_end",
+            "recurring_interval", "recurring_next", "repair_ticket", "rental", "lead", "period_start", "period_end",
             "due_date", "cancel_reason", "cancelled_at", "cancelled_by_name",
             "items", "total", "payment_links", "is_advance", "refunds", "refunded_total", "net_total",
         ]
@@ -87,7 +87,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
         # every settlement goes through its validation and audit fields;
         # repair/rental links are only ever set by those modules.
         read_only_fields = [
-            "code", "source", "paid_on", "payment_reference", "repair_ticket", "rental", "period_start", "period_end",
+            "code", "source", "paid_on", "payment_reference", "repair_ticket", "rental", "lead", "period_start", "period_end",
             "cancel_reason", "cancelled_at", "status", "is_advance",
         ]
 
@@ -103,6 +103,9 @@ class InvoiceSerializer(serializers.ModelSerializer):
             if obj.period_start and obj.period_end:
                 return f"{label} · {obj.period_start:%d %b %Y} – {obj.period_end:%d %b %Y}"
             return label
+        if obj.source == Invoice.ONSITE and obj.lead_id:
+            kind = "Advance for" if obj.is_advance else "Visit charge for" if obj.items.filter(description__startswith="Visit charge").count() and obj.lead.status == "rejected" else "On-site service"
+            return f"{kind} {obj.lead.code}"
         return None
 
     cancelled_by_name = serializers.SerializerMethodField()
