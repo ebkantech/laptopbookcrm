@@ -20,9 +20,9 @@ from django.db.models import Max
 from django.utils import timezone
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 
-from catalog.models import PartStock, Stock
+from catalog.models import Part, PartStock, Stock, Variant
 from crmbook_backend.notify import notify_staff, send_whatsapp
-from .models import Lead, LeadApproval, LeadEvent, LeadQuote, LeadQuoteLine
+from .models import Lead, LeadApproval, LeadEvent, LeadPartIssue, LeadQuote, LeadQuoteLine
 
 APPROVAL_LINK_TTL = timedelta(hours=24)
 MAX_LINES = 40
@@ -359,6 +359,7 @@ def _reject(lead, approval, reason, ip=None, ua=""):
     lead.reject_reason = reason[:500]
     lead.save(update_fields=["status", "reject_reason"])
     log(lead, "rejected", "Client declined the bill" + (f": {reason}" if reason else ""))
+    flag_returns(lead)
     invoice = raise_visit_invoice(lead)
     if not invoice:
         _check_out(lead)
@@ -509,37 +510,60 @@ def start_work(lead, user):
 
 
 def _deduct(lead, quote):
-    """Take the quoted parts and products off the shelf at the job's store;
-    nothing is changed if any line is short."""
-    short, plan = [], []
-    for line in quote.lines.filter(deducted=False).select_related("part", "variant__product"):
-        if line.kind == LeadQuoteLine.PART:
-            row = PartStock.objects.select_for_update().filter(part=line.part, stock_point_id=lead.stock_point_id).first()
-            have = row.quantity if row else 0
-            label = line.part.name
-        elif line.kind == LeadQuoteLine.PRODUCT:
-            row = Stock.objects.select_for_update().filter(variant=line.variant, stock_point_id=lead.stock_point_id).first()
-            have = row.quantity if row else 0
-            label = line.description
-        else:
+    """Cover the quoted parts and products. What the technician already carries
+    for this job (issued to them earlier) is used first -- it left the shelf at
+    issue time -- and only the rest is taken off the shelf at the job's store.
+    Nothing is changed if the shelf is short."""
+    lines = [l for l in quote.lines.filter(deducted=False).select_related("part", "variant__product")
+             if l.kind in (LeadQuoteLine.PART, LeadQuoteLine.PRODUCT)]
+    carried = {}
+    for iss in LeadPartIssue.objects.select_for_update().filter(lead=lead):
+        if iss.outstanding > 0:
+            carried.setdefault(iss.key, []).append(iss)
+    plan, changed = [], set()
+    for line in lines:
+        key = (line.kind, line.part_id or line.variant_id)
+        need, from_custody = line.qty, 0
+        for iss in carried.get(key, []):
+            take = min(iss.outstanding, need)
+            if take > 0:
+                iss.qty_used += take
+                changed.add(iss)
+                need -= take
+                from_custody += take
+        plan.append((line, from_custody, need))
+    # what is still needed from the shelf, per item
+    shelf_need, rows = {}, {}
+    for line, _, need in plan:
+        if need <= 0:
             continue
-        plan.append((line, row, have))
-    needed = {}
-    for line, row, have in plan:
         key = (line.kind, line.part_id or line.variant_id)
-        needed[key] = needed.get(key, 0) + line.qty
-    for line, row, have in plan:
+        shelf_need[key] = shelf_need.get(key, 0) + need
+        if key not in rows:
+            if line.kind == LeadQuoteLine.PART:
+                rows[key] = PartStock.objects.select_for_update().filter(part=line.part, stock_point_id=lead.stock_point_id).first()
+            else:
+                rows[key] = Stock.objects.select_for_update().filter(variant=line.variant, stock_point_id=lead.stock_point_id).first()
+    short = []
+    for line, _, need in plan:
         key = (line.kind, line.part_id or line.variant_id)
-        if needed[key] > have:
-            short.append(f"{line.description}: need {needed[key]}, have {have}")
-            needed[key] = 0
+        if need > 0 and shelf_need.get(key):
+            have = rows[key].quantity if rows[key] else 0
+            if shelf_need[key] > have:
+                short.append(f"{line.description}: need {shelf_need[key]} more, have {have}")
+                shelf_need[key] = 0
     if short:
         raise ValidationError({"detail": "Not enough stock at this store -- " + "; ".join(short) + "."})
-    for line, row, have in plan:
-        row.quantity -= line.qty
-        row.save(update_fields=["quantity"])
+    for iss in changed:
+        iss.save(update_fields=["qty_used"])
+    for line, from_custody, need in plan:
+        if need > 0:
+            row = rows[(line.kind, line.part_id or line.variant_id)]
+            row.quantity -= need
+            row.save(update_fields=["quantity"])
         line.deducted = True
-        line.save(update_fields=["deducted"])
+        line.custody_qty = from_custody
+        line.save(update_fields=["deducted", "custody_qty"])
 
 
 @transaction.atomic
@@ -590,6 +614,7 @@ def _check_out(lead, note="Payment received"):
     lead.checked_out_at = timezone.now()
     lead.save(update_fields=["status", "checked_out_at"])
     log(lead, "checked_out", f"Checked out -- {note}")
+    flag_returns(lead)
 
 
 def on_lead_invoice_paid(invoice):
@@ -617,10 +642,19 @@ def on_lead_invoice_cancelled(invoice, user):
                     model, key = PartStock, {"part_id": line.part_id}
                 else:
                     model, key = Stock, {"variant_id": line.variant_id}
-                if not model.objects.filter(stock_point_id=lead.stock_point_id, **key).update(quantity=models_f(line.qty)):
-                    model.objects.create(stock_point_id=lead.stock_point_id, quantity=line.qty, **key)
+                back_to_tech = line.custody_qty
+                for iss in LeadPartIssue.objects.select_for_update().filter(lead=lead, kind=line.kind, **key).order_by("-id"):
+                    give = min(iss.qty_used, back_to_tech)
+                    if give:
+                        iss.qty_used -= give
+                        iss.save(update_fields=["qty_used"])
+                        back_to_tech -= give
+                shelf = line.qty - line.custody_qty + back_to_tech  # any custody that can't be handed back goes to the shelf
+                if shelf and not model.objects.filter(stock_point_id=lead.stock_point_id, **key).update(quantity=models_f(shelf)):
+                    model.objects.create(stock_point_id=lead.stock_point_id, quantity=shelf, **key)
                 line.deducted = False
-                line.save(update_fields=["deducted"])
+                line.custody_qty = 0
+                line.save(update_fields=["deducted", "custody_qty"])
         lead.status = Lead.IN_WORK
         lead.work_done_at = None
         lead.save(update_fields=["status", "work_done_at"])
@@ -665,6 +699,7 @@ def cancel(lead, user, reason, charge_visit=False):
     lead.status, lead.cancel_reason = Lead.CANCELLED, reason[:200]
     lead.save(update_fields=["status", "cancel_reason"])
     log(lead, "cancelled", f"Cancelled -- {reason}", user)
+    flag_returns(lead)
     if charge_visit and lead.checked_in_at:
         raise_visit_invoice(lead)
     return lead
@@ -703,6 +738,7 @@ def take_to_store(lead, user, reason, charge_visit=True):
     lead.status = Lead.TO_STORE
     lead.save(update_fields=["repair_ticket", "status"])
     log(lead, "to_store", f"Taken to the store -- repair ticket {ticket.code} opened ({reason})", user)
+    flag_returns(lead)
     if charge_visit:
         raise_visit_invoice(lead)
     if not lead.invoices.filter(is_advance=False, status__in=Invoice.OUTSTANDING).exists():
@@ -712,3 +748,143 @@ def take_to_store(lead, user, reason, charge_visit=True):
                  f"{lead.party.name}'s {lead.device or 'laptop'} could not be fixed on site and is now repair ticket {ticket.code} at {lead.stock_point.name}. {reason}")
     send_whatsapp(_party_phone(lead), f"Hello {lead.party.name}, your laptop from job {lead.code} is being repaired at our store (ticket {ticket.code}). We'll keep you posted.")
     return ticket
+
+
+# ------------------------------------------------- parts in a technician's name
+
+ISSUE_STATES = (Lead.ASSIGNED, Lead.VISITING, Lead.DIAGNOSED, Lead.AWAITING, Lead.APPROVED, Lead.IN_WORK)
+
+
+def can_handle_parts(user):
+    return user.has_perm_code("leads.parts")
+
+
+def _require_parts(user):
+    if not can_handle_parts(user):
+        raise PermissionDenied("You do not have permission to issue or take back parts.")
+
+
+def _shelf_row(model, lead, **key):
+    return model.objects.select_for_update().filter(stock_point_id=lead.stock_point_id, **key).first()
+
+
+@transaction.atomic
+def issue_parts(lead, user, kind, item_id, qty, note=""):
+    """Hand stock to the job's technician. It leaves the shelf now, without an
+    invoice, and is carried in their name until used or returned."""
+    _require_parts(user)
+    lead = lock(lead)
+    _state(lead, ISSUE_STATES, "issue parts for")
+    if not lead.assigned_to_id:
+        raise _err("Assign a technician before issuing parts.")
+    try:
+        qty = int(qty)
+    except (TypeError, ValueError):
+        raise _err("Enter how many to issue.", "qty")
+    if not 1 <= qty <= 999:
+        raise _err("Enter a quantity between 1 and 999.", "qty")
+    if kind == LeadPartIssue.PART:
+        item = Part.objects.filter(pk=item_id).first()
+        key, model, label = {"part_id": item.pk if item else None}, PartStock, item.name if item else ""
+    elif kind == LeadPartIssue.PRODUCT:
+        item = Variant.objects.select_related("product").filter(pk=item_id).first()
+        key, model = {"variant_id": item.pk if item else None}, Stock
+        label = f"{item.product.display_name} {item.spec}".strip() if item else ""
+    else:
+        raise _err("Choose a spare part or a product.", "kind")
+    if not item:
+        raise _err("Pick the item to issue.", "item")
+    row = _shelf_row(model, lead, **key)
+    have = row.quantity if row else 0
+    if qty > have:
+        raise _err(f"Only {have} of {label} in stock at {lead.stock_point.name}.", "qty")
+    row.quantity -= qty
+    row.save(update_fields=["quantity"])
+    issue = LeadPartIssue.objects.create(
+        lead=lead, technician=lead.assigned_to, kind=kind, description=label[:160], qty_issued=qty,
+        note=(note or "")[:200], issued_by=user, **key)
+    log(lead, "parts_issued", f"{qty} × {label} issued to {lead.assigned_to}", user)
+    return issue
+
+
+@transaction.atomic
+def receive_return(lead, user, issue_id, qty):
+    """The technician hands unused stock back: it goes back on this store's shelf."""
+    _require_parts(user)
+    lead = lock(lead)
+    issue = LeadPartIssue.objects.select_for_update().filter(pk=issue_id, lead=lead).first()
+    if not issue:
+        raise _err("That issued item was not found on this job.", "issue")
+    try:
+        qty = int(qty)
+    except (TypeError, ValueError):
+        raise _err("Enter how many came back.", "qty")
+    if not 1 <= qty <= issue.outstanding:
+        raise _err(f"{issue.technician} is holding {issue.outstanding} of this -- enter 1 to {issue.outstanding}." if issue.outstanding
+                   else "Nothing is outstanding on this item.", "qty")
+    key = {"part_id": issue.part_id} if issue.kind == LeadPartIssue.PART else {"variant_id": issue.variant_id}
+    model = PartStock if issue.kind == LeadPartIssue.PART else Stock
+    if not model.objects.filter(stock_point_id=lead.stock_point_id, **key).update(quantity=models_f(qty)):
+        model.objects.create(stock_point_id=lead.stock_point_id, quantity=qty, **key)
+    issue.qty_returned += qty
+    issue.save(update_fields=["qty_returned"])
+    log(lead, "parts_returned", f"{qty} × {issue.description} returned by {issue.technician} to {lead.stock_point.name}", user)
+    return issue
+
+
+@transaction.atomic
+def write_off(lead, user, issue_id, qty, reason):
+    """Stock the technician lost or damaged: it is not coming back, so it is
+    closed out of their account (the shelf is not credited). Admin only, with a reason."""
+    if not user.has_perm_code("leads.manage"):
+        raise PermissionDenied("Only an Admin can write off stock.")
+    reason = (reason or "").strip()
+    if not reason:
+        raise _err("Give the reason (lost, damaged, ...).", "reason")
+    lead = lock(lead)
+    issue = LeadPartIssue.objects.select_for_update().filter(pk=issue_id, lead=lead).first()
+    if not issue:
+        raise _err("That issued item was not found on this job.", "issue")
+    try:
+        qty = int(qty)
+    except (TypeError, ValueError):
+        raise _err("Enter how many to write off.", "qty")
+    if not 1 <= qty <= issue.outstanding:
+        raise _err("Nothing is outstanding on this item." if not issue.outstanding else f"Enter 1 to {issue.outstanding}.", "qty")
+    issue.qty_written_off += qty
+    issue.save(update_fields=["qty_written_off"])
+    log(lead, "parts_written_off", f"{qty} × {issue.description} written off from {issue.technician} -- {reason[:150]}", user)
+    return issue
+
+
+def flag_returns(lead):
+    """The job has ended: tell each technician to return what they still hold
+    (in the bell) and tell Admins. Never raises -- it runs after the job closed."""
+    try:
+        from accounts.models import StaffNotification
+
+        pending = [i for i in lead.part_issues.select_related("technician") if i.outstanding > 0 and i.alerted_at is None]
+        if not pending:
+            return
+        now = timezone.now()
+        by_tech = {}
+        for i in pending:
+            by_tech.setdefault(i.technician, []).append(i)
+        names = []
+        for tech, items in by_tech.items():
+            what = ", ".join(f"{i.outstanding} × {i.description}" for i in items)
+            StaffNotification.objects.create(
+                user=tech, event_key="parts_return", subject=f"Return parts to the store -- {lead.code}",
+                body=f"Job {lead.code} ({lead.party.name}) is closed and these were not used: {what}. "
+                     f"Please hand them back at {lead.stock_point.name}.")
+            names.append(f"{tech}: {what}")
+        for i in pending:
+            i.alerted_at = now
+            i.save(update_fields=["alerted_at"])
+        log(lead, "parts_due", "Unused parts to return -- " + "; ".join(names))
+        notify_staff("lead_parts_due", f"Parts not yet returned -- {lead.code}",
+                     f"Job {lead.code} is closed but still has stock with the technician: " + "; ".join(names) + ".")
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception("flag_returns failed for %s", getattr(lead, "code", "?"))

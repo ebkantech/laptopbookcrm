@@ -493,7 +493,7 @@ function Shell() {
   {/* Non-owner accounts only reach their own store's records
       (accounts.store_scope); until the Owner assigns one, every
       store-linked list comes back empty -- say why, everywhere. */}
-  {me && !me.sees_all_stores && !me.stock_point && (
+  {me && !me.sees_all_stores && !me.stock_point && (me.staff_kind || "store") === "store" && (
     <div
       role="status"
       className="mx-[1rem] mt-3 flex items-start gap-2 rounded-xl px-3 py-2.5 text-xs sm:mx-[2rem]"

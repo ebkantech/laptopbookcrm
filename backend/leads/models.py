@@ -116,6 +116,7 @@ class LeadQuoteLine(models.Model):
     part = models.ForeignKey(Part, on_delete=models.PROTECT, null=True, blank=True, related_name="lead_lines")
     variant = models.ForeignKey(Variant, on_delete=models.PROTECT, null=True, blank=True, related_name="lead_lines")
     deducted = models.BooleanField(default=False, help_text="Stock has been taken off the shelf for this line.")
+    custody_qty = models.PositiveIntegerField(default=0, help_text="Of the quantity, how much came from the technician's issued stock (not the shelf).")
 
     class Meta:
         ordering = ["id"]
@@ -157,3 +158,43 @@ class LeadEvent(models.Model):
 
     class Meta:
         ordering = ["created_at", "id"]
+
+
+class LeadPartIssue(models.Model):
+    """
+    Stock handed to a field technician for one job. It comes off the store's
+    shelf the moment it is issued (no invoice), and stays on the books in the
+    technician's name until it is used -- the work being billed -- or
+    returned to the store. issued = used + returned + still with the technician.
+    """
+    PART, PRODUCT = "part", "product"
+    KIND_CHOICES = [(PART, "Spare part"), (PRODUCT, "Product")]
+
+    lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name="part_issues")
+    technician = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="part_issues")
+    kind = models.CharField(max_length=8, choices=KIND_CHOICES)
+    part = models.ForeignKey(Part, on_delete=models.PROTECT, null=True, blank=True, related_name="lead_issues")
+    variant = models.ForeignKey(Variant, on_delete=models.PROTECT, null=True, blank=True, related_name="lead_issues")
+    description = models.CharField(max_length=160)
+    qty_issued = models.PositiveIntegerField()
+    qty_used = models.PositiveIntegerField(default=0)
+    qty_returned = models.PositiveIntegerField(default=0)
+    qty_written_off = models.PositiveIntegerField(default=0, help_text="Lost or damaged; never comes back to the shelf.")
+    note = models.CharField(max_length=200, blank=True)
+    issued_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="+")
+    issued_at = models.DateTimeField(auto_now_add=True)
+    alerted_at = models.DateTimeField(null=True, blank=True, help_text="When the technician was told to return the leftover.")
+
+    class Meta:
+        ordering = ["issued_at", "id"]
+        constraints = [
+            models.CheckConstraint(check=models.Q(qty_used__gte=0, qty_returned__gte=0), name="leadpartissue_nonneg"),
+        ]
+
+    @property
+    def outstanding(self):
+        return self.qty_issued - self.qty_used - self.qty_returned - self.qty_written_off
+
+    @property
+    def key(self):
+        return (self.kind, self.part_id or self.variant_id)

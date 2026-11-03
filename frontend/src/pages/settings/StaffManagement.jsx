@@ -75,7 +75,7 @@ export default function StaffManagement() {
     const needle = q.trim().toLowerCase();
     const list = users.filter((u) => {
       if (roleFilter !== "all" && String(u.role ?? "none") !== roleFilter) return false;
-      if (storeFilter === "unassigned" && (u.stock_point || u.sees_all_stores)) return false;
+      if (storeFilter === "unassigned" && (u.stock_point || u.sees_all_stores || (u.staff_kind || "store") !== "store")) return false;
       if (storeFilter === "owner" && !u.sees_all_stores) return false;
       if (!["all", "unassigned", "owner"].includes(storeFilter) && String(u.stock_point) !== storeFilter) return false;
       if (statusFilter !== "all" && statusOf(u) !== statusFilter) return false;
@@ -97,7 +97,7 @@ export default function StaffManagement() {
     const c = { all: users?.length || 0, active: 0, inactive: 0, pending: 0, unassigned: 0 };
     (users || []).forEach((u) => {
       c[statusOf(u)] += 1;
-      if (!u.stock_point && !u.sees_all_stores) c.unassigned += 1;
+      if (!u.stock_point && !u.sees_all_stores && (u.staff_kind || "store") === "store") c.unassigned += 1;
     });
     return c;
   }, [users]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -224,6 +224,8 @@ export default function StaffManagement() {
                   <span role="cell" data-label="Role" title={u.is_superuser ? "Superuser" : u.role_label || "No role"}>{u.is_superuser ? "Superuser" : u.role_label || <span className="st-sub">No role</span>}</span>
                   <span role="cell" data-label="Store Location">
                     {u.sees_all_stores ? <span className="st-badge" data-tone="violet"><ShieldCheck size={11} aria-hidden="true" />All stores</span>
+                      : u.staff_kind === "outsourced" ? <span className="st-badge" data-tone="violet" title={u.company}>Outsourced{u.company ? ` · ${u.company}` : ""}</span>
+                      : u.staff_kind === "field" ? <span className="st-badge" data-tone="blue">Field · any store</span>
                       : u.stock_point ? <span className="st-badge" title={u.stock_point_name}>{u.stock_point_name}</span>
                         : <span className="st-badge" data-tone="amber">Unassigned</span>}
                   </span>
@@ -285,7 +287,7 @@ function StaffForm({ user, roles, allRoles, shops, ownerView, me, onClose, onCre
     first_name: user?.first_name || "", last_name: user?.last_name || "", username: user?.username || "",
     email: user?.email || "", phone: user?.phone || "", role: user?.role ? String(user.role) : "",
     stock_point: user ? (user.stock_point ? String(user.stock_point) : "") : ownerView ? "" : String(me.stock_point || ""),
-    is_active: user ? user.is_active : true, mode: "link", password: "", password_confirm: "",
+    is_active: user ? user.is_active : true, staff_kind: user?.staff_kind || "store", company: user?.company || "", mode: "link", password: "", password_confirm: "",
   });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
@@ -307,8 +309,9 @@ function StaffForm({ user, roles, allRoles, shops, ownerView, me, onClose, onCre
     const body = {
       first_name: form.first_name.trim(), last_name: form.last_name.trim(), username: form.username.trim(),
       email: form.email.trim(), phone: form.phone.trim(), role: form.role ? Number(form.role) : null, is_active: form.is_active,
+      staff_kind: form.staff_kind, company: form.staff_kind === "outsourced" ? form.company.trim() : "",
     };
-    if (ownerView) body.stock_point = form.stock_point ? Number(form.stock_point) : null;
+    if (ownerView && form.staff_kind === "store") body.stock_point = form.stock_point ? Number(form.stock_point) : null;
     if (!editing && form.mode === "set") Object.assign(body, { password: form.password, password_confirm: form.password_confirm });
     setBusy(true);
     try {
@@ -346,7 +349,13 @@ function StaffForm({ user, roles, allRoles, shops, ownerView, me, onClose, onCre
             <option value="">No role (no module access)</option>
             {roleOptions.map((r) => <option key={r.id} value={String(r.id)}>{r.label}</option>)}
           </SelectInput>
-          {ownerView ? (
+          {form.staff_kind !== "store" ? (
+            <div className="st-field">
+              <span className="st-label">Store Location</span>
+              <span className="st-input flex items-center" aria-readonly="true">Not tied to a store</span>
+              <span className="st-help">Takes on-site jobs from any store.</span>
+            </div>
+          ) : ownerView ? (
             <SelectInput label="Store Location" value={form.stock_point} onChange={set("stock_point")} error={errors.stock_point}
               hint="Physical shops only. Unassigned staff see no store's data.">
               <option value="">Unassigned</option>
@@ -361,6 +370,17 @@ function StaffForm({ user, roles, allRoles, shops, ownerView, me, onClose, onCre
               <span className="st-input flex items-center" aria-readonly="true">{editing ? user.stock_point_name || "Unassigned" : me.stock_point_name}</span>
               <span className="st-help">Only the Owner changes Store Locations.</span>
             </div>
+          )}
+        </div>
+        <div className="st-grid" data-cols="2">
+          <SelectInput label="Works as" value={form.staff_kind} onChange={set("staff_kind")} error={errors.staff_kind}
+            hint="Field technicians and outsourced technicians belong to no store. The role must allow on-site work.">
+            <option value="store">Store staff (one store)</option>
+            <option value="field">Field technician (any store)</option>
+            {(me.is_superuser || (me.permissions || []).includes("leads.outsource") || form.staff_kind === "outsourced") && <option value="outsourced">Outsourced technician (external)</option>}
+          </SelectInput>
+          {form.staff_kind === "outsourced" && (
+            <TextInput label="Freelancer / company name" value={form.company} onChange={set("company")} error={errors.company} autoComplete="off" />
           )}
         </div>
         <label className="st-switch">

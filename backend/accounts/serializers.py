@@ -127,7 +127,7 @@ class UserSerializer(serializers.ModelSerializer):
             "role", "role_label", "role_slug", "permissions", "is_superuser", "is_active",
             "stock_point", "stock_point_name", "stock_point_kind", "sees_all_stores", "can_manage_store_status",
             "can_view_staff_logs", "can_view_own_activity", "can_view_activity", "can_view_profit_loss",
-            "can_manage_expenses",
+            "can_manage_expenses", "staff_kind", "company",
         ]
         read_only_fields = ["stock_point", "is_active"]
 
@@ -200,7 +200,7 @@ class StaffWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["username", "first_name", "last_name", "email", "phone", "role", "stock_point", "is_active",
-                  "password", "password_confirm"]
+                  "staff_kind", "company", "password", "password_confirm"]
         extra_kwargs = {"first_name": {"required": True, "allow_blank": False}}
 
     def validate_username(self, value):
@@ -243,6 +243,19 @@ class StaffWriteSerializer(serializers.ModelSerializer):
                 validate_password(password, user=probe)
             except DjangoValidationError as e:
                 raise serializers.ValidationError({"password": list(e.messages)})
+        kind = attrs.get("staff_kind", self.instance.staff_kind if self.instance else User.STORE)
+        if kind != User.STORE:
+            role = attrs["role"] if "role" in attrs else (self.instance.role if self.instance else None)
+            if not (role and role.permissions.filter(codename="leads.work").exists()):
+                raise serializers.ValidationError({"role": "Field and outsourced technicians need a role that can do on-site work (leads.work)."})
+            attrs["stock_point"] = None  # free of any store
+        if kind == User.OUTSOURCED:
+            company = (attrs["company"] if "company" in attrs else (self.instance.company if self.instance else "")).strip()
+            if not company:
+                raise serializers.ValidationError({"company": "Enter the freelancer or partner company name."})
+            attrs["company"] = company
+        else:
+            attrs["company"] = ""
         self._initial_password = password or None
         return attrs
 

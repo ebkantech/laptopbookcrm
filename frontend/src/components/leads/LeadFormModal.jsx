@@ -149,7 +149,7 @@ export default function LeadFormModal({ lead, stockPoints, defaultStore, onClose
         <Field label="Assign to technician" error={errors.assigned_to}>
           <select value={form.assigned_to} onChange={set("assigned_to")} className="mt-1 w-full bg-transparent px-3 py-2 text-base outline-none sm:text-sm" style={inputStyle(errors.assigned_to)}>
             <option value="">Assign later</option>
-            {techs.map((t) => <option key={t.id} value={t.id} disabled={!t.same_store}>{t.same_store ? t.name : `${t.name} — ${t.stock_point_name} (different store)`}</option>)}
+            {techs.map((t) => <option key={t.id} value={t.id}>{t.kind === "outsourced" ? `${t.name} — Outsourced · ${t.company}` : t.kind === "field" ? `${t.name} — Field technician` : t.name}</option>)}
           </select>
         </Field>
         <Field label="Visit charge (₹)" error={errors.visit_charge}>{input("visit_charge", { inputMode: "numeric" })}</Field>

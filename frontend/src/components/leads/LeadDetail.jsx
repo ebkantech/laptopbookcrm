@@ -5,6 +5,7 @@ import { copyText } from "../../lib/copyText";
 import { C, F, fmt, money, todayISO } from "../../lib/theme";
 import { ErrorNote, Pill } from "../Atoms";
 import BillEditor from "./BillEditor";
+import PartsPanel, { IssuePartsModal } from "./PartsPanel";
 import LeadFormModal from "./LeadFormModal";
 import Prompt, { Modal, inputStyle } from "./Prompt";
 import { PAY_METHODS, PRIORITY, mapsLink, statusOf, telLink, validatePayment } from "./leadModel";
@@ -149,6 +150,8 @@ export default function LeadDetail({ lead, stockPoints, onChange, onClose }) {
           </section>
         )}
 
+        <PartsPanel lead={lead} onIssue={() => setDialog("issue_parts")} onReturn={(p) => setDialog({ ret: p })} onWriteOff={(p) => setDialog({ off: p })} />
+
         {lead.invoices.length > 0 && (
           <section className="mt-4" aria-label="Invoices">
             <p className="text-xs uppercase" style={{ color: C.inkSoft, fontWeight: 700, letterSpacing: "0.1em" }}>Invoices</p>
@@ -198,12 +201,15 @@ export default function LeadDetail({ lead, stockPoints, onChange, onClose }) {
       {dialog?.pay && <PaymentModal lead={lead} invoice={dialog.pay} onClose={() => setDialog(null)} onDone={(l) => { onChange(l); setDialog(null); }} />}
       {dialog === "diagnose" && <Prompt title="Diagnosis" intro="Write what you found on site — the client sees this with the bill." fields={[{ name: "diagnosis", label: "Findings", type: "textarea", required: true, maxLength: 4000 }]} initial={{ diagnosis: lead.diagnosis }} submitLabel="Save diagnosis" onClose={() => setDialog(null)} onSubmit={(v) => run("diagnose", v)} />}
       {dialog === "approve" && <Prompt title="Approve on client's behalf" tone={C.green} intro="Use this only when the client has agreed by phone or in person. The reason is stored with the approval." fields={[{ name: "reason", label: "Reason / how the client agreed", type: "textarea", required: true, maxLength: 500 }]} submitLabel="Record approval" onClose={() => setDialog(null)} onSubmit={(v) => run("approve", v)} />}
-      {dialog === "complete" && <Prompt title="Work done" intro="Parts and products on the bill are taken off this store's stock and the final invoice is raised." fields={[{ name: "notes", label: "Work notes (optional)", type: "textarea", maxLength: 2000 }]} submitLabel="Complete & raise invoice" onClose={() => setDialog(null)} onSubmit={(v) => run("complete", v)} />}
+      {dialog === "complete" && <Prompt title="Work done" intro="Parts and products on the bill are counted against what the technician carries first, then taken off this store's shelf, and the final invoice is raised." fields={[{ name: "notes", label: "Work notes (optional)", type: "textarea", maxLength: 2000 }]} submitLabel="Complete & raise invoice" onClose={() => setDialog(null)} onSubmit={(v) => run("complete", v)} />}
       {dialog === "advance" && <Prompt title="Ask for an advance" intro="Raises an advance invoice. It is optional, and is deducted from the final bill once paid." fields={[{ name: "amount", label: "Amount (₹)", required: true, inputMode: "numeric" }]} initial={{ amount: lead.advance_amount || "" }} submitLabel="Raise advance invoice" onClose={() => setDialog(null)} onSubmit={(v) => run("advance", v)} />}
       {dialog === "reschedule" && <Prompt title="Reschedule visit" fields={[{ name: "preferred_at", label: "New date & time", type: "datetime-local", required: true }, { name: "reason", label: "Reason (optional)" }]} submitLabel="Reschedule" onClose={() => setDialog(null)} onSubmit={(v) => run("reschedule", { ...v, preferred_at: new Date(v.preferred_at).toISOString() })} />}
       {dialog === "credit" && <Prompt title="Check out with payment pending" tone={C.carbon} intro="The invoice stays unpaid in Sales & Invoices. Only an Admin can do this." fields={[{ name: "reason", label: "Reason", required: true }]} submitLabel="Check out" onClose={() => setDialog(null)} onSubmit={(v) => run("close_credit", v)} />}
       {dialog === "cancel" && <Prompt title="Cancel job" tone={C.carbon} fields={[{ name: "reason", label: "Reason", required: true }, ...(lead.checked_in_at && lead.visit_charge ? [{ name: "charge_visit", label: `Bill the visit charge (${money(lead.visit_charge)})`, type: "checkbox" }] : [])]} submitLabel="Cancel job" onClose={() => setDialog(null)} onSubmit={(v) => run("cancel", v)} />}
       {dialog === "to_store" && <Prompt title="Take to the store for repair" intro="A repair ticket is opened at this store for the in-house technician / repair staff. Any advance already paid goes across to the ticket." fields={[{ name: "reason", label: "Why it can't be fixed on site", type: "textarea", required: true, maxLength: 300 }, ...(lead.visit_charge ? [{ name: "charge_visit", label: `Bill the visit charge (${money(lead.visit_charge)}) now`, type: "checkbox" }] : [])]} initial={{ charge_visit: true }} submitLabel="Open repair ticket" onClose={() => setDialog(null)} onSubmit={(v) => run("to_store", { reason: v.reason, charge_visit: lead.visit_charge ? !!v.charge_visit : false })} />}
+      {dialog === "issue_parts" && <IssuePartsModal lead={lead} onClose={() => setDialog(null)} onSubmit={(v) => run("issue_parts", v)} />}
+      {dialog?.ret && <Prompt title={`Take back — ${dialog.ret.description}`} intro={`${dialog.ret.technician_name} is holding ${dialog.ret.outstanding}. What you take back goes onto ${lead.stock_point_name}'s shelf.`} fields={[{ name: "qty", label: "Quantity handed back", required: true, inputMode: "numeric" }]} initial={{ qty: String(dialog.ret.outstanding) }} submitLabel="Add back to stock" onClose={() => setDialog(null)} onSubmit={(v) => run("return_parts", { issue: dialog.ret.id, qty: Number(v.qty) })} />}
+      {dialog?.off && <Prompt title={`Lost / damaged — ${dialog.off.description}`} tone={C.carbon} intro={`Closes the stock out of ${dialog.off.technician_name}'s account. It is NOT added back to the shelf, so this is a loss. The reason is kept in the job timeline.`} fields={[{ name: "qty", label: "Quantity lost or damaged", required: true, inputMode: "numeric" }, { name: "reason", label: "What happened", required: true }]} initial={{ qty: String(dialog.off.outstanding) }} submitLabel="Write off" onClose={() => setDialog(null)} onSubmit={(v) => run("write_off_parts", { issue: dialog.off.id, qty: Number(v.qty), reason: v.reason })} />}
       {dialog === "assign" && <AssignDialog lead={lead} onClose={() => setDialog(null)} onDone={(l) => { onChange(l); setDialog(null); }} />}
     </div>
   );
@@ -214,7 +220,7 @@ function AssignDialog({ lead, onClose, onDone }) {
   useEffect(() => { api.get(`/leads/technicians/?stock_point=${lead.stock_point}`).then(setTechs).catch(() => setTechs([])); }, [lead.stock_point]);
   if (!techs) return <Modal title="Assign technician" onClose={onClose}><p className="text-sm" style={{ color: C.inkSoft }}>Loading…</p></Modal>;
   return (
-    <Prompt title="Assign technician" fields={[{ name: "assigned_to", label: "Technician", type: "select", required: true, options: [{ value: "", label: techs.length ? "Select…" : "No technicians found — give a role the leads.work permission" }, ...techs.map((t) => ({ value: t.id, label: t.same_store ? t.name : `${t.name} — ${t.stock_point_name} (different store, can't be assigned)`, disabled: !t.same_store }))] }]}
+    <Prompt title="Assign technician" fields={[{ name: "assigned_to", label: "Technician", type: "select", required: true, options: [{ value: "", label: techs.length ? "Select…" : "No technicians found — give a role the leads.work permission" }, ...techs.map((t) => ({ value: t.id, label: t.kind === "outsourced" ? `${t.name} — Outsourced · ${t.company}` : t.kind === "field" ? `${t.name} — Field technician` : t.name }))] }]}
       initial={{ assigned_to: lead.assigned_to || "" }} submitLabel="Assign & notify" onClose={onClose} onSubmit={async (v) => onDone(await api.post(`/leads/${lead.id}/assign/`, v))} />
   );
 }

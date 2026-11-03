@@ -37,6 +37,8 @@ PERMS = {
     "leads.approve": "Approve on-site bills on behalf of the client (Admin / Super Admin)",
     "leads.collect": "Raise advances and collect payment for on-site jobs",
     "leads.manage": "Edit, reschedule, cancel and close on-site jobs",
+    "leads.parts": "Issue parts and products to on-site technicians and take back what they return",
+    "leads.outsource": "Add outsourced technicians and give them on-site jobs (Admin / Super Admin)",
     "repairs.assign": "Give repair jobs to staff and step in on a job (Admin: own store's staff; Super Admin: any)",
     "dashboard.view": "Open the Dashboard overview",
     "storelocator.view": "Open the Store Locator (stores, channels and their stock)",
@@ -71,7 +73,7 @@ ROLES = {
         "invoices.view", "invoices.create", "invoices.settle", "invoices.refund", "inventory.edit", "payments.send_link",
         "rentals.view", "rentals.manage", "rentals.approve",
         "repairs.view", "repairs.manage", "repairs.book", "repairs.approve", "repairs.assign",
-        "leads.view", "leads.create", "leads.assign", "leads.work", "leads.quote", "leads.approve", "leads.collect", "leads.manage",
+        "leads.view", "leads.create", "leads.assign", "leads.work", "leads.quote", "leads.approve", "leads.collect", "leads.manage", "leads.outsource", "leads.parts",
         "broadcast.send", "warranty.manage", "portal.manage", "roles.manage", "reports.export",
         "reports.profit_loss", "expenses.manage", "parties.view", "parties.manage", "parties.edit", "orders.manage",
     ]),
@@ -111,6 +113,7 @@ NOTIFICATION_RULES = [
     ("lead_approved", "manager", True, False),
     ("payment_received", "accountant", True, False),
     ("payment_received", "manager", True, False),
+    ("lead_parts_due", "manager", False, False),
 ]
 
 USERS = [

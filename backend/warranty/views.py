@@ -9,8 +9,14 @@ from crmbook_backend.notify import send_email
 from parties.models import Message, Party
 from repairs.models import RepairTicket
 from sales.models import Invoice
-from .models import Warranty
-from .serializers import WarrantySerializer
+from datetime import timedelta
+
+from django.db.models import Count, Q, Sum
+from django.utils import timezone
+
+from . import services
+from .models import Warranty, WarrantyClaim
+from .serializers import WarrantyClaimSerializer, WarrantySerializer
 
 
 class WarrantyViewSet(StoreScopedMixin, viewsets.ModelViewSet):
@@ -18,13 +24,14 @@ class WarrantyViewSet(StoreScopedMixin, viewsets.ModelViewSet):
     # A warranty with neither has no store and stays Owner-only.
     store_lookups = ("invoice__stock_point", "repair_ticket__stock_point")
     store_payload_field = None
-    queryset = Warranty.objects.select_related("party", "invoice", "repair_ticket").all()
+    queryset = Warranty.objects.select_related("party", "invoice", "repair_ticket").prefetch_related("claims").all()
     serializer_class = WarrantySerializer
     permission_classes = [permissions.IsAuthenticated, HasPerm]
     required_perms = {
         "list": None, "retrieve": None, "eligible_items": None,
         "create": "warranty.manage", "update": "warranty.manage",
         "partial_update": "warranty.manage", "destroy": "warranty.manage",
+        "summary": None, "expiring": None, "remind": "warranty.manage", "send_reminders": "warranty.manage",
     }
 
     def get_queryset(self):
@@ -59,20 +66,52 @@ class WarrantyViewSet(StoreScopedMixin, viewsets.ModelViewSet):
     def perform_create(self, serializer):
         self._check_covered_record(serializer)
         warranty = serializer.save()
-        # "mailed to the customer" -- logged as an outbound email on the
-        # party's own thread, same as every other notification in the
-        # app (repairs, broadcast). See crmbook_backend/notify.py for
-        # the actual send (console/test backend today, real SMTP once
-        # DJANGO_EMAIL_BACKEND is pointed at one).
-        subject_line = f"Your warranty on {warranty.item_label}"
-        body = (
-            f"{subject_line}\n\n"
-            f"Covers: {warranty.item_label}\n"
-            f"Valid: {warranty.start_date:%d %b %Y} to {warranty.end_date:%d %b %Y}\n\n"
-            f"{warranty.terms_text}"
-        )
-        Message.objects.create(party=warranty.party, channel=Message.EMAIL, direction=Message.OUT, body=body)
-        send_email(warranty.party.email, subject_line, body)
+        services.announce(warranty)
+
+    @action(detail=False, methods=["get"])
+    def summary(self, request):
+        """Numbers for the strip above the list (store-scoped)."""
+        today = timezone.localdate()
+        qs = self.store_scope.filter(Warranty.objects.all(), *self.store_lookups, distinct=True)
+        claims = WarrantyClaim.objects.filter(warranty__in=qs)
+        month = claims.filter(created_at__year=today.year, created_at__month=today.month)
+        return Response({
+            "active": qs.filter(end_date__gt=today + timedelta(days=services.EXPIRING_DAYS)).count(),
+            "expiring": qs.filter(end_date__gte=today, end_date__lte=today + timedelta(days=services.EXPIRING_DAYS)).count(),
+            "expired": qs.filter(end_date__lt=today).count(),
+            "open_claims": claims.filter(status__in=(WarrantyClaim.OPEN, WarrantyClaim.APPROVED)).count(),
+            "claims_this_month": month.count(),
+            "claim_cost_this_month": month.filter(status=WarrantyClaim.RESOLVED).aggregate(t=Sum("cost"))["t"] or 0,
+        })
+
+    @action(detail=False, methods=["get"])
+    def expiring(self, request):
+        """Warranties ending soonest -- the calling list. ?days=30 (default)."""
+        try:
+            days = max(1, min(int(request.query_params.get("days", services.EXPIRING_DAYS)), 365))
+        except ValueError:
+            days = services.EXPIRING_DAYS
+        today = timezone.localdate()
+        qs = self.get_queryset().filter(end_date__gte=today, end_date__lte=today + timedelta(days=days)).order_by("end_date")
+        return Response(WarrantySerializer(qs, many=True, context=self.get_serializer_context()).data)
+
+    @action(detail=True, methods=["post"])
+    def remind(self, request, pk=None):
+        """Send this customer the 'warranty ending' reminder now."""
+        w = self.get_object()
+        if w.status == "Expired":
+            raise ValidationError({"detail": "This warranty has already ended."})
+        services.remind(w)
+        now = timezone.now()
+        w.reminded_7_at = now if (w.end_date - timezone.localdate()).days <= services.FINAL_DAYS else w.reminded_7_at
+        w.reminded_30_at = w.reminded_30_at or now
+        w.save(update_fields=["reminded_30_at", "reminded_7_at"])
+        return Response(WarrantySerializer(w, context=self.get_serializer_context()).data)
+
+    @action(detail=False, methods=["post"])
+    def send_reminders(self, request):
+        """Send every due reminder (the 30-day and 7-day ones not yet sent) -- same as the daily command."""
+        return Response({"sent": services.send_due_reminders()})
 
     @action(detail=False, methods=["get"], url_path="eligible-items")
     def eligible_items(self, request):
@@ -109,3 +148,54 @@ class WarrantyViewSet(StoreScopedMixin, viewsets.ModelViewSet):
             tickets.append({"id": t.id, "code": t.code, "label": f"{t.code} \u2014 {t.brand} {t.model_name}", "date": inv.date})
 
         return Response({"invoices": invoices, "repair_tickets": tickets})
+
+
+class WarrantyClaimViewSet(StoreScopedMixin, viewsets.ModelViewSet):
+    """Claims made under warranties. Staff with warranty.manage raise, decide and resolve them."""
+    store_lookups = ("warranty__invoice__stock_point", "warranty__repair_ticket__stock_point")
+    store_payload_field = None
+    store_distinct = True
+    queryset = WarrantyClaim.objects.select_related("warranty__party", "repair_ticket", "raised_by", "decided_by").all()
+    serializer_class = WarrantyClaimSerializer
+    permission_classes = [permissions.IsAuthenticated, HasPerm]
+    http_method_names = ["get", "post", "head", "options"]
+    required_perms = {"list": None, "retrieve": None, "create": "warranty.manage", "decide": "warranty.manage", "resolve": "warranty.manage"}
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        p = self.request.query_params
+        if p.get("status") in dict(WarrantyClaim.STATUS_CHOICES):
+            qs = qs.filter(status=p["status"])
+        elif p.get("group") == "open":
+            qs = qs.filter(status__in=(WarrantyClaim.OPEN, WarrantyClaim.APPROVED))
+        if p.get("warranty"):
+            qs = qs.filter(warranty_id=p["warranty"])
+        return qs
+
+    def _ticket(self, code, party_id):
+        code = (code or "").strip()
+        if not code:
+            return None
+        ticket = self.store_scope.filter(RepairTicket.objects.filter(code__iexact=code), "stock_point").first()
+        if not ticket or ticket.party_id != party_id:
+            raise ValidationError({"repair_code": "No repair job with that code for this customer."})
+        return ticket
+
+    def create(self, request, *args, **kwargs):
+        warranty = Warranty.objects.filter(pk=request.data.get("warranty")).first()
+        if not warranty or not self.store_scope.filter(Warranty.objects.filter(pk=warranty.pk), "invoice__stock_point", "repair_ticket__stock_point").exists():
+            raise ValidationError({"warranty": "Pick one of your warranties."})
+        claim = services.raise_claim(warranty, request.user, request.data.get("issue"), self._ticket(request.data.get("repair_code"), warranty.party_id))
+        return Response(self.get_serializer(claim).data, status=201)
+
+    @action(detail=True, methods=["post"])
+    def decide(self, request, pk=None):
+        claim = services.decide_claim(self.get_object(), request.user, request.data.get("decision"), request.data.get("note"))
+        return Response(self.get_serializer(claim).data)
+
+    @action(detail=True, methods=["post"])
+    def resolve(self, request, pk=None):
+        claim = self.get_object()
+        ticket = self._ticket(request.data.get("repair_code"), claim.warranty.party_id)
+        claim = services.resolve_claim(claim, request.user, request.data.get("resolution"), request.data.get("cost"), request.data.get("note"), ticket)
+        return Response(self.get_serializer(claim).data)

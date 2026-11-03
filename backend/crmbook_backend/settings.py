@@ -182,6 +182,13 @@ BUSINESS_PHONE = os.environ.get("BUSINESS_PHONE", "")
 BUSINESS_EMAIL = os.environ.get("BUSINESS_EMAIL", "")
 # Days a customer has to pay a sale or repair invoice before it's Overdue.
 INVOICE_DUE_DAYS = int(os.environ.get("INVOICE_DUE_DAYS", 7))
+# A repair ticket with no promised date is due this many days after it was received
+# (used by the staff performance report to flag delays).
+REPAIR_TURNAROUND_DAYS = int(os.environ.get("REPAIR_TURNAROUND_DAYS", 3))
+# Warranty created automatically when a sale is paid / a repair is delivered
+# (days; 0 switches that kind off). Same defaults the New-warranty form offers.
+WARRANTY_SALES_DAYS = int(os.environ.get("WARRANTY_SALES_DAYS", 365))
+WARRANTY_REPAIR_DAYS = int(os.environ.get("WARRANTY_REPAIR_DAYS", 90))
 # Staff Activity Logs: may a superuser read ANOTHER superuser's logs? Off
 # by default -- a superuser sees their own and non-superusers' logs only.
 ACTIVITY_LOGS_SUPERUSER_PEERS = env_bool("ACTIVITY_LOGS_SUPERUSER_PEERS", False)

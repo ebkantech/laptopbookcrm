@@ -94,23 +94,30 @@ function QuickAddParty({ onClose, onAdded }) {
   const [type, setType] = useState("Retail");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [city, setCity] = useState("");
   const [classification, setClassification] = useState("individual");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   const submit = async () => {
     if (!name.trim()) return setError("Name is required.");
-    if (!phone.trim()) return setError("Phone number is required.");
+    const phoneDigits = phone.replace(/\D/g, "");
+    if (phoneDigits.length < 10 || phoneDigits.length > 15) return setError("Enter a valid phone number with 10 to 15 digits.");
+    if (!email.trim()) return setError("Email is required.");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return setError("Enter a valid email address.");
+    if (!city.trim()) return setError("City is required.");
     setBusy(true);
     setError("");
     try {
       const party = await api.post("/parties/", {
-        name: name.trim(), type, customer_classification: classification, phone: phone.trim(), email: email.trim(),
+        name: name.trim(), type, customer_classification: classification, phone: phone.trim(), email: email.trim(), city: city.trim(),
         joined: todayISO(),
       });
       onAdded(party);
     } catch (e) {
-      setError(e.body?.detail || Object.values(e.body || {}).flat().join(" ") || e.message);
+      const body = e.body || {};
+      const fields = Object.entries(body).filter(([k]) => k !== "detail").map(([k, v]) => `${k.replace(/_/g, " ")}: ${[].concat(v).join(" ")}`);
+      setError(body.detail || fields.join(" · ") || e.message);
     } finally {
       setBusy(false);
     }
@@ -123,15 +130,16 @@ function QuickAddParty({ onClose, onAdded }) {
         <button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={14} style={{ color: C.inkSoft }} /></button>
       </div>
       <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" className="bg-transparent px-2 py-1.5 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name *" className="bg-transparent px-2 py-1.5 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
         <select value={type} onChange={(e) => setType(e.target.value)} className="bg-transparent px-2 py-1.5 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}>
           <option>Retail</option><option>Dealer</option><option>Rental</option>
         </select>
         <select value={classification} onChange={(event) => setClassification(event.target.value)} className="bg-transparent px-2 py-1.5 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}>
           <option value="individual">Individual</option><option value="business">Business / Corporate</option><option value="dealer">Dealer</option>
         </select>
-        <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone number" className="bg-transparent px-2 py-1.5 text-sm outline-none" style={{ fontFamily: F.mono, color: C.ink, border: `1px solid ${C.rule}` }} />
-        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email (optional)" className="bg-transparent px-2 py-1.5 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
+        <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone number *" className="bg-transparent px-2 py-1.5 text-sm outline-none" style={{ fontFamily: F.mono, color: C.ink, border: `1px solid ${C.rule}` }} />
+        <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="Email *" className="bg-transparent px-2 py-1.5 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
+        <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="City *" className="bg-transparent px-2 py-1.5 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
       </div>
       <ErrorNote message={error} />
       <button onClick={submit} disabled={busy} className="mt-2 flex w-full items-center justify-center gap-1.5 py-2 text-xs uppercase" style={{ backgroundColor: C.stamp, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.08em", opacity: busy ? 0.7 : 1 }}>

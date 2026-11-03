@@ -51,6 +51,20 @@ class User(AbstractUser):
         "catalog.StockPoint", on_delete=models.SET_NULL, null=True, blank=True, related_name="assigned_staff",
     )
 
+    # Where this person works from. "store" accounts are bound to one shop
+    # (stock_point). Field technicians belong to no shop and take on-site jobs
+    # from any store; outsourced technicians are the same but external
+    # (freelancers / partner companies) and can only be given jobs by an
+    # Admin / Super Admin (permission leads.outsource).
+    STORE, FIELD, OUTSOURCED = "store", "field", "outsourced"
+    KIND_CHOICES = [(STORE, "Store staff"), (FIELD, "Field technician (any store)"), (OUTSOURCED, "Outsourced technician")]
+    staff_kind = models.CharField(max_length=12, choices=KIND_CHOICES, default=STORE)
+    company = models.CharField(max_length=80, blank=True, help_text="Partner company / freelancer name for an outsourced technician.")
+
+    @property
+    def is_store_free(self):
+        return self.staff_kind in (self.FIELD, self.OUTSOURCED)
+
     def has_perm_code(self, codename: str) -> bool:
         if self.is_superuser:
             return True
@@ -82,6 +96,8 @@ class NotificationRule(models.Model):
         ("rental_changes_requested", "Customer requested changes to a rental agreement"),
         ("repair_approved", "Customer approved a repair estimate"),
         ("payment_received", "A payment was recorded (invoice or repair bill settled)"),
+        ("parts_return", "Parts you took out must be returned to the store"),
+        ("lead_parts_due", "A technician hasn't returned unused parts after a job closed"),
     ]
     event_key = models.CharField(max_length=40, choices=EVENT_CHOICES)
     role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="notification_rules")

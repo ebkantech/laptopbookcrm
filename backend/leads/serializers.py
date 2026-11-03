@@ -3,7 +3,7 @@ from rest_framework import serializers
 from accounts.store_scope import StoreScope
 from sales.models import Invoice
 from . import services
-from .models import Lead, LeadApproval, LeadEvent, LeadQuote, LeadQuoteLine
+from .models import Lead, LeadApproval, LeadEvent, LeadPartIssue, LeadQuote, LeadQuoteLine
 
 
 def user_name(user):
@@ -57,6 +57,26 @@ class ApprovalSerializer(serializers.ModelSerializer):
         return user_name(obj.decided_by)
 
 
+class PartIssueSerializer(serializers.ModelSerializer):
+    technician_name = serializers.SerializerMethodField()
+    outstanding = serializers.IntegerField(read_only=True)
+    lead_code = serializers.CharField(source="lead.code", read_only=True)
+    lead_status = serializers.CharField(source="lead.status", read_only=True)
+    due_now = serializers.SerializerMethodField()
+
+    class Meta:
+        model = LeadPartIssue
+        fields = ["id", "lead", "lead_code", "lead_status", "kind", "description", "qty_issued", "qty_used", "qty_returned", "qty_written_off",
+                  "outstanding", "technician", "technician_name", "issued_at", "note", "due_now"]
+
+    def get_technician_name(self, obj):
+        return user_name(obj.technician)
+
+    def get_due_now(self, obj):
+        # the job is over, so what is left must come back now
+        return obj.outstanding > 0 and obj.lead.status in Lead.FINISHED
+
+
 def _invoice_row(inv):
     return {"id": inv.id, "code": inv.code, "status": inv.status, "total": inv.total, "is_advance": inv.is_advance,
             "pay_method": inv.pay_method, "paid_on": inv.paid_on}
@@ -96,6 +116,12 @@ def allowed_actions(lead, user):
         acts.append("advance")
     if collect and s in (Lead.WORK_DONE, Lead.REJECTED, Lead.TO_STORE) and not lead.checked_out_at:
         acts.append("collect")
+    if p("leads.parts") and s in services.ISSUE_STATES and lead.assigned_to_id:
+        acts.append("issue_parts")
+    if p("leads.parts") and any(i.outstanding > 0 for i in lead.part_issues.all()):
+        acts.append("return_parts")
+        if manage:
+            acts.append("write_off_parts")
     if collect and any(i.is_advance and i.status in Invoice.OUTSTANDING for i in lead.invoices.all()):
         acts.append("collect_advance")
     if manage and s == Lead.WORK_DONE:
@@ -138,12 +164,13 @@ class LeadDetailSerializer(LeadListSerializer):
     advance_received = serializers.SerializerMethodField()
     party_phone = serializers.CharField(source="party.phone", read_only=True)
     repair_ticket_code = serializers.CharField(source="repair_ticket.code", read_only=True, default=None)
+    parts = PartIssueSerializer(source="part_issues", many=True, read_only=True)
 
     class Meta(LeadListSerializer.Meta):
         fields = LeadListSerializer.Meta.fields + [
             "diagnosis", "diagnosed_at", "work_notes", "work_started_at", "work_done_at", "closed_on_credit", "credit_reason",
             "cancel_reason", "reject_reason", "check_in_lat", "check_in_lng", "quote", "quotes", "approvals", "events",
-            "invoices", "actions", "advance_received", "party_phone", "repair_ticket", "repair_ticket_code",
+            "invoices", "actions", "advance_received", "party_phone", "repair_ticket", "repair_ticket_code", "parts",
         ]
 
     def get_quote(self, obj):
@@ -193,6 +220,9 @@ class LeadWriteSerializer(serializers.ModelSerializer):
         tech = attrs.get("assigned_to")
         if tech and not (tech.has_perm_code("leads.work")):
             raise serializers.ValidationError({"assigned_to": "That person can't be given on-site jobs."})
+        request = self.context.get("request")
+        if tech and tech.staff_kind == "outsourced" and request is not None and not request.user.has_perm_code("leads.outsource"):
+            raise serializers.ValidationError({"assigned_to": "Only a Super Admin or Admin can give a job to an outsourced technician."})
         return attrs
 
 

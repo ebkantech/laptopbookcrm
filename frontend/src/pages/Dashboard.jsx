@@ -41,6 +41,8 @@ import { C, F, compact, money } from "../lib/theme";
 import { api } from "../lib/api";
 import { onStoreChanged } from "../lib/storeEvents";
 import PageHeader from "../components/PageHeader";
+import PartsToReturn from "../components/leads/PartsToReturn";
+import { useSession } from "../context/SessionContext";
 
 /* -------------------------------------------------------
    PREMIUM DASHBOARD DESIGN SYSTEM
@@ -404,6 +406,7 @@ const fmtFilterDate = (v) =>
   v ? new Date(`${v}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "";
 
 export default function Dashboard({ onGo }) {
+  const { can } = useSession();
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -582,6 +585,9 @@ export default function Dashboard({ onGo }) {
           }
         />
       </div>
+
+      {/* Stock out with technicians that has to come back -- red when a job is over */}
+      {can("leads.view") && <div className="mb-6 -mt-3"><PartsToReturn /></div>}
 
       {/* FILTER BAR */}
       <Panel className="mb-6 p-4 sm:p-5">

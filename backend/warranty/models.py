@@ -29,6 +29,9 @@ class Warranty(models.Model):
     start_date = models.DateField()
     end_date = models.DateField()
     notes = models.TextField(blank=True)
+    auto_created = models.BooleanField(default=False, help_text="Created by the system when the sale was paid / the repair delivered.")
+    reminded_30_at = models.DateTimeField(null=True, blank=True)
+    reminded_7_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -90,3 +93,34 @@ class Warranty(models.Model):
         if self.notes:
             body += f" {self.notes}"
         return f"{body} {common_tail}"
+
+
+class WarrantyClaim(models.Model):
+    """A customer coming back under warranty: what went wrong, whether it was
+    accepted, how it was settled and what it cost the business."""
+    OPEN, APPROVED, REJECTED, RESOLVED = "open", "approved", "rejected", "resolved"
+    STATUS_CHOICES = [(OPEN, "Open"), (APPROVED, "Approved"), (REJECTED, "Rejected"), (RESOLVED, "Resolved")]
+    REPAIRED, REPLACED, REFUNDED, OTHER = "repaired", "replaced", "refunded", "other"
+    RESOLUTION_CHOICES = [(REPAIRED, "Repaired"), (REPLACED, "Replaced"), (REFUNDED, "Refunded"), (OTHER, "Other")]
+
+    code = models.CharField(max_length=20, unique=True)
+    warranty = models.ForeignKey(Warranty, on_delete=models.CASCADE, related_name="claims")
+    issue = models.TextField()
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=OPEN, db_index=True)
+    repair_ticket = models.ForeignKey(RepairTicket, on_delete=models.SET_NULL, null=True, blank=True, related_name="warranty_claims",
+                                      help_text="The repair job that handled this claim, if any.")
+    decision_note = models.CharField(max_length=300, blank=True)
+    resolution = models.CharField(max_length=10, choices=RESOLUTION_CHOICES, blank=True)
+    resolution_note = models.CharField(max_length=300, blank=True)
+    cost = models.PositiveIntegerField(default=0, help_text="What this claim cost the business (parts, replacement, refund).")
+    raised_by = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, related_name="+")
+    decided_by = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return self.code

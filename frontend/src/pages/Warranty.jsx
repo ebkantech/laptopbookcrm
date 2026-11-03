@@ -6,6 +6,7 @@ import { PARTY_CHANGED_EVENT } from "../lib/partyEvents";
 import { useSession } from "../context/SessionContext";
 import { Eyebrow, ErrorNote, Pill, PillButton, Spinner, TabBar } from "../components/Atoms";
 import PageHeader from "../components/PageHeader";
+import { ClaimsList, ExpiringList, RaiseClaimPrompt, SummaryStrip } from "../components/warranty/WarrantyExtras";
 
 const SECTION_COLOR = { Sales: C.stamp, Repair: C.amber, Rental: C.blue, Other: C.inkSoft };
 const STATUS_COLOR = { Active: C.green, "Expiring soon": C.amber, Expired: C.carbon };
@@ -149,6 +150,19 @@ export default function Warranty() {
   const [sectionFilter, setSectionFilter] = useState("all");
   const [adding, setAdding] = useState(false);
   const [flash, setFlash] = useState("");
+  const [view, setView] = useState("records");
+  const [summary, setSummary] = useState(null);
+  const [expiring, setExpiring] = useState([]);
+  const [claims, setClaims] = useState([]);
+  const [claimFor, setClaimFor] = useState(null);
+
+  const say = (text) => { setFlash(text); setTimeout(() => setFlash(""), 6000); };
+  const loadExtras = () => {
+    api.get("/warranties/summary/").then(setSummary).catch(() => {});
+    api.get("/warranties/expiring/").then(setExpiring).catch(() => {});
+    api.getAll("/warranty-claims/").then(setClaims).catch(() => {});
+  };
+  useEffect(loadExtras, []);
 
   const load = (phoneQuery) => {
     const params = phoneQuery ? `?phone=${encodeURIComponent(phoneQuery)}` : "";
@@ -196,6 +210,23 @@ export default function Warranty() {
         </div>
       )}
 
+      <SummaryStrip summary={summary} />
+      <div className="mt-4 overflow-x-auto">
+        <TabBar value={view} onChange={setView} tabs={[
+          { id: "records", label: "Warranties" },
+          { id: "expiring", label: `Expiring soon (${expiring.length})` },
+          { id: "claims", label: `Claims (${claims.filter((c) => c.status === "open" || c.status === "approved").length} open)` },
+        ]} />
+      </div>
+
+      {view === "expiring" && (
+        <ExpiringList items={expiring} canManage={can("warranty.manage")}
+          onRemind={async (w) => { try { await api.post(`/warranties/${w.id}/remind/`, {}); say(`Reminder sent to ${w.party_name}.`); loadExtras(); } catch (e) { say(e.message); } }}
+          onRemindAll={async () => { try { const r = await api.post("/warranties/send_reminders/", {}); say(r.sent ? `${r.sent} reminder${r.sent === 1 ? "" : "s"} sent.` : "No reminders were due."); loadExtras(); } catch (e) { say(e.message); } }} />
+      )}
+      {view === "claims" && <ClaimsList claims={claims} canManage={can("warranty.manage")} onChanged={() => { load(phone); loadExtras(); }} />}
+
+      {view === "records" && <>
       <div data-searchbox className="mt-5 flex w-full max-w-md min-w-0 items-center gap-2 px-4 py-2.5">
         <Phone size={15} style={{ color: C.inkSoft, flexShrink: 0 }} />
         <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Search by mobile number" aria-label="Search by mobile number"
@@ -226,6 +257,11 @@ export default function Warranty() {
             </div>
             <Pill color={SECTION_COLOR[w.section]}>{w.section}</Pill>
             <Pill color={STATUS_COLOR[w.status]}>{w.status}</Pill>
+            {w.auto_created && <Pill color={C.inkSoft}>auto</Pill>}
+            {w.claim_count > 0 && <Pill color={w.open_claims ? C.blue : C.inkSoft}>{w.claim_count} claim{w.claim_count === 1 ? "" : "s"}</Pill>}
+            {can("warranty.manage") && w.status !== "Expired" && (
+              <button type="button" onClick={() => setClaimFor(w)} className="min-h-[36px] px-3 text-xs" style={{ fontFamily: F.body, fontWeight: 700, border: `1px solid ${C.rule}`, color: C.ink }}>Raise claim</button>
+            )}
           </div>
         ))}
         {!rows.length && (
@@ -236,6 +272,11 @@ export default function Warranty() {
           </div>
         )}
       </div>
+
+      </>}
+
+      {claimFor && <RaiseClaimPrompt warranty={claimFor} onClose={() => setClaimFor(null)}
+        onDone={(c) => { setClaimFor(null); say(`Claim ${c.code} logged for ${c.party_name}.`); load(phone); loadExtras(); }} />}
 
       {adding && (
         <NewWarrantyModal parties={parties} onClose={() => setAdding(false)}

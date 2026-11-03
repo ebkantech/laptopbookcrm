@@ -74,6 +74,16 @@ def actor_codes(actor):
     return role_codes(actor.role)
 
 
+OUTSOURCE_PERM = "leads.outsource"
+
+
+def check_outsource(actor, *kinds):
+    """Outsourced technicians are added, changed and given jobs by an Admin /
+    Super Admin only (leads.outsource) -- store staff never are."""
+    if "outsourced" in kinds and not actor.has_perm_code(OUTSOURCE_PERM):
+        raise PermissionDenied("Only a Super Admin or Admin can add or change outsourced technicians.")
+
+
 def check_role_grant(actor, role):
     """Refuse the Owner role, and any role holding a permission the acting
     administrator doesn't hold themselves (no privilege escalation)."""

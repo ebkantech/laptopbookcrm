@@ -7,6 +7,7 @@ import { Eyebrow, ErrorNote, Pill, SearchInput, Spinner, TabBar } from "../compo
 import PageHeader from "../components/PageHeader";
 import LeadDetail from "../components/leads/LeadDetail";
 import LeadFormModal from "../components/leads/LeadFormModal";
+import PartsToReturn from "../components/leads/PartsToReturn";
 import { PRIORITY, TABS, inTab, statusOf } from "../components/leads/leadModel";
 
 const when = (v) => (v ? new Date(v).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "");
@@ -50,6 +51,7 @@ export default function Leads() {
         <SearchInput value={term} onChange={setTerm} placeholder="Search job, client, address…" className="min-w-[200px] flex-1" ariaLabel="Search jobs" />
       </div>
       <ErrorNote message={error} />
+      <PartsToReturn onOpenLead={openLead} refreshKey={open ? open.parts?.length : leads.length} />
       {shown.length === 0 ? (
         <div data-panel className="mt-6 p-10 text-center text-sm" style={{ color: C.inkSoft }}><Briefcase className="mx-auto mb-2" size={22} />{term ? "No job matches your search." : "No jobs here."}</div>
       ) : (

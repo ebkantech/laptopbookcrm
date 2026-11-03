@@ -41,6 +41,7 @@ class LeadViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         "technicians": "leads.view", "assign": None, "check_in": None, "diagnose": None, "quote": None, "send_link": None,
         "approve": "leads.approve", "start": None, "complete": None, "advance": None, "collect": None,
         "close_credit": "leads.manage", "cancel": None, "to_store": None, "reschedule": "leads.manage",
+        "issue_parts": None, "return_parts": None, "write_off_parts": None, "parts_due": "leads.view",
     }
 
     def get_queryset(self):
@@ -81,7 +82,7 @@ class LeadViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         return LeadDetailSerializer
 
     def _detail(self, lead):
-        lead = self.get_queryset().prefetch_related("quotes__lines", "approvals", "events", "invoices__items").get(pk=lead.pk)
+        lead = self.get_queryset().prefetch_related("quotes__lines", "approvals", "events", "invoices__items", "part_issues__technician", "part_issues__lead").get(pk=lead.pk)
         return Response(LeadDetailSerializer(lead, context=self.get_serializer_context()).data)
 
     def retrieve(self, request, *args, **kwargs):
@@ -114,8 +115,10 @@ class LeadViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         """Everyone who can be given on-site jobs. Technicians belong to no
         particular store, so any of them can be assigned to any job."""
         qs = User.objects.filter(is_active=True).filter(Q(is_superuser=True) | Q(role__permissions__codename="leads.work")).distinct()
+        if not request.user.has_perm_code("leads.outsource"):
+            qs = qs.exclude(staff_kind=User.OUTSOURCED)  # only Admin / Super Admin can pick outsourced technicians
         return Response([{"id": u.id, "name": u.get_full_name() or u.username, "stock_point": u.stock_point_id,
-                          "stock_point_name": "", "same_store": True}
+                          "stock_point_name": "", "same_store": True, "kind": u.staff_kind, "company": u.company}
                          for u in qs.order_by("first_name", "username")])
 
     # -- workflow ---------------------------------------------------------
@@ -130,6 +133,8 @@ class LeadViewSet(StoreScopedMixin, viewsets.ModelViewSet):
             raise ValidationError({"assigned_to": "Pick a technician."})
         if not tech.has_perm_code("leads.work"):
             raise ValidationError({"assigned_to": "That person can't be given on-site jobs."})
+        if tech.staff_kind == User.OUTSOURCED and not request.user.has_perm_code("leads.outsource"):
+            raise PermissionDenied("Only a Super Admin or Admin can give a job to an outsourced technician.")
         services.assign(lead, tech, request.user)
         return self._detail(lead)
 
@@ -242,6 +247,53 @@ class LeadViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         lead = self.get_object()
         services.take_to_store(lead, request.user, request.data.get("reason"), request.data.get("charge_visit", True) not in (False, "false", "0", 0))
         return self._detail(lead)
+
+    @action(detail=True, methods=["post"])
+    def issue_parts(self, request, pk=None):
+        """Hand a part or product to this job's technician (stock leaves the shelf, no invoice)."""
+        lead = self.get_object()
+        services.issue_parts(lead, request.user, request.data.get("kind"), request.data.get("item"),
+                             request.data.get("qty"), request.data.get("note", ""))
+        return self._detail(lead)
+
+    @action(detail=True, methods=["post"])
+    def return_parts(self, request, pk=None):
+        """Take unused stock back from the technician onto the store's shelf."""
+        lead = self.get_object()
+        services.receive_return(lead, request.user, request.data.get("issue"), request.data.get("qty"))
+        return self._detail(lead)
+
+    @action(detail=True, methods=["post"])
+    def write_off_parts(self, request, pk=None):
+        """Close out lost or damaged stock from the technician's account (Admin, with a reason)."""
+        lead = self.get_object()
+        services.write_off(lead, request.user, request.data.get("issue"), request.data.get("qty"), request.data.get("reason"))
+        return self._detail(lead)
+
+    @action(detail=False, methods=["get"])
+    def parts_due(self, request):
+        """Stock out with technicians. Everyone sees what they hold themselves;
+        people who handle parts (Admin / Super Admin) also see their store's team."""
+        from django.db.models import F
+        from .models import LeadPartIssue
+        from .serializers import PartIssueSerializer
+
+        user = request.user
+        qs = LeadPartIssue.objects.filter(qty_issued__gt=F("qty_used") + F("qty_returned") + F("qty_written_off")).select_related("lead", "technician")
+        scope = self.store_scope
+        if services.can_handle_parts(user):
+            if not scope.all:
+                qs = qs.filter(lead__stock_point_id=scope.store_id) if scope.store_id is not None else qs.filter(technician=user)
+        else:
+            qs = qs.filter(technician=user)
+        rows = PartIssueSerializer(qs.order_by("issued_at"), many=True).data
+        return Response({
+            "items": rows,
+            "due_now": sum(1 for r in rows if r["due_now"]),
+            "holding": sum(1 for r in rows if not r["due_now"]),
+            "mine_due_now": sum(1 for r in rows if r["due_now"] and r["technician"] == user.id),
+            "can_manage": services.can_handle_parts(user),
+        })
 
     @action(detail=True, methods=["post"])
     def close_credit(self, request, pk=None):

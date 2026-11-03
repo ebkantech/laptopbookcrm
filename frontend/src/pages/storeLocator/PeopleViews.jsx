@@ -15,6 +15,8 @@ import { initials, isShop, num, oneLine, personName, plural } from "./format";
 
 function StoreCell({ user }) {
   if (user.sees_all_stores) return <Badge tone="violet" icon={ShieldCheck}>All stores</Badge>;
+  if (user.staff_kind === "outsourced") return <Badge tone="violet" title={user.company}>Outsourced{user.company ? ` · ${user.company}` : ""}</Badge>;
+  if (user.staff_kind === "field") return <Badge tone="blue">Field · any store</Badge>;
   if (!user.stock_point) return <Badge tone="amber" icon={UserX}>Unassigned</Badge>;
   return <Badge tone="blue" title={user.stock_point_name}>{user.stock_point_name}</Badge>;
 }
@@ -43,7 +45,7 @@ export function StaffView({ users, points, counts, ownerView, onOpenStore, onOpe
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return users.filter((u) => {
-      if (store === "unassigned" && (u.stock_point || u.sees_all_stores)) return false;
+      if (store === "unassigned" && (u.stock_point || u.sees_all_stores || (u.staff_kind || "store") !== "store")) return false;
       if (store === "owner" && !u.sees_all_stores) return false;
       if (!["all", "unassigned", "owner"].includes(store) && String(u.stock_point) !== store) return false;
       if (!needle) return true;
@@ -55,7 +57,7 @@ export function StaffView({ users, points, counts, ownerView, onOpenStore, onOpe
     return <StateBox icon={Users} title="No staff accounts in your scope" text="Staff appear here once they have accounts — and, for store staff, a Store Location." />;
   }
 
-  const unassigned = users.filter((u) => !u.stock_point && !u.sees_all_stores);
+  const unassigned = users.filter((u) => !u.stock_point && !u.sees_all_stores && (u.staff_kind || "store") === "store");
   const owners = users.filter((u) => u.sees_all_stores);
 
   return (

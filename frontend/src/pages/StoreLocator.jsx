@@ -424,7 +424,7 @@ function Management({ me }) {
   const { points, counts, users, roles } = data;
   const loading = refreshing && !points;
   const shops = points?.filter(isShop).length ?? 0;
-  const unassigned = users?.filter((u) => !u.stock_point && !u.sees_all_stores).length ?? 0;
+  const unassigned = users?.filter((u) => !u.stock_point && !u.sees_all_stores && (u.staff_kind || "store") === "store").length ?? 0;
   const myStore = !ownerView && points?.[0];
   const inactive = canManageStatus ? (points?.filter((p) => p.is_active === false).length ?? 0) : 0;
   // the open drawer always shows the latest copy of its store
