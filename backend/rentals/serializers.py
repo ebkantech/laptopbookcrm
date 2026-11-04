@@ -43,6 +43,13 @@ class RentalSerializer(serializers.ModelSerializer):
     next_billing_period = serializers.SerializerMethodField()
     payment_interval_months = serializers.IntegerField(read_only=True)
     auto_invoice = serializers.BooleanField(read_only=True)
+    # the customer's ID on file (parties.kyc) -- a warning on the agreement, never a block
+    party_kyc_status = serializers.SerializerMethodField()
+
+    def get_party_kyc_status(self, obj):
+        from parties.kyc import kyc_status
+
+        return kyc_status(obj.party)
 
     class Meta:
         model = Rental
@@ -52,7 +59,7 @@ class RentalSerializer(serializers.ModelSerializer):
             "agreement_code", "status", "terms", "rental_type", "total_monthly_fee", "lines", "approval_status",
             "open_change_request", "next_payment_date", "next_payment_overdue",
             "churn_score", "churn_band", "issues", "open_issue_count",
-            "rent_invoices", "next_billing_period", "payment_interval_months", "auto_invoice",
+            "rent_invoices", "next_billing_period", "payment_interval_months", "auto_invoice", "party_kyc_status",
         ]
         # Payment counters only move when a rent invoice is paid in Sales &
         # Invoices (rentals.billing.on_rent_invoice_paid) -- never by hand.

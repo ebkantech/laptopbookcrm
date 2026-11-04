@@ -13,7 +13,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework_simplejwt.exceptions import AuthenticationFailed, TokenError
+from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
@@ -43,14 +43,7 @@ def csrf_cookie(request):
     return JsonResponse({"detail": "CSRF cookie set."})
 
 
-class StaffTokenObtainPairSerializer(TokenObtainPairSerializer):
-    """Issue staff JWTs only; customer identities use cookie sessions."""
-
-    def validate(self, attrs):
-        data = super().validate(attrs)
-        if hasattr(self.user, "customer_profile"):
-            raise AuthenticationFailed("Invalid username or password")
-        return data
+from .auth import StaffTokenObtainPairSerializer  # noqa: E402  (lockout + audit + session cap live in accounts.auth)
 
 
 class ThrottledTokenObtainPairView(TokenObtainPairView):
@@ -98,7 +91,7 @@ class RoleViewSet(viewsets.ModelViewSet):
     queryset = Role.objects.prefetch_related("permissions").all()
     permission_classes = [IsAuthenticated, HasPerm]
     required_perms = {
-        "list": None, "retrieve": None,
+        "list": None, "retrieve": None, "apps": None,
         "create": "roles.manage", "update": "roles.manage",
         "partial_update": "roles.manage", "destroy": "roles.manage",
     }

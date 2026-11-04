@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import JsBarcode from "jsbarcode";
 import {
-  Check, Loader2, MapPin, Pencil, Plus, Printer, ScanBarcode, Search, X,
+  Check, Loader2, MapPin, Pencil, Plus, Printer, ScanBarcode, ScanLine, Search, X,
 } from "lucide-react";
 import { C, F, money } from "../lib/theme";
 import { api } from "../lib/api";
@@ -11,6 +11,10 @@ import { Eyebrow, ErrorNote, Pill, PillButton, SearchInput, Spinner } from "../c
 import PageHeader from "../components/PageHeader";
 // Add stock -- New product / Existing product (restock): inventory/AddStockModal.jsx
 import AddStockModal from "./inventory/AddStockModal";
+import TraceSerialModal from "../components/serials/TraceSerialModal";
+import { SERIAL_STATUS_COLOR } from "../components/serials/serialStatus";
+import { printSerialLabels } from "../components/serials/serialLabels";
+import Prompt from "../components/leads/Prompt";
 
 const STOCK_LABELS = { kb: "Karol Bagh", np: "Nehru Place", ln: "Lajpat Nagar", amazon: "Amazon", flipkart: "Flipkart", site: "Website", wa: "WhatsApp" };
 const stockLabel = (s) => s.stock_point_name || STOCK_LABELS[s.stock_point] || s.stock_point;
@@ -75,36 +79,75 @@ function MobileLabel({ children }) {
  * limited to the account's store). Each unit: the product's one Product ID,
  * its own Serial Number, and -- under it, when the product has one -- the
  * product's HSN code. Units received before serial numbers have none. */
-function UnitList({ serials, productCode, hsn, inStock }) {
+function UnitList({ serials, productCode, hsn, inStock, product, variant, canEdit, onChanged, onTrace }) {
+  const [showAll, setShowAll] = useState(false);
+  const [writing, setWriting] = useState(null);
   if (!serials) return <p className="mt-2 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Loading serial numbers…</p>;
   const label = { fontFamily: F.body, fontWeight: 700, letterSpacing: "0.08em", color: C.inkSoft };
+  const onShelf = serials.filter((s) => s.status === "in_stock");
+  const shown = showAll ? serials : onShelf;
+  const gone = serials.length - onShelf.length;
+  const small = { fontFamily: F.body, fontWeight: 600, border: `1px solid ${C.rule}`, color: C.inkSoft };
   return (
     <div className="mt-3">
-      <p className="text-[10px] uppercase" style={label}>
-        Units with serial numbers · {serials.length}{inStock > serials.length ? ` of ${inStock} in stock` : ""}
-      </p>
-      {serials.length ? (
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[10px] uppercase" style={label}>
+          Units in stock with serial numbers · {onShelf.length}{inStock > onShelf.length ? ` of ${inStock}` : ""}
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {gone > 0 && <button type="button" onClick={() => setShowAll((v) => !v)} className="px-2 py-1 text-[11px]" style={small}>{showAll ? "In stock only" : `Show all (${gone} sold / out)`}</button>}
+          {onShelf.length > 0 && (
+            <button type="button" onClick={() => printSerialLabels(onShelf.map((s) => s.serial_number), { product: product.display_name, spec: variant.spec, productCode })}
+              className="flex items-center gap-1 px-2 py-1 text-[11px]" style={small}><Printer size={11} /> Labels for {onShelf.length} in stock</button>
+          )}
+        </div>
+      </div>
+      {shown.length ? (
         <ul className="mt-1.5 grid grid-cols-1 gap-1.5 sm:grid-cols-2" aria-label="Units">
-          {serials.map((s) => (
-            <li key={s.serial_number} className="grid grid-cols-2 gap-2 rounded-lg px-2.5 py-1.5 text-xs" style={{ backgroundColor: C.slip2, border: `1px solid ${C.rule}` }}
+          {shown.map((s) => (
+            <li key={s.serial_number} className="rounded-lg px-2.5 py-1.5 text-xs" style={{ backgroundColor: C.slip2, border: `1px solid ${C.rule}` }}
               title={`${s.stock_point} · received ${new Date(s.received_at).toLocaleDateString("en-IN")}`}>
-              <span className="min-w-0">
-                <span className="block text-[10px] uppercase" style={label}>Serial number</span>
-                <span className="block" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{s.serial_number}</span>
-                {hsn && <span className="block" style={{ fontFamily: F.mono, color: C.inkSoft }}>HSN {hsn}</span>}
-              </span>
-              <span className="min-w-0">
-                <span className="block text-[10px] uppercase" style={label}>Product ID</span>
-                <span className="block truncate" style={{ fontFamily: F.mono, color: C.ink }}>{productCode}</span>
-              </span>
+              <div className="flex items-start justify-between gap-2">
+                <span className="min-w-0">
+                  <span className="block text-[10px] uppercase" style={label}>Serial number</span>
+                  <button type="button" onClick={() => onTrace(s.serial_number)} className="block underline-offset-2 hover:underline" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }} title="Trace this unit">{s.serial_number}</button>
+                  {hsn && <span className="block" style={{ fontFamily: F.mono, color: C.inkSoft }}>HSN {hsn} · {productCode}</span>}
+                  {s.invoice && <span className="block" style={{ fontFamily: F.mono, color: C.inkSoft }}>{s.invoice}{s.customer ? ` · ${s.customer}` : ""}</span>}
+                </span>
+                <Pill color={SERIAL_STATUS_COLOR[s.status] || C.inkSoft}>{s.status_label || "In stock"}</Pill>
+              </div>
+              {s.status === "in_stock" && (
+                <div className="mt-1 flex gap-1.5">
+                  <button type="button" onClick={() => printSerialLabels([s.serial_number], { product: product.display_name, spec: variant.spec, productCode })} className="flex items-center gap-1 px-1.5 py-0.5 text-[11px]" style={small}><Printer size={10} /> Label</button>
+                  {canEdit && <button type="button" onClick={() => setWriting(s)} className="px-1.5 py-0.5 text-[11px]" style={{ ...small, color: C.carbon }}>Write off</button>}
+                </div>
+              )}
             </li>
           ))}
         </ul>
       ) : null}
-      {inStock > serials.length && (
+      {inStock > onShelf.length && (
         <p className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
-          {inStock - serials.length} {inStock - serials.length === 1 ? "unit was" : "units were"} received before serial numbers were generated, so {inStock - serials.length === 1 ? "it has" : "they have"} none.
+          {inStock - onShelf.length} {inStock - onShelf.length === 1 ? "unit was" : "units were"} received before serial numbers were generated, so {inStock - onShelf.length === 1 ? "it has" : "they have"} none. They can be sold without a serial.
         </p>
+      )}
+      {onShelf.length > inStock && (
+        <p className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.carbon }}>
+          {onShelf.length - inStock} more serial{onShelf.length - inStock === 1 ? "" : "s"} marked in stock than units on the shelf — they left before tracking. Find which aren't here and write them off (without reducing stock).
+        </p>
+      )}
+      {writing && (
+        <Prompt title={`Write off ${writing.serial_number}`} tone={C.carbon}
+          intro="Use this for a unit that is no longer on the shelf. Its history is kept."
+          fields={[{ name: "reason", label: "What happened (lost, damaged, sold before tracking…)", required: true },
+            { name: "reduce_stock", label: "Also take 1 off the shelf quantity (the unit is leaving now — lost or damaged)", type: "checkbox" }]}
+          submitLabel="Write off" onClose={() => setWriting(null)}
+          onSubmit={async (v) => {
+            try { await api.post(`/stock-serials/${writing.id}/write_off/`, { reason: v.reason, reduce_stock: !!v.reduce_stock }); }
+            catch (e) { throw new Error(e.body?.detail || e.body?.reason || e.message); }
+            setWriting(null);
+            onChanged();
+          }} />
       )}
     </div>
   );
@@ -387,6 +430,8 @@ export default function Inventory() {
   const [openProduct, setOpenProduct] = useState(null);
   // serial numbers of the open product, by variant SKU: { productId, byVariant }
   const [openSerials, setOpenSerials] = useState({ productId: null, byVariant: {} });
+  const [serialsVersion, setSerialsVersion] = useState(0);
+  const [tracing, setTracing] = useState(null); // "" = open empty, or a serial number
   useEffect(() => {
     if (!openProduct) return undefined;
     let live = true;
@@ -397,7 +442,7 @@ export default function Inventory() {
       setOpenSerials({ productId: openProduct.id, byVariant });
     }, () => live && setOpenSerials({ productId: openProduct.id, byVariant: {} }));
     return () => { live = false; };
-  }, [openProduct]);
+  }, [openProduct, serialsVersion]);
   const serialsLoaded = openSerials.productId === openProduct?.id;
   const serialsFor = (code) => (serialsLoaded ? openSerials.byVariant[code] || [] : null);
   const [stockPoints, setStockPoints] = useState([]);
@@ -491,6 +536,7 @@ export default function Inventory() {
         />
         <div className="flex flex-1 items-center gap-2 sm:flex-none">
           <PillButton icon={ScanBarcode} onClick={() => setScanning(true)} className="flex-1 justify-center sm:flex-none">Scan</PillButton>
+          <PillButton icon={ScanLine} onClick={() => setTracing("")} className="flex-1 justify-center sm:flex-none">Trace serial</PillButton>
           {can("inventory.edit") && (
             <PillButton icon={Plus} primary onClick={() => setAdding(true)} className="flex-1 justify-center sm:flex-none">Add stock</PillButton>
           )}
@@ -596,8 +642,11 @@ export default function Inventory() {
                       </button>
                     </div>
                   </div>
-                  <UnitList serials={serialsFor(v.code)} productCode={openProduct.product_code} hsn={openProduct.hsn}
-                    inStock={v.stock.reduce((n, st) => n + st.quantity, 0)} />
+                  {(openProduct.serial_tracking || serialsFor(v.code)?.length > 0) && (
+                    <UnitList serials={serialsFor(v.code)} productCode={openProduct.product_code} hsn={openProduct.hsn}
+                      inStock={v.stock.reduce((n, st) => n + st.quantity, 0)} product={openProduct} variant={v}
+                      canEdit={can("inventory.edit")} onChanged={() => { setSerialsVersion((n) => n + 1); load(query); }} onTrace={(sn) => setTracing(sn)} />
+                  )}
                   <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
                     {v.stock.map((s) => (
                       <StockTile key={s.id ?? s.stock_point} stock={s} canEdit={can("inventory.edit")} onSaved={onLocationSaved} />
@@ -612,6 +661,7 @@ export default function Inventory() {
 
       {scanning && <ScanModal onClose={() => setScanning(false)} onFound={onScanFound} />}
       {adding && <AddStockModal stockPoints={stockPoints} onClose={() => setAdding(false)} onAdded={onStockAdded} />}
+      {tracing !== null && <TraceSerialModal key={tracing} initial={tracing} onClose={() => setTracing(null)} />}
       {printing && <PrintModal product={printing.product} variant={printing.variant} onClose={() => setPrinting(null)} />}
     </div>
   );

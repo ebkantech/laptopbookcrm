@@ -46,7 +46,16 @@ class HasPerm(BasePermission):
 
         per_action = getattr(view, "required_perms", None)
         if per_action:
-            codename = per_action.get(view.action)
+            # Fail closed: an action missing from the map is refused, so a new
+            # endpoint added without a permission decision is never open to every
+            # staff account. List an action with None to deliberately leave it to
+            # the view's own checks (or to any signed-in staff).
+            if view.action not in per_action:
+                if request.method == "OPTIONS":
+                    return True
+                _log_denial(request, f"unmapped:{view.action}")
+                return False
+            codename = per_action[view.action]
             if codename is None:
                 return True
             allowed = request.user.has_perm_code(codename)

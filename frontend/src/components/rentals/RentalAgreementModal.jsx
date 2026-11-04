@@ -5,6 +5,8 @@ import { api } from "../../lib/api";
 import { C, todayISO } from "../../lib/theme";
 import { ErrorNote, Eyebrow } from "../Atoms";
 import NewRentalCustomer from "./NewRentalCustomer";
+import CustomerIdPanel from "../parties/CustomerIdPanel";
+import { useSession } from "../../context/SessionContext";
 import { ASSET_LIMITS, LIMITS, describeServerError, validateAgreement, validateAssetDraft, validateInventoryPick } from "./agreementValidation";
 
 
@@ -18,6 +20,7 @@ const boxStyle = (message) => ({ border: `1px solid ${message ? C.carbon : C.rul
 const emptyAsset = { asset_tag: "", serial_number: "", brand: "", model_name: "" };
 
 export default function RentalAgreementModal({ parties, initialAssets, initialParty = "", renewing = null, canAddCustomer = false, onCustomerCreated, onCreated, onClose }) {
+  const { can } = useSession();
   const [addingCustomer, setAddingCustomer] = useState(false);
   // Renewal: the finished agreement's devices come back to stock when this one is saved, so offer them as available.
   const [assets, setAssets] = useState(() => (renewing
@@ -236,6 +239,8 @@ export default function RentalAgreementModal({ parties, initialAssets, initialPa
           <NewRentalCustomer parties={parties} onCancel={() => setAddingCustomer(false)}
             onCreated={(created, { existing } = {}) => { if (!existing) onCustomerCreated?.(created); setParty(String(created.id)); setAddingCustomer(false); }} />
         )}
+        {/* the customer's ID on file -- recorded / verified here; a warning only, never blocks the agreement */}
+        {party && <CustomerIdPanel key={party} partyId={party} canManage={can("rentals.manage") || can("parties.manage")} />}
         <div className="mt-3 flex flex-wrap items-end gap-x-4 gap-y-2">
           <label className="text-xs" style={{ color: C.inkSoft }}>Recurring payment
             <select value={billingCycle} aria-invalid={!!fieldError("billingCycle", "payment_interval_months")} onChange={(event) => setBillingCycle(event.target.value)} className="mt-1 block bg-transparent p-2 text-sm" style={boxStyle(fieldError("billingCycle", "payment_interval_months"))}>

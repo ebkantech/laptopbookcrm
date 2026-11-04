@@ -206,3 +206,25 @@ class ActivityLog(models.Model):
 
     def __str__(self):
         return f"{self.actor} {self.action} {self.record_type}:{self.record_id} at {self.at:%Y-%m-%d %H:%M}"
+
+
+class LoginAttempt(models.Model):
+    """
+    Every staff sign-in, successful or not (API login and the Django admin),
+    for the security audit and the per-account lockout (accounts.auth).
+    The username is stored as typed, so attempts on accounts that don't
+    exist are visible too. The address is kept only for this security log.
+    """
+    username = models.CharField(max_length=150, db_index=True)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="login_attempts")
+    success = models.BooleanField(default=False)
+    reason = models.CharField(max_length=40, blank=True, help_text="Why it failed: bad password / locked / not staff.")
+    ip = models.GenericIPAddressField(null=True, blank=True)
+    via = models.CharField(max_length=10, default="api")
+    at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-at"]
+
+    def __str__(self):
+        return f"{self.username} {'ok' if self.success else 'FAILED'} @ {self.at:%Y-%m-%d %H:%M}"

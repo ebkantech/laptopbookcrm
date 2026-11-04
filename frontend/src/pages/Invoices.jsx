@@ -6,9 +6,13 @@ import { onStoreChanged } from "../lib/storeEvents";
 import { useSession } from "../context/SessionContext";
 import { Eyebrow, ErrorNote, Pill, PillButton, SearchInput, Spinner, TabBar } from "../components/Atoms";
 import PageHeader from "../components/PageHeader";
+import OrderToggle from "../components/OrderToggle";
+import { orderRows, useOrder } from "../lib/order";
 import PrintableInvoice from "../components/invoices/PrintableInvoice";
 import UpiPaymentLink from "../components/invoices/UpiPaymentLink";
 import PartyPicker from "../components/invoices/PartyPicker";
+import SerialPicker from "../components/serials/SerialPicker";
+import { blankLine, placeVariant, variantForProduct } from "../components/invoices/saleLines";
 
 const STATUS_COLOR = { Paid: "#36D399", "Payment link sent": "#F5A623", Overdue: "#FB5B5B", Cancelled: "#8A8F98", Refunded: "#7C6FD8" };
 const isOutstanding = (inv) => inv.status === "Payment link sent" || inv.status === "Overdue";
@@ -31,8 +35,8 @@ function NewInvoiceModal({ products, stockPoints, onClose, onCreate }) {
   // bill the wrong person.
   const [party, setParty] = useState(null);
   const [stockPoint, setStockPoint] = useState(stockPoints.find((s) => s.kind === "shop")?.id);
-  const blankLine = () => ({ productId: "", variantId: "", qty: 1, price: "" });
   const [lines, setLines] = useState([blankLine()]);
+  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -40,13 +44,26 @@ function NewInvoiceModal({ products, stockPoints, onClose, onCreate }) {
   const variantOf = (line) => products.find((p) => p.id === +line.productId)?.variants.find((v) => v.id === +line.variantId);
   const inStock = (variant) => variant?.stock?.find((s) => s.stock_point === shopSlug)?.quantity ?? 0;
   const setLine = (i, patch) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  // The same item can't be on two lines: choosing it again raises the quantity of the line it is already on.
+  const place = (i, patch) => {
+    const { lines: next, merged } = placeVariant(lines, i, patch);
+    setLines(next);
+    if (merged) {
+      const p = products.find((x) => x.id === +next[merged.index].productId);
+      const v = p?.variants.find((x) => x.id === +next[merged.index].variantId);
+      setNote(`${p?.display_name || "This item"}${v?.spec ? ` (${v.spec})` : ""} is already on the invoice — quantity raised to ${merged.qty}.`);
+    } else {
+      setNote("");
+    }
+  };
   const pickProduct = (i, productId) => {
-    const v = products.find((p) => p.id === +productId)?.variants[0];
-    setLine(i, { productId, variantId: v ? String(v.id) : "", price: v ? String(v.sell_price) : "" });
+    const product = products.find((p) => p.id === +productId);
+    const v = variantForProduct(product, lines, i);
+    place(i, { productId, variantId: v ? String(v.id) : "", price: v ? String(v.sell_price) : "" });
   };
   const pickVariant = (i, variantId) => {
     const v = products.find((p) => p.id === +lines[i].productId)?.variants.find((x) => x.id === +variantId);
-    setLine(i, { variantId, price: v ? String(v.sell_price) : "" });
+    place(i, { variantId, price: v ? String(v.sell_price) : "" });
   };
   const total = lines.reduce((sum, l) => sum + (+l.price || 0) * (+l.qty || 0), 0);
 
@@ -59,12 +76,17 @@ function NewInvoiceModal({ products, stockPoints, onClose, onCreate }) {
       const v = variantOf(l);
       if (!(+l.qty >= 1)) return setError("Every line needs a quantity of at least 1.");
       if (l.price === "" || +l.price < 0) return setError(`Enter a price for ${v?.spec || "each line"}.`);
+      if (l.serialInfo?.tracked) {
+        const need = Math.max(0, +l.qty - l.serialInfo.untracked);
+        if (l.serials.length < need) return setError(`Pick the serial number of each unit of ${v?.spec || "this item"} (${l.serials.length} of ${need}).`);
+        if (l.serials.length > +l.qty) return setError(`More serial numbers than units for ${v?.spec || "this item"}.`);
+      }
     }
     setBusy(true);
     try {
       await onCreate({
         party, stock_point: stockPoint, date: todayISO(),
-        items: filled.map((l) => ({ variant: +l.variantId, qty: +l.qty, price: +l.price })),
+        items: filled.map((l) => ({ variant: +l.variantId, qty: +l.qty, price: +l.price, ...(l.serials.length ? { serials: l.serials } : {}) })),
       });
     } catch (e) {
       const body = e.body || {};
@@ -86,7 +108,7 @@ function NewInvoiceModal({ products, stockPoints, onClose, onCreate }) {
             <PartyPicker value={party} onChange={setParty} />
           </div>
           <label className="text-xs" style={{ display: "block", fontFamily: F.body, color: C.inkSoft }}>Sold through (stock is taken from here)
-            <select value={stockPoint} onChange={(e) => setStockPoint(+e.target.value)} className="mt-1 w-full py-2 text-sm outline-none" style={field}>
+            <select value={stockPoint} onChange={(e) => { setStockPoint(+e.target.value); setLines((ls) => ls.map((l) => ({ ...l, serials: [], serialInfo: null }))); }} className="mt-1 w-full py-2 text-sm outline-none" style={field}>
               {stockPoints.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </label>
@@ -100,25 +122,35 @@ function NewInvoiceModal({ products, stockPoints, onClose, onCreate }) {
                 const have = v ? inStock(v) : null;
                 const short = v && +l.qty > have;
                 return (
-                  <div key={i} className="grid grid-cols-[1fr_1fr_64px_100px_24px] items-start gap-2">
-                    <select value={l.productId} onChange={(e) => pickProduct(i, e.target.value)} className="py-1.5 text-sm outline-none" style={field}>
+                  <div key={i}>
+                  {/* minmax(0, …): a long product name must not widen its column and squeeze the others.
+                      Phones: product on its own row, then variant / qty / price. */}
+                  <div className="grid grid-cols-[minmax(0,1fr)_56px_88px_24px] items-start gap-2 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_64px_100px_24px]">
+                    <select value={l.productId} onChange={(e) => pickProduct(i, e.target.value)} title={product?.display_name || "Product"} className="col-span-4 w-full min-w-0 truncate py-1.5 text-sm outline-none sm:col-span-1" style={field}>
                       <option value="">Product…</option>
                       {products.map((p) => <option key={p.id} value={p.id}>{p.display_name}</option>)}
                     </select>
-                    <div>
-                      <select value={l.variantId} onChange={(e) => pickVariant(i, e.target.value)} disabled={!product} className="w-full py-1.5 text-sm outline-none" style={field}>
+                    <div className="min-w-0">
+                      <select value={l.variantId} onChange={(e) => pickVariant(i, e.target.value)} disabled={!product} title={v?.spec || "Variant"} className="w-full min-w-0 truncate py-1.5 text-sm outline-none" style={field}>
                         {product?.variants.map((x) => <option key={x.id} value={x.id}>{x.spec}</option>)}
                       </select>
-                      {v && <span className="text-[11px]" style={{ fontFamily: F.mono, color: short ? C.carbon : C.inkSoft }}>{have} in stock here</span>}
+                      {v && <span className="block whitespace-nowrap text-[11px]" style={{ fontFamily: F.mono, color: short ? C.carbon : C.inkSoft }}>{have} in stock here</span>}
                     </div>
-                    <input type="number" min={1} value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} title="Quantity" className="py-1.5 text-center text-sm outline-none" style={{ ...field, fontFamily: F.mono, borderColor: short ? C.carbon : C.rule }} />
-                    <input value={l.price} onChange={(e) => setLine(i, { price: e.target.value.replace(/\D/g, "") })} placeholder="₹ each" title="Unit price -- edit for a discount" className="py-1.5 text-right text-sm outline-none" style={{ ...field, fontFamily: F.mono }} />
+                    <input type="number" min={1} value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} title="Quantity" className="w-full min-w-0 py-1.5 text-center text-sm outline-none" style={{ ...field, fontFamily: F.mono, borderColor: short ? C.carbon : C.rule }} />
+                    <input value={l.price} onChange={(e) => setLine(i, { price: e.target.value.replace(/\D/g, "") })} placeholder="₹ each" title="Unit price -- edit for a discount" className="w-full min-w-0 py-1.5 text-right text-sm outline-none" style={{ ...field, fontFamily: F.mono }} />
                     <button type="button" disabled={lines.length === 1} onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))} className="pt-2" title="Remove line"><X size={14} style={{ color: C.inkSoft }} /></button>
+                  </div>
+                  {product?.serial_tracking && v && (
+                    <SerialPicker variantId={v.id} stockPointId={stockPoint} qty={l.qty} value={l.serials}
+                      onChange={(serials) => setLine(i, { serials, qty: Math.max(+l.qty || 0, serials.length) })}
+                      onInfo={(serialInfo) => setLine(i, { serialInfo })} />
+                  )}
                   </div>
                 );
               })}
             </div>
-            <button type="button" onClick={() => setLines((ls) => [...ls, blankLine()])} className="mt-2 flex items-center gap-1 text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: C.stamp }}><Plus size={12} /> Add another item</button>
+            {note && <p role="status" className="mt-2 text-[11px]" style={{ fontFamily: F.body, color: C.stamp, fontWeight: 600 }}>{note}</p>}
+            <button type="button" onClick={() => { setNote(""); setLines((ls) => [...ls, blankLine()]); }} className="mt-2 flex items-center gap-1 text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: C.stamp }}><Plus size={12} /> Add another item</button>
             <p className="mt-1 text-[11px]" style={{ fontFamily: F.body, color: C.inkSoft }}>The unit price starts at the list price — change it to give a discount.</p>
           </div>
 
@@ -297,6 +329,7 @@ function RefundInvoice({ invoice, onChanged }) {
   const [open, setOpen] = useState(false);
   const isSale = invoice.source === "sale";
   const [qty, setQty] = useState({});
+  const [picked, setPicked] = useState({}); // item id -> serial numbers coming back
   const [amount, setAmount] = useState("");
   const [restock, setRestock] = useState(true);
   const [method, setMethod] = useState(invoice.pay_method && PAYMENT_METHODS.includes(invoice.pay_method) ? invoice.pay_method : "Cash");
@@ -327,7 +360,7 @@ function RefundInvoice({ invoice, onChanged }) {
     try {
       const body = { method, reference: reference.trim(), reason: reason.trim() };
       if (isSale) {
-        body.items = Object.entries(qty).filter(([, q]) => Number(q) > 0).map(([item, q]) => ({ item: Number(item), qty: Number(q) }));
+        body.items = Object.entries(qty).filter(([, q]) => Number(q) > 0).map(([item, q]) => ({ item: Number(item), qty: Number(q), serials: picked[item] || [] }));
         body.restock = restock;
       } else {
         body.amount = Number(amount);
@@ -349,11 +382,30 @@ function RefundInvoice({ invoice, onChanged }) {
           {returnable.map((it) => {
             const max = it.qty - (it.returned_qty || 0);
             return (
-              <div key={it.id} className="flex items-center justify-between gap-2 text-xs" style={{ fontFamily: F.body, color: C.ink }}>
-                <span>{it.product_name} <span style={{ fontFamily: F.mono, color: C.inkSoft }}>· {money(it.price)} each · {max} returnable</span></span>
-                <input type="number" min={0} max={max} value={qty[it.id] ?? ""} placeholder="0" title="Quantity returned"
-                  onChange={(e) => setQty({ ...qty, [it.id]: Math.max(0, Math.min(max, Number(e.target.value.replace(/\D/g, "")) || 0)) })}
-                  className="w-16 px-2 py-1 text-right text-sm outline-none" style={{ ...field, fontFamily: F.mono }} />
+              <div key={it.id} className="text-xs" style={{ fontFamily: F.body, color: C.ink }}>
+                <div className="flex items-center justify-between gap-2">
+                  <span>{it.product_name} <span style={{ fontFamily: F.mono, color: C.inkSoft }}>· {money(it.price)} each · {max} returnable</span></span>
+                  <input type="number" min={0} max={max} value={qty[it.id] ?? ""} placeholder="0" title="Quantity returned"
+                    onChange={(e) => setQty({ ...qty, [it.id]: Math.max(0, Math.min(max, Number(e.target.value.replace(/\D/g, "")) || 0)) })}
+                    className="w-16 px-2 py-1 text-right text-sm outline-none" style={{ ...field, fontFamily: F.mono }} />
+                </div>
+                {it.sold_serials?.length > 0 && (
+                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                    <span style={{ color: C.inkSoft }}>Which unit{max > 1 ? "s" : ""}?</span>
+                    {it.sold_serials.map((sn) => {
+                      const on = (picked[it.id] || []).includes(sn);
+                      return (
+                        <button key={sn} type="button" role="checkbox" aria-checked={on} className="rounded px-1.5 py-0.5 text-[11px]"
+                          onClick={() => {
+                            const next = on ? (picked[it.id] || []).filter((x) => x !== sn) : [...(picked[it.id] || []), sn];
+                            setPicked({ ...picked, [it.id]: next });
+                            setQty({ ...qty, [it.id]: Math.min(max, Math.max(next.length, on ? next.length : Number(qty[it.id]) || 0)) });
+                          }}
+                          style={{ fontFamily: F.mono, fontWeight: 700, border: `1px solid ${on ? C.carbon : C.rule}`, backgroundColor: on ? C.carbon : "transparent", color: on ? C.onAccent : C.ink }}>{sn}</button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -438,7 +490,7 @@ function InvoiceDetail({ invoice, onClose, onSettle, onChanged }) {
         <div className="mt-4 space-y-1.5">
           {invoice.items.map((it) => (
             <div key={it.id} className="flex items-center justify-between px-3 py-2 rounded-xl" style={{ backgroundColor: C.slip2 }}>
-              <span className="text-sm" style={{ fontFamily: F.body, color: C.ink }}>{it.product_name} <span style={{ fontFamily: F.mono, color: C.inkSoft, fontSize: 11 }}>{it.qty} × {money(it.price)}</span></span>
+              <span className="text-sm" style={{ fontFamily: F.body, color: C.ink }}>{it.product_name} <span style={{ fontFamily: F.mono, color: C.inkSoft, fontSize: 11 }}>{it.qty} × {money(it.price)}</span>{it.serial_numbers?.length > 0 && <span className="block text-[11px]" style={{ fontFamily: F.mono, color: C.inkSoft }}>S/N {it.serial_numbers.join(", ")}</span>}</span>
               <span className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{money(it.price * it.qty)}</span>
             </div>
           ))}
@@ -512,6 +564,7 @@ export default function Invoices() {
   const [source, setSource] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [query, setQuery] = useState("");
+  const [order, setOrder] = useOrder("invoices", "desc");
   const [adding, setAdding] = useState(false);
   const [openInvoice, setOpenInvoice] = useState(null);
 
@@ -583,6 +636,7 @@ export default function Invoices() {
 
       <div className="flex flex-wrap items-center gap-3 px-5 pb-4 sm:px-8">
         <SearchInput value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by invoice code, customer, ticket or agreement" className="basis-full sm:basis-0" />
+        <OrderToggle value={order} onChange={setOrder} label="Invoice order" />
         <span className="text-xs" aria-live="polite" style={{ fontFamily: F.body, color: C.inkSoft }}>
           To collect: <b style={{ fontFamily: F.mono, color: C.ink }}>{money(awaiting.reduce((sum, inv) => sum + inv.total, 0))}</b> across {awaiting.length} invoice{awaiting.length !== 1 ? "s" : ""}
         </span>
@@ -590,7 +644,7 @@ export default function Invoices() {
 
       <div className="flex-1 overflow-y-auto px-5 pb-4 sm:px-8">
         <div className="flex flex-col gap-2.5">
-          {visibleInvoices.map((inv) => (
+          {orderRows(visibleInvoices, order, "desc").map((inv) => (
             <div
               key={inv.id}
               data-listcard

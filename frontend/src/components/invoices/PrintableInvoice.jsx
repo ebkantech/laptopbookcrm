@@ -98,6 +98,7 @@ function InvoiceSheet({ data }) {
               <td style={cell}>
                 <div style={{ fontWeight: 600 }}>{it.description}</div>
                 {(it.spec || it.code) && <div style={{ color: SOFT, fontSize: 11 }}>{[it.spec, it.code].filter(Boolean).join(" · ")}</div>}
+                {it.serials?.length > 0 && <div style={{ color: SOFT, fontSize: 11, fontFamily: "monospace" }}>S/N {it.serials.join(", ")}</div>}
               </td>
               <td style={cell}>{it.hsn || "—"}</td>
               <td style={num}>{it.qty}</td>

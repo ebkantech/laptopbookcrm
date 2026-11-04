@@ -122,7 +122,7 @@ def _issue_portal_invite(party, request):
 
 
 class PartyViewSet(viewsets.ModelViewSet):
-    queryset = Party.objects.prefetch_related("invoices__items", "invoices__stock_point", "messages").all()
+    queryset = Party.objects.prefetch_related("invoices__items", "invoices__stock_point", "messages", "id_documents").all()
     permission_classes = [permissions.IsAuthenticated, HasPerm]
     required_perms = {
         "list": "parties.view", "retrieve": "parties.view",

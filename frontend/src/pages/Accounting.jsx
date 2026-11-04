@@ -5,6 +5,8 @@ import { api } from "../lib/api";
 import { useSession } from "../context/SessionContext";
 import { Eyebrow, Locked, Pill, PillButton, Spinner, ErrorNote, StatCard, TabBar } from "../components/Atoms";
 import PageHeader from "../components/PageHeader";
+import OrderToggle from "../components/OrderToggle";
+import { orderRows, useOrder } from "../lib/order";
 import Expenses from "./accounting/Expenses";
 
 /* Entries posted automatically from an invoice payment carry its code. */
@@ -47,6 +49,7 @@ function CashBook() {
   const [entries, setEntries] = useState(null);
   const [adding, setAdding] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const [order, setOrder] = useOrder("cashbook");
 
   useEffect(() => { api.getAll("/cash-entries/").then(setEntries).catch((e) => setLoadError(e.message || "Couldn't load the cash book.")); }, []);
   if (!can("cashbook.view")) return <Locked label="Your role doesn't include cash book access." />;
@@ -79,13 +82,16 @@ function CashBook() {
           <Eyebrow>Cash book entries</Eyebrow>
           <p className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Cash payments recorded on invoices appear here automatically.</p>
         </div>
-        {can("cashbook.edit") && <PillButton icon={Plus} primary onClick={() => setAdding(true)}>Add entry</PillButton>}
+        <div className="flex flex-wrap items-center gap-2">
+          <OrderToggle value={order} onChange={setOrder} label="Cash book order" />
+          {can("cashbook.edit") && <PillButton icon={Plus} primary onClick={() => setAdding(true)}>Add entry</PillButton>}
+        </div>
       </div>
       <div className="mt-3 overflow-x-auto" data-panel style={{ border: `1px solid ${C.rule}` }}>
         <table className="w-full table table-borderless table-sm mb-0" style={{ borderCollapse: "collapse" }}>
           <thead><tr>{["Date", "Particulars", "By", "In", "Out", "Balance"].map((h) => <th key={h} className="px-3 py-2 text-left text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: C.inkSoft, borderBottom: `1px solid ${C.rule}` }}>{h}</th>)}</tr></thead>
           <tbody>
-            {rows.map((e) => (
+            {orderRows(rows, order).map((e) => (
               <tr key={e.id}>
                 <td className="px-3 py-2 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft, borderBottom: `1px solid ${C.rule}` }}>{fmt(e.date)}</td>
                 <td className="px-3 py-2 text-xs" style={{ fontFamily: F.body, color: C.ink, borderBottom: `1px solid ${C.rule}` }}>{e.particulars}<InvoiceTag code={e.invoice_code} /></td>
@@ -181,6 +187,7 @@ function BankBook() {
   const [accountId, setAccountId] = useState(null);
   const [adding, setAdding] = useState(false);
   const [settings, setSettings] = useState(null); // "new" | account
+  const [order, setOrder] = useOrder("bankbook");
 
   const load = (selectId) => api.getAll("/bank-accounts/").then((list) => {
     setAccounts(list);
@@ -229,13 +236,16 @@ function BankBook() {
           <Eyebrow>Transactions</Eyebrow>
           {acc?.is_default && <p className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>UPI, card, bank-transfer and cheque payments on invoices are posted here automatically — tick them off against the bank statement.</p>}
         </div>
-        {can("bankbook.edit") && acc && <PillButton icon={Plus} primary onClick={() => setAdding(true)}>Add entry</PillButton>}
+        <div className="flex flex-wrap items-center gap-2">
+          <OrderToggle value={order} onChange={setOrder} label="Bank book order" />
+          {can("bankbook.edit") && acc && <PillButton icon={Plus} primary onClick={() => setAdding(true)}>Add entry</PillButton>}
+        </div>
       </div>
       <div className="mt-3 overflow-x-auto" data-panel style={{ border: `1px solid ${C.rule}` }}>
         <table className="w-full table table-borderless table-sm mb-0" style={{ borderCollapse: "collapse" }}>
           <thead><tr>{["Date", "Particulars", "Reference", "In", "Out", "Balance", "Status"].map((h) => <th key={h} className="px-3 py-2 text-left text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: C.inkSoft, borderBottom: `1px solid ${C.rule}` }}>{h}</th>)}</tr></thead>
           <tbody>
-            {rows.map((e) => (
+            {orderRows(rows, order).map((e) => (
               <tr key={e.id}>
                 <td className="px-3 py-2 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft, borderBottom: `1px solid ${C.rule}` }}>{fmt(e.date)}</td>
                 <td className="px-3 py-2 text-xs" style={{ fontFamily: F.body, color: C.ink, borderBottom: `1px solid ${C.rule}` }}>{e.particulars}<InvoiceTag code={e.invoice_code} /></td>

@@ -148,8 +148,33 @@ class StockSerial(models.Model):
     received_by = models.ForeignKey("accounts.User", on_delete=models.PROTECT, related_name="stock_serials_received")
     received_at = models.DateTimeField(auto_now_add=True)
 
+    # Where the unit is in its life. Only IN_STOCK units can be sold, rented or written off.
+    IN_STOCK, SOLD, RENTED, RETURNED, WRITTEN_OFF = "in_stock", "sold", "rented", "returned", "written_off"
+    STATUS_CHOICES = [(IN_STOCK, "In stock"), (SOLD, "Sold"), (RENTED, "On rent"),
+                      (RETURNED, "Returned, not restocked"), (WRITTEN_OFF, "Written off")]
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=IN_STOCK, db_index=True)
+    # the sale line it went out on (kept after a return, for the history)
+    invoice_item = models.ForeignKey("sales.InvoiceItem", on_delete=models.SET_NULL, null=True, blank=True, related_name="serials")
+    sold_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         ordering = ["received_at", "id"]
 
     def __str__(self):
         return f"{self.serial_number} ({self.variant.code} @ {self.stock_point.name})"
+
+
+class SerialEvent(models.Model):
+    """One step in a serial-numbered unit's life -- what the trace shows."""
+    RECEIVED, SOLD, SALE_CANCELLED, RETURNED, RENTED, BACK_FROM_RENT, WRITTEN_OFF = (
+        "received", "sold", "sale_cancelled", "returned", "rented", "back_from_rent", "written_off")
+    serial = models.ForeignKey(StockSerial, on_delete=models.CASCADE, related_name="events")
+    event = models.CharField(max_length=20)
+    text = models.CharField(max_length=300, blank=True)
+    stock_point = models.ForeignKey(StockPoint, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    invoice = models.ForeignKey("sales.Invoice", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    actor = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["at", "id"]

@@ -68,6 +68,7 @@ class RentalViewSet(viewsets.ModelViewSet):
     serializer_class = RentalSerializer
     permission_classes = [permissions.IsAuthenticated, HasPerm]
     required_perms = {
+        "cron_send_due_invoices": None,  # its own AllowAny + X-Cron-Token check
         "list": None, "retrieve": None,
         "create": "rentals.manage", "update": "rentals.manage",
         "partial_update": "rentals.manage", "destroy": "rentals.manage",
@@ -415,6 +416,13 @@ class RentalAssetViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         self.store_scope.require(stock.stock_point_id, "stock")
         require_active(stock.stock_point, "rentals", field="stock")
         variant, product = stock.variant, stock.variant.product
+        from catalog import serials as serial_tracking
+
+        typed = payload.validated_data["serial_number"].strip()
+        if serial_tracking.tracked(variant) and serial_tracking.untracked_units(variant, stock.stock_point) == 0 \
+                and not serial_tracking.in_stock_qs(variant, stock.stock_point).filter(serial_number__iexact=typed).exists():
+            sample = ", ".join(serial_tracking.in_stock_qs(variant, stock.stock_point).values_list("serial_number", flat=True)[:5])
+            raise ValidationError({"serial_number": f"Every unit of this product has a serial number -- enter the one on the unit you are renting out (in stock: {sample})."})
         returned = RentalAsset.objects.filter(
             serial_number__iexact=payload.validated_data["serial_number"].strip(),
             status=RentalAsset.RETIRED, returned_to_stock_at__isnull=False,
@@ -430,6 +438,7 @@ class RentalAssetViewSet(StoreScopedMixin, viewsets.ModelViewSet):
                 returned.variant, returned.source_stock_point = variant, stock.stock_point
                 returned.returned_to_stock_at = returned.returned_to = returned.returned_by = None
                 returned.save()
+                serial_tracking.on_rented(variant, stock.stock_point, typed, request.user)
             return Response(RentalAssetSerializer(returned).data, status=201)
         asset_data = RentalAssetSerializer(data={
             "asset_tag": payload.validated_data.get("asset_tag", ""),
@@ -443,6 +452,7 @@ class RentalAssetViewSet(StoreScopedMixin, viewsets.ModelViewSet):
             if not taken:
                 raise ValidationError({"stock": f"No {product.display_name} ({variant.spec}) left in stock at {stock.stock_point.name}."})
             asset = asset_data.save(variant=variant, source_stock_point=stock.stock_point)
+            serial_tracking.on_rented(variant, stock.stock_point, typed, request.user)
         return Response(RentalAssetSerializer(asset).data, status=201)
 
     @action(detail=True, methods=["post"], url_path="return-to-inventory")
@@ -474,6 +484,9 @@ class RentalAssetViewSet(StoreScopedMixin, viewsets.ModelViewSet):
             asset.returned_to = stock_point
             asset.returned_by = request.user
             asset.save(update_fields=["status", "returned_to_stock_at", "returned_to", "returned_by"])
+            from catalog.serials import on_back_from_rent
+
+            on_back_from_rent(asset.serial_number, stock_point, request.user)
         return Response(RentalAssetSerializer(asset).data)
 
     def perform_create(self, serializer):

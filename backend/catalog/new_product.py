@@ -31,7 +31,7 @@ from rest_framework import serializers
 
 from rentals.models import RentalAsset
 
-from .models import Product, Stock, StockSerial, Variant
+from .models import Product, SerialEvent, Stock, StockSerial, Variant
 from .utils import next_code
 
 MAX_QUANTITY = 1000
@@ -155,6 +155,11 @@ def generate_serials(prefix, variant, stock_point, user, count):
             with transaction.atomic():
                 StockSerial.objects.bulk_create([
                     StockSerial(variant=variant, stock_point=stock_point, serial_number=s, received_by=user) for s in chosen
+                ])
+                SerialEvent.objects.bulk_create([
+                    SerialEvent(serial=s, event=SerialEvent.RECEIVED, text=f"Received into stock at {stock_point.name}",
+                                stock_point=stock_point, actor=user)
+                    for s in StockSerial.objects.filter(serial_number__in=chosen)
                 ])
             return sorted(chosen)
         except IntegrityError:

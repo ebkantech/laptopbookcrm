@@ -8,7 +8,6 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from accounts.views import LogoutView, ThrottledTokenObtainPairView
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
 
     path('api/auth/token/', ThrottledTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
@@ -28,6 +27,8 @@ urlpatterns = [
     path('api/', include('reports.urls')),
     path('api/dashboard/', include('dashboard.urls')),
 ]
+if settings.ADMIN_ENABLED:
+    urlpatterns.insert(0, path(settings.ADMIN_URL, admin.site.urls))
 
 # --------------------------------------------------------------------- #
 # Single-server dev convenience: serve the already-built frontend

@@ -29,6 +29,7 @@ def invoice_document(invoice):
             "qty": item.qty,
             "rate": item.price,
             "amount": item.qty * item.price,
+            "serials": [s.serial_number for s in item.serials.all()],
         })
     serialized = InvoiceSerializer(invoice).data
     return {
@@ -122,6 +123,8 @@ def render_invoice_pdf(invoice):
     rows = [["#", "Item", "HSN", "Qty", "Rate", "Amount"]]
     for it in data["items"]:
         extra = " · ".join(x for x in [it["spec"], it["code"]] if x)
+        if it.get("serials"):
+            extra = (extra + "\n" if extra else "") + "S/N " + ", ".join(it["serials"])
         item_cell = [p(it["description"])] + ([p(extra, small)] if extra else [])
         rows.append([str(it["n"]), item_cell, it["hsn"] or "-", str(it["qty"]), _money(it["rate"]), _money(it["amount"])])
     rows.append(["", "Total", "", str(data["total_qty"]), "", _money(data["total"])])

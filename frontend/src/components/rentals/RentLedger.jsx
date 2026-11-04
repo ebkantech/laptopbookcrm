@@ -3,6 +3,8 @@ import { CalendarClock, FileText, X } from "lucide-react";
 import { C, F, fmt, money } from "../../lib/theme";
 import { api } from "../../lib/api";
 import { ErrorNote, Eyebrow, Pill } from "../Atoms";
+import OrderToggle from "../OrderToggle";
+import { useOrder } from "../../lib/order";
 import { describeRow, groupByClient, grandTotals } from "./ledgerModel";
 
 const TONE_COLOR = { paid: C.green, late: C.amber, due: C.amber, overdue: C.carbon, scheduled: C.inkSoft, muted: C.inkSoft };
@@ -18,6 +20,7 @@ export default function RentLedger({ clients, onClose }) {
   const [party, setParty] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [order, setOrder] = useOrder("rentledger", "desc");
 
   useEffect(() => {
     const qs = new URLSearchParams();
@@ -48,6 +51,7 @@ export default function RentLedger({ clients, onClose }) {
           <option value="Paid">Paid</option>
           <option value="Scheduled">Scheduled (not sent yet)</option>
         </select>
+        <OrderToggle value={order} onChange={setOrder} label="Rent ledger order" />
         <button type="button" onClick={onClose} aria-label="Close ledger"><X size={16} style={{ color: C.inkSoft }} /></button>
       </div>
       <ErrorNote message={error} />
@@ -83,7 +87,7 @@ export default function RentLedger({ clients, onClose }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {g.rows.map((r) => {
+                    {(order === "desc" ? g.rows : [...g.rows.filter((x) => x.kind !== "scheduled")].reverse().concat(g.rows.filter((x) => x.kind === "scheduled"))).map((r) => {
                       const s = describeRow(r, fmt);
                       const scheduled = r.kind === "scheduled";
                       return (

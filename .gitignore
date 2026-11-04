@@ -25,3 +25,11 @@ backend/crmbook_before_expense_migrations_20261030_191103.dump
 backend/crmbook_data_only.dump
 backend/crmbook_fresh.dump
 backend/crmbook_schema.sql
+
+# never commit data exports or backups (see docs/SECURITY.md)
+*.sql
+*.dump
+backend/users_export.json
+backend/compare_db.py
+backend/*.zip
+frontend/*.zip

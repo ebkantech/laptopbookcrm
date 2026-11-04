@@ -49,6 +49,21 @@ SECRET_KEY = os.environ.get(
 # Defaults to False (safe) -- set DJANGO_DEBUG=True explicitly for local dev.
 DEBUG = env_bool("DJANGO_DEBUG", default=False)
 
+RUNNING_TESTS = len(sys.argv) > 1 and sys.argv[1] == "test"
+
+# Refuse to start a production server on the development key: it is public
+# (it's in this file), and it signs every login token -- anyone holding it
+# could mint a Super Admin token. Local dev (DEBUG) and the test run may use it.
+if not DEBUG and not RUNNING_TESTS and (
+    "DJANGO_SECRET_KEY" not in os.environ or SECRET_KEY.startswith("django-insecure") or len(SECRET_KEY) < 32
+):
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(
+        "DJANGO_SECRET_KEY must be set to a long random value in production (DJANGO_DEBUG is off). Generate one with: "
+        "python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+    )
+
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", default="localhost,127.0.0.1")
 
 # ---------------------------------------------------------------- #
@@ -100,6 +115,12 @@ REST_FRAMEWORK = {
     ),
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 50,
+    # How many proxies sit in front of Django (Render's load balancer = 1).
+    # Rate limits key on the client address that the LAST proxy appended to
+    # X-Forwarded-For; with this unset, a client could send its own
+    # X-Forwarded-For value on every request and dodge every rate limit.
+    # 0 = no proxy (local runserver): use the socket address.
+    'NUM_PROXIES': int(os.environ.get('DJANGO_NUM_PROXIES', '0' if DEBUG else '1')),
     # NOTE: no DEFAULT_THROTTLE_CLASSES here on purpose -- the login
     # throttle below is scoped to the token endpoint specifically
     # (see accounts/throttling.py + accounts/views.py ThrottledTokenView),
@@ -138,7 +159,35 @@ SIMPLE_JWT = {
     # though it hasn't naturally expired yet
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
+    # A password change or reset kills every token issued before it at once
+    # (not only refresh tokens): tokens carry a hash of the password.
+    'CHECK_REVOKE_TOKEN': True,
+    # login / refresh use the account-checking serializers in accounts.auth
+    'TOKEN_OBTAIN_SERIALIZER': 'accounts.auth.StaffTokenObtainPairSerializer',
+    'TOKEN_REFRESH_SERIALIZER': 'accounts.auth.CappedTokenRefreshSerializer',
 }
+# Rotation renews the 7-day refresh window on every use; this caps a sign-in
+# however active it stays -- after this many days the person signs in again.
+JWT_MAX_SESSION_DAYS = int(os.environ.get('JWT_MAX_SESSION_DAYS', 30))
+# Failed sign-ins for one username within the window lock that username out
+# for the rest of the window (stops slow guessing from many addresses).
+LOGIN_MAX_FAILURES = int(os.environ.get('LOGIN_MAX_FAILURES', 10))
+LOGIN_FAILURE_WINDOW_MINUTES = int(os.environ.get('LOGIN_FAILURE_WINDOW_MINUTES', 15))
+
+# Rate limits and lockouts are counted in this cache. It must be shared by
+# every worker process and survive a deploy, so production uses a table in
+# the database (created by migration accounts 0018). DJANGO_CACHE=locmem
+# switches back to per-process memory (fine for a single local runserver).
+if os.environ.get("DJANGO_CACHE", "database" if not RUNNING_TESTS else "locmem") == "locmem":
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+else:
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.db.DatabaseCache", "LOCATION": "django_cache"}}
+
+# The Django admin site. DJANGO_ADMIN_ENABLED=false removes it entirely; the
+# path can be moved off the guessable /admin/ with DJANGO_ADMIN_URL. Its
+# login form is rate-limited like the API login (accounts.middleware).
+ADMIN_ENABLED = env_bool("DJANGO_ADMIN_ENABLED", default=True)
+ADMIN_URL = os.environ.get("DJANGO_ADMIN_URL", "admin/").strip("/") + "/"
 
 # The frontend (staff app + token-based customer portal) is served from one
 # Vite origin -- keep this, PUBLIC_FRONTEND_URL and CSRF_TRUSTED_ORIGINS in
@@ -218,6 +267,8 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     # Staff Activity Logs: records successful API writes (accounts.activity)
     'accounts.activity.ActivityLogMiddleware',
+    # rate-limits the Django admin login form (the API login has its own throttle)
+    'accounts.middleware.AdminLoginThrottleMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -251,6 +302,9 @@ WSGI_APPLICATION = 'crmbook_backend.wsgi.application'
 if os.environ.get("POSTGRES_DB"):
     postgres_options = {}
     postgres_sslmode = os.environ.get("POSTGRES_SSLMODE", "").strip()
+    if not postgres_sslmode and "supabase" in os.environ.get("POSTGRES_HOST", ""):
+        # a hosted database is reached over the internet -- never unencrypted
+        postgres_sslmode = "require"
     if postgres_sslmode:
         postgres_options["sslmode"] = postgres_sslmode
 
@@ -357,7 +411,6 @@ if not DEBUG:
     SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("DJANGO_HSTS_SUBDOMAINS", default=False)
     SECURE_HSTS_PRELOAD = env_bool("DJANGO_HSTS_PRELOAD", default=False)
     SECURE_CONTENT_TYPE_NOSNIFF = True
-    SECURE_BROWSER_XSS_FILTER = True
     # honour X-Forwarded-Proto from a reverse proxy (Nginx) so Django
     # knows the original request was HTTPS even though it reaches
     # Gunicorn over plain HTTP internally
@@ -366,7 +419,7 @@ if not DEBUG:
 # `manage.py test` talks plain HTTP through Django's test client, so the
 # HTTPS redirect would answer every API test with a 301. Never true when
 # serving real traffic.
-if len(sys.argv) > 1 and sys.argv[1] == "test":
+if RUNNING_TESTS:
     SECURE_SSL_REDIRECT = False
 
 X_FRAME_OPTIONS = 'DENY'

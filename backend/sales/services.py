@@ -61,6 +61,10 @@ def on_invoice_paid(invoice):
 
     post_invoice_payment(invoice)
 
+    if invoice.source == Invoice.SALE:
+        from warranty import services as warranty_services
+
+        warranty_services.safely(warranty_services.auto_sales_warranty, invoice)
     if invoice.source == Invoice.REPAIR and invoice.repair_ticket_id:
         from repairs.billing import on_repair_invoice_paid
 
@@ -115,6 +119,9 @@ def cancel_invoice(invoice, user, reason):
             updated = Stock.objects.filter(variant_id=item.variant_id, stock_point_id=invoice.stock_point_id).update(quantity=F("quantity") + item.qty)
             if not updated:
                 Stock.objects.create(variant_id=item.variant_id, stock_point_id=invoice.stock_point_id, quantity=item.qty)
+        from catalog.serials import on_sale_cancelled
+
+        on_sale_cancelled(invoice, user)
     if invoice.source == Invoice.ONSITE and invoice.lead_id:
         from leads.services import on_lead_invoice_cancelled
 
@@ -186,7 +193,7 @@ def refund_invoice(invoice, user, *, method, reference="", reason="", refunded_o
     returned = []
     if invoice.source == Invoice.SALE:
         lines = {item.id: item for item in invoice.items.all()}
-        wanted = {}
+        wanted, serial_picks = {}, {}
         for row in items or []:
             try:
                 item_id, qty = int(row["item"]), int(row["qty"])
@@ -197,6 +204,7 @@ def refund_invoice(invoice, user, *, method, reference="", reason="", refunded_o
             if item_id not in lines:
                 raise RefundError("That item isn't on this invoice.")
             wanted[item_id] = wanted.get(item_id, 0) + qty
+            serial_picks.setdefault(item_id, []).extend(row.get("serials") or [])
         if not wanted:
             raise RefundError("Choose the items being returned and how many.")
         for item_id, qty in wanted.items():
@@ -206,6 +214,16 @@ def refund_invoice(invoice, user, *, method, reference="", reason="", refunded_o
                 left = item.qty - already
                 raise RefundError(f"{item.label}: only {left} left to return on this invoice." if left else f"{item.label} has already been returned.")
             returned.append((item, qty))
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+
+        from catalog.serials import check_return, mark_returned
+        coming_back = []
+        for item, qty in returned:
+            try:
+                coming_back += check_return(item, qty, serial_picks.get(item.id), sum(r.qty for r in item.refund_items.all()))
+            except DRFValidationError as e:
+                detail = e.detail.get("detail") if isinstance(e.detail, dict) else e.detail
+                raise RefundError(str(detail[0] if isinstance(detail, list) else detail))
         amount = sum(item.price * qty for item, qty in returned)
     else:
         try:
@@ -229,6 +247,8 @@ def refund_invoice(invoice, user, *, method, reference="", reason="", refunded_o
             updated = Stock.objects.filter(variant_id=item.variant_id, stock_point_id=invoice.stock_point_id).update(quantity=F("quantity") + qty)
             if not updated:
                 Stock.objects.create(variant_id=item.variant_id, stock_point_id=invoice.stock_point_id, quantity=qty)
+    if returned:
+        mark_returned(coming_back, invoice, restock, user)
     if amount == left:
         invoice.status = Invoice.REFUNDED
         invoice.save(update_fields=["status"])

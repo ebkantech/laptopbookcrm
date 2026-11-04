@@ -8,3 +8,5 @@ class AccountsConfig(AppConfig):
         # Staff Activity Logs: model signals feeding the per-request scope
         from .activity import connect_signals
         connect_signals()
+        # login audit + lockout (user_login_failed / user_logged_in receivers)
+        from . import auth  # noqa: F401

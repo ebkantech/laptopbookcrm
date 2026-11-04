@@ -104,3 +104,53 @@ class MessageHidden(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["message", "user"], name="unique_user_hidden_party_message")]
+
+
+def id_document_path(instance, filename):
+    """Random name, extension from the checked content -- the client's filename is never used on disk."""
+    import uuid
+
+    from django.utils import timezone
+
+    ext = {"image/jpeg": ".jpg", "image/png": ".png", "application/pdf": ".pdf"}[instance.content_type]
+    return f"customer-ids/{timezone.now():%Y/%m}/{uuid.uuid4().hex}{ext}"
+
+
+class PartyIdDocument(models.Model):
+    """
+    A customer's identity document, recorded for rental agreements (parties.kyc).
+    Aadhaar: the full number is NEVER stored -- only the masked form
+    (XXXX XXXX 1234) -- and any copy kept must be the masked Aadhaar, as
+    UIDAI requires. Every record needs the customer's consent, logged with
+    who took it and when. "Verified" means a staff member checked the
+    original document (or a later integration did) -- format checks alone
+    only catch typing mistakes.
+    """
+    AADHAAR, PAN, DRIVING_LICENCE, PASSPORT, VOTER_ID, OTHER = "aadhaar", "pan", "driving_licence", "passport", "voter_id", "other"
+    TYPE_CHOICES = [(AADHAAR, "Aadhaar"), (PAN, "PAN"), (DRIVING_LICENCE, "Driving licence"),
+                    (PASSPORT, "Passport"), (VOTER_ID, "Voter ID"), (OTHER, "Other ID")]
+    NOT_VERIFIED, FORMAT_OK, VERIFIED, FAILED = "not_verified", "format_ok", "verified", "failed"
+    STATUS_CHOICES = [(NOT_VERIFIED, "Not verified"), (FORMAT_OK, "Format OK"), (VERIFIED, "Verified"), (FAILED, "Failed")]
+
+    party = models.ForeignKey(Party, on_delete=models.CASCADE, related_name="id_documents")
+    id_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    number = models.CharField(max_length=40, help_text="Aadhaar: masked only, e.g. XXXX XXXX 1234.")
+    name_on_id = models.CharField(max_length=120, blank=True)
+    status = models.CharField(max_length=14, choices=STATUS_CHOICES, default=NOT_VERIFIED)
+    check_note = models.CharField(max_length=200, blank=True, help_text="What the automatic format check found.")
+    consent_at = models.DateTimeField()
+    consent_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    verified_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    verified_at = models.DateTimeField(null=True, blank=True)
+    verify_method = models.CharField(max_length=40, blank=True)
+    verify_note = models.CharField(max_length=200, blank=True)
+    file = models.FileField(upload_to=id_document_path, max_length=255, blank=True)
+    content_type = models.CharField(max_length=40, blank=True)
+    original_name = models.CharField(max_length=150, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return f"{self.get_id_type_display()} {self.number} ({self.party.name})"

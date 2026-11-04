@@ -67,6 +67,7 @@ MASKED_FIELDS = {
     "phone", "email", "address", "gstin", "serial", "serial_number", "body", "text", "comment", "notes",
     "description", "terms", "issue", "reason", "particulars", "reference", "payment_reference", "condition_notes",
     "accessories", "checks", "cancel_reason", "sent_to_phone", "customer_phone", "customer_name", "audience",
+    "number", "name_on_id",
 }
 MASKED = "(changed)"
 

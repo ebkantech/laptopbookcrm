@@ -40,6 +40,9 @@ class WarrantyViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         q = self.request.query_params.get("q")
         section = self.request.query_params.get("section")
         invoice_id = self.request.query_params.get("invoice")
+        serial = (self.request.query_params.get("serial") or "").strip()
+        if serial:
+            qs = qs.filter(invoice__items__serials__serial_number__iexact=serial).distinct()
         if phone:
             qs = qs.filter(party__phone__icontains=phone)
         if q:

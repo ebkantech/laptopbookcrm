@@ -2,6 +2,7 @@ from django.db import transaction
 from django.db.models import F
 from rest_framework import serializers
 
+from catalog import serials as serial_tracking
 from catalog.models import Stock
 from catalog.status import require_active
 from .models import Invoice, InvoiceItem, PaymentLink, Refund
@@ -14,11 +15,23 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
     # the product for a sale line or the service/rent description.
     product_name = serializers.CharField(source="label", read_only=True)
     returned_qty = serializers.SerializerMethodField()
+    # serial numbers of the units on this line: picked when selling (write), shown after (read)
+    serials = serializers.ListField(child=serializers.CharField(max_length=80), required=False, write_only=True)
+    serial_numbers = serializers.SerializerMethodField()
+    sold_serials = serializers.SerializerMethodField()
 
     class Meta:
         model = InvoiceItem
-        fields = ["id", "variant", "variant_code", "product_name", "description", "qty", "price", "returned_qty"]
+        fields = ["id", "variant", "variant_code", "product_name", "description", "qty", "price", "returned_qty",
+                  "serials", "serial_numbers", "sold_serials"]
         read_only_fields = ["description"]
+
+    def get_serial_numbers(self, obj):
+        return [s.serial_number for s in obj.serials.all()] if obj.pk else []
+
+    def get_sold_serials(self, obj):
+        # the units of this line that are still with the customer (returnable)
+        return [s.serial_number for s in obj.serials.all() if s.status == "sold"] if obj.pk else []
 
     def get_returned_qty(self, obj):
         return sum(r.qty for r in obj.refund_items.all()) if obj.pk else 0
@@ -159,8 +172,10 @@ class InvoiceSerializer(serializers.ModelSerializer):
                 )
         if problems:
             raise serializers.ValidationError({"items": problems})
+        shelf = {variant.id: rows[variant.id].quantity for variant in wanted}
         for variant, qty in wanted.items():
             Stock.objects.filter(pk=rows[variant.id].pk).update(quantity=F("quantity") - qty)
+        return shelf
 
     @transaction.atomic
     def create(self, validated_data):
@@ -168,5 +183,11 @@ class InvoiceSerializer(serializers.ModelSerializer):
         validated_data["status"] = Invoice.LINK_SENT
         # take the units off the shared stock pool of the shop/channel sold
         # through -- a sale on any channel moves the same pool
-        self._check_and_take_stock(items, validated_data["stock_point"])
-        return create_invoice(source=Invoice.SALE, lines=items, **validated_data)
+        shelf = self._check_and_take_stock(items, validated_data["stock_point"])
+        # serial-tracked products: the exact units going out (checked against the shelf before this sale)
+        picked = serial_tracking.check_sale_lines(items, validated_data["stock_point"], shelf)
+        lines = [{k: v for k, v in item.items() if k != "serials"} for item in items]
+        invoice = create_invoice(source=Invoice.SALE, lines=lines, **validated_data)
+        request = self.context.get("request")
+        serial_tracking.mark_sold(invoice, picked, getattr(request, "user", None))
+        return invoice

@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
-from .models import NotificationRule, Permission, PermissionDeniedLog, Role, StaffNotification, User
+from .models import LoginAttempt, NotificationRule, Permission, PermissionDeniedLog, Role, StaffNotification, User
 
 
 @admin.register(Permission)
@@ -44,3 +44,18 @@ class PermissionDeniedLogAdmin(admin.ModelAdmin):
     list_filter = ["required_perm"]
     search_fields = ["user__username", "required_perm", "path"]
     readonly_fields = ["user", "path", "method", "required_perm", "at"]
+
+
+@admin.register(LoginAttempt)
+class LoginAttemptAdmin(admin.ModelAdmin):
+    """Security audit of sign-ins -- read only."""
+    list_display = ["at", "username", "success", "reason", "ip", "via"]
+    list_filter = ["success", "reason", "via"]
+    search_fields = ["username", "ip"]
+    readonly_fields = [f.name for f in LoginAttempt._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

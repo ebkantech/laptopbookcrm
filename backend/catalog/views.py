@@ -5,14 +5,14 @@ from django.db.models import Count, F, Prefetch, Q, Sum
 from django.shortcuts import get_object_or_404
 from rest_framework import mixins, permissions, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts import activity
 from accounts.models import User
 from accounts.permissions import HasPerm, IsStaffAccount
-from accounts.store_scope import StoreScope
+from accounts.store_scope import StoreScope, StoreScopedMixin
 from .models import Part, PartStock, Product, Service, Stock, StockPoint, StockSerial, Variant
 from .status import can_manage_status, require_active
 from .serializers import (
@@ -303,7 +303,7 @@ class ProductViewSet(viewsets.ModelViewSet):
     serializer_class = ProductSerializer
     permission_classes = [permissions.IsAuthenticated, HasPerm]
     required_perms = {
-        "list": None, "retrieve": None, "lookup": None, "serials": None,
+        "list": None, "retrieve": None, "lookup": None, "serials": None, "low_stock": None,
         "create": "inventory.edit", "update": "inventory.edit",
         "partial_update": "inventory.edit", "destroy": "inventory.edit",
     }
@@ -371,9 +371,12 @@ class ProductViewSet(viewsets.ModelViewSet):
         return Response({
             "product_code": product.product_code, "hsn": product.hsn,
             "serials": [{
-                "serial_number": s.serial_number, "variant": s.variant.code, "spec": s.variant.spec, "colour": s.variant.colour,
+                "id": s.id, "serial_number": s.serial_number, "variant": s.variant.code, "spec": s.variant.spec, "colour": s.variant.colour,
                 "stock_point": s.stock_point.name, "received_at": s.received_at,
-            } for s in rows],
+                "status": s.status, "status_label": s.get_status_display(),
+                "invoice": s.invoice_item.invoice.code if s.invoice_item_id else None,
+                "customer": s.invoice_item.invoice.party.name if s.invoice_item_id else None,
+            } for s in rows.select_related("invoice_item__invoice__party")],
         })
 
     @action(detail=False, methods=["get"])
@@ -640,3 +643,85 @@ class StockLocationView(APIView):
         stock.location = location
         stock.save(update_fields=["location"])
         return Response(StockSerializer(stock).data)
+
+
+
+class StockSerialViewSet(StoreScopedMixin, viewsets.ReadOnlyModelViewSet):
+    """
+    Serial-numbered units (catalog.serials). List: ?variant=&stock_point=&status=.
+    available: the units a sale can pick at one store. trace: a unit's whole
+    life by its serial number. write_off: close a unit no longer on the shelf.
+    """
+    store_lookups = ("stock_point",)
+    store_payload_field = None
+    queryset = StockSerial.objects.select_related("variant__product", "stock_point", "invoice_item__invoice__party").all()
+    permission_classes = [permissions.IsAuthenticated, HasPerm]
+    http_method_names = ["get", "post", "head", "options"]  # POST only for write_off; serials are made by Add stock
+    required_perms = {"list": None, "retrieve": None, "available": None, "trace": None, "write_off": "inventory.edit"}
+
+    @staticmethod
+    def _row(s):
+        return {"id": s.id, "serial_number": s.serial_number, "status": s.status, "status_label": s.get_status_display(),
+                "variant": s.variant_id, "variant_code": s.variant.code, "product": s.variant.product.display_name,
+                "spec": s.variant.spec, "stock_point": s.stock_point.name, "received_at": s.received_at,
+                "invoice": s.invoice_item.invoice.code if s.invoice_item_id else None}
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        p = self.request.query_params
+        for key in ("variant", "stock_point"):
+            if p.get(key):
+                qs = qs.filter(**{f"{key}_id": p[key]})
+        if p.get("status") in dict(StockSerial.STATUS_CHOICES):
+            qs = qs.filter(status=p["status"])
+        return qs.order_by("serial_number")
+
+    def list(self, request, *args, **kwargs):
+        page = self.paginate_queryset(self.get_queryset())
+        rows = [self._row(s) for s in (page if page is not None else self.get_queryset())]
+        return self.get_paginated_response(rows) if page is not None else Response(rows)
+
+    def retrieve(self, request, *args, **kwargs):
+        return Response(self._row(self.get_object()))
+
+    @action(detail=False, methods=["get"])
+    def available(self, request):
+        """In-stock units of one variant at one store, for the sale invoice picker."""
+        from . import serials as serial_tracking
+
+        variant = Variant.objects.select_related("product").filter(pk=request.query_params.get("variant")).first()
+        stock_point = StockPoint.objects.filter(pk=request.query_params.get("stock_point")).first()
+        if not variant or not stock_point:
+            raise ValidationError({"detail": "variant and stock_point are required."})
+        if not self.store_scope.allows(stock_point.id):
+            raise PermissionDenied("That store isn't yours.")
+        if not serial_tracking.tracked(variant):
+            return Response({"tracked": False, "serials": [], "untracked": 0})
+        rows = serial_tracking.in_stock_qs(variant, stock_point).order_by("serial_number")
+        return Response({"tracked": True, "serials": [s.serial_number for s in rows],
+                         "untracked": serial_tracking.untracked_units(variant, stock_point)})
+
+    @action(detail=False, methods=["get"])
+    def trace(self, request):
+        """Everything about one unit: where it is, who bought it, warranty, repairs, every step."""
+        from . import serials as serial_tracking
+
+        q = (request.query_params.get("q") or "").strip()
+        if not q:
+            raise ValidationError({"q": "Enter or scan a serial number."})
+        serial = self.get_queryset().filter(serial_number__iexact=q).first()
+        if not serial:
+            # a unit sold from / moved to another store is still traceable by its own store's staff via history
+            serial = StockSerial.objects.filter(serial_number__iexact=q, events__stock_point_id=self.store_scope.store_id).first() \
+                if not self.store_scope.all and self.store_scope.store_id else None
+        if not serial:
+            return Response({"detail": f"No unit with serial number {q} found."}, status=404)
+        return Response(serial_tracking.trace(serial))
+
+    @action(detail=True, methods=["post"])
+    def write_off(self, request, pk=None):
+        from . import serials as serial_tracking
+
+        reduce_stock = request.data.get("reduce_stock") in (True, "true", "1", 1)
+        serial = serial_tracking.write_off(self.get_object(), request.user, request.data.get("reason"), reduce_stock)
+        return Response(self._row(serial))

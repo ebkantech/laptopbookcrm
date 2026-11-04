@@ -1,0 +1,16 @@
+# Security headers for the static frontend (Cloudflare Pages / Workers static
+# assets read this file). See docs/SECURITY.md.
+#
+# connect-src: the browser may only call this site and HTTPS APIs. Tighten
+# "https:" to your exact API origin, e.g. https://your-api.onrender.com
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; frame-src 'self' blob:; object-src 'self' blob:; worker-src 'self' blob:
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Strict-Transport-Security: max-age=31536000
+  Permissions-Policy: geolocation=(self), camera=(self), microphone=(), payment=(), usb=()
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

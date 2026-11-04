@@ -97,11 +97,18 @@ class PartySerializer(serializers.ModelSerializer):
 
     total_spent = serializers.SerializerMethodField()
     invoice_count = serializers.SerializerMethodField()
+    # customer ID on file: "verified" / "unverified" / "none" (parties.kyc)
+    kyc_status = serializers.SerializerMethodField()
+
+    def get_kyc_status(self, obj):
+        from .kyc import kyc_status
+
+        return kyc_status(obj)
 
     class Meta:
         model = Party
         fields = [
-            "id", "name", "type", "customer_classification", "phone", "email", "gstin", "city", "joined",
+            "id", "name", "type", "customer_classification", "phone", "email", "gstin", "city", "joined", "kyc_status",
             "total_spent", "invoice_count", "whatsapp_verified", "whatsapp_checked_at",
             "portal_access_revoked_at",
         ]
