@@ -16,6 +16,7 @@ import DiagnosisPanel from "../components/repairs/DiagnosisPanel";
 import StaffPerformance from "../components/repairs/StaffPerformance";
 import ManualLines from "../components/repairs/ManualLines";
 import { blankLine, linesTotal, pricingPayload, validatePricing } from "../components/repairs/bookingModel";
+import { isAdminLevel } from "../lib/accessLevel";
 
 const STAGES = ["Received", "Diagnosing", "In progress", "Ready for pickup", "Delivered"];
 const STAGE_COLOR = { Received: C.blue, Diagnosing: C.amber, "In progress": C.stamp, "Ready for pickup": C.green, Delivered: C.inkSoft };
@@ -866,7 +867,9 @@ export default function Repairs() {
   };
 
   const onChanged = (t) => setTickets((l) => l.map((x) => (x.id === t.id ? t : x)));
-  const shown = mineOnly ? tickets.filter((t) => t.assigned_to === me?.id) : tickets;
+  // "My jobs" is for the people who do the work; Super Admin / Admin oversee every ticket
+  const showMine = !isAdminLevel(me);
+  const shown = mineOnly && showMine ? tickets.filter((t) => t.assigned_to === me?.id) : tickets;
 
   const showError = (msg) => {
     setFlash(msg);
@@ -882,7 +885,9 @@ export default function Repairs() {
           value={view}
           onChange={setView}
         />
-        <PillButton icon={UserCheck} primary={mineOnly} onClick={() => setMineOnly((v) => !v)}>My jobs ({tickets.filter((t) => t.assigned_to === me?.id).length})</PillButton>
+        {showMine && (
+          <PillButton icon={UserCheck} primary={mineOnly} onClick={() => setMineOnly((v) => !v)}>My jobs ({tickets.filter((t) => t.assigned_to === me?.id).length})</PillButton>
+        )}
         {can("repairs.book") && (
           <PillButton icon={Plus} primary onClick={() => setAdding(true)}>New ticket</PillButton>
         )}

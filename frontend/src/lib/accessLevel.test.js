@@ -19,3 +19,10 @@ test("without an access level a superuser is still never shown as staff", () => 
   assert.equal(accessLabel({ is_superuser: true }), "Superuser");
   assert.equal(accessLabel({ is_superuser: false }), "Staff");
 });
+
+test("admin level: Superuser, Super Admin and Admin -- not staff", async () => {
+  const { isAdminLevel } = await import("./accessLevel.js");
+  for (const level of ["superuser", "superadmin", "admin"]) assert.equal(isAdminLevel({ access_level: level }), true, level);
+  assert.equal(isAdminLevel({ access_level: "staff" }), false);
+  assert.equal(isAdminLevel(null), false);
+});

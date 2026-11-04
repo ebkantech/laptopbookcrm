@@ -7,3 +7,11 @@ export function accessLabel(me) {
   if (!me) return "";
   return LABELS[me.access_level] || (me.is_superuser ? LABELS.superuser : LABELS.staff);
 }
+
+// Superuser, Super Admin or Admin -- they oversee work rather than being
+// given jobs, so worker-only views (e.g. Repairs "My jobs") are hidden.
+// Follows the active role: an Admin who switches to a technician role gets them back.
+export function isAdminLevel(me) {
+  if (!me) return false;
+  return ["superuser", "superadmin", "admin"].includes(me.access_level) || !!me.is_superuser;
+}
