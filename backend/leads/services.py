@@ -583,7 +583,11 @@ def complete_work(lead, user, notes=""):
     for line in quote.lines.all():
         item = {"description": line.description, "qty": line.qty, "price": line.price}
         if line.kind == LeadQuoteLine.PRODUCT:
-            item["variant"] = line.variant
+            item["variant"] = line.variant  # the invoice line locks the product's cost itself
+        elif line.kind == LeadQuoteLine.PART:
+            # lock the part's purchase cost for the profit report; no cost entered yet -> left blank
+            # so the report lists it under "missing cost" instead of counting it as free
+            item.update(item_kind="part", unit_cost=(line.part.cost or None) if line.part_id else None)
         lines.append(item)
     total = quote.total
     received = min(advance_received(lead), total)

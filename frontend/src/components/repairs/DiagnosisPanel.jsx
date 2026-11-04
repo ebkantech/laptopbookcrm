@@ -14,7 +14,7 @@ const fmt = (iso) => (iso ? new Date(iso).toLocaleString("en-IN", { day: "2-digi
 export default function DiagnosisPanel({ ticket, canWork, canApprove, onChanged }) {
   const [note, setNote] = useState("");
   const [changing, setChanging] = useState(false);
-  const [lines, setLines] = useState(() => (ticket.current_estimate?.lines || []).map((l) => ({ description: l.description, quantity: l.quantity, unit_price: l.unit_price })));
+  const [lines, setLines] = useState(() => (ticket.current_estimate?.lines || []).map((l) => ({ description: l.description, quantity: l.quantity, unit_price: l.unit_price, unit_cost: l.unit_cost ?? "" })));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [approval, setApproval] = useState(null);

@@ -159,6 +159,27 @@ function SerialNote({ name, quantity }) {
   );
 }
 
+/* Purchase cost: what one unit cost the shop. It is what makes Profit & Loss
+   real -- left empty, the server uses an estimate (78% of the selling price)
+   and flags it so it can be corrected under Inventory -> Costs. */
+const COST_ERROR = "Enter the purchase cost of at least ₹1, or leave it empty.";
+const costInvalid = (v) => v !== "" && !(Number(v) > 0);
+
+function CostInput({ value, onChange, error, hint }) {
+  return (
+    <F label="Purchase cost per unit (₹)" error={error} hint={hint}>
+      {(id, err) => <input id={id} className="st-input as-mono" inputMode="numeric" value={value} onChange={(e) => onChange(digits(e.target.value))} aria-invalid={!!err} placeholder="What you paid for one unit" />}
+    </F>
+  );
+}
+
+function MarginNote({ cost, sell }) {
+  const c = Number(cost), p = Number(sell);
+  if (!(c > 0 && p > 0)) return null;
+  const margin = p - c;
+  return <p className="as-total">Margin per unit: <b className="as-mono" style={margin < 0 ? { color: "var(--st-red, #C83C4A)" } : undefined}>{money(margin)}</b> ({Math.round((margin / p) * 1000) / 10}% of the selling price)</p>;
+}
+
 const HSN_ERROR = "Enter the HSN code as exactly 10 digits, or leave it empty.";
 const hsnInvalid = (v) => !!v && !/^\d{10}$/.test(v);
 
@@ -179,7 +200,7 @@ function NewProductForm({ stockPoints, setBusy, onAdded, registerSubmit, scrollT
   const [category, setCategory] = useState("");
   const [v, setV] = useState({
     brand: "", model_name: "", description: "", colour: "", hsn: "", condition: "New", specs: {},
-    stock_point: stockPoints.length === 1 ? String(stockPoints[0].id) : "", quantity: "1", sell_price: "", mrp: "", location: "",
+    stock_point: stockPoints.length === 1 ? String(stockPoints[0].id) : "", quantity: "1", sell_price: "", mrp: "", cost: "", location: "",
   });
   const [errors, setErrors] = useState({});
   const set = (k) => (val) => { setV((s) => ({ ...s, [k]: val })); setErrors((e) => ({ ...e, [k]: undefined })); };
@@ -205,6 +226,7 @@ function NewProductForm({ stockPoints, setBusy, onAdded, registerSubmit, scrollT
     if (!(qty > 0)) e.quantity = "Enter a quantity of at least 1.";
     if (!(Number(v.sell_price) > 0)) e.sell_price = "Enter the selling price.";
     if (v.mrp && Number(v.mrp) < Number(v.sell_price)) e.mrp = "MRP can't be lower than the selling price.";
+    if (costInvalid(v.cost)) e.cost = COST_ERROR;
     return e;
   };
 
@@ -219,7 +241,7 @@ function NewProductForm({ stockPoints, setBusy, onAdded, registerSubmit, scrollT
         category, brand: v.brand.trim(), model_name: v.model_name.trim(), description: v.description.trim(),
         colour: tidyColour(v.colour), hsn: v.hsn, specs, ...(category === "laptop" ? { condition: v.condition } : {}),
         stock_point: Number(v.stock_point), quantity: qty, sell_price: Number(v.sell_price), mrp: v.mrp ? Number(v.mrp) : null,
-        location: v.location.trim(),
+        cost: v.cost ? Number(v.cost) : null, location: v.location.trim(),
       }));
     } catch (err) {
       setErrors(errorsFrom(err));
@@ -304,12 +326,15 @@ function NewProductForm({ stockPoints, setBusy, onAdded, registerSubmit, scrollT
             <F label="MRP (₹)" error={errors.mrp} hint="Optional — defaults to the selling price">
               {(id, err) => <input id={id} className="st-input as-mono" inputMode="numeric" value={v.mrp} onChange={(e) => set("mrp")(digits(e.target.value))} aria-invalid={!!err} placeholder="0" />}
             </F>
+            <CostInput value={v.cost} onChange={set("cost")} error={errors.cost}
+              hint="Recommended — needed for real profit. Left empty, profit uses an estimate until you enter it." />
             <F label="Placed at (rack / shelf)" wide hint="Optional">
               {(id) => <input id={id} className="st-input" value={v.location} maxLength={80} onChange={(e) => set("location")(e.target.value)} placeholder="e.g. Rack A / Shelf 3" />}
             </F>
             <SerialNote name={`${v.brand} ${v.model_name}`} quantity={qty} />
           </div>
           {Number(v.sell_price) > 0 && qty > 0 && <p className="as-total">Stock value at selling price: <b className="as-mono">{money(Number(v.sell_price) * qty)}</b></p>}
+          <MarginNote cost={v.cost} sell={v.sell_price} />
         </section>
       </div>
     </div>
@@ -415,6 +440,7 @@ function ExistingProductForm({ stockPoints, setBusy, onAdded, registerSubmit, sc
   const [store, setStore] = useState(stockPoints.length === 1 ? String(stockPoints[0].id) : "");
   const [sell, setSell] = useState("");
   const [mrp, setMrp] = useState("");
+  const [cost, setCost] = useState("");
   const [location, setLocation] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [hsn, setHsn] = useState("");
@@ -466,6 +492,7 @@ function ExistingProductForm({ stockPoints, setBusy, onAdded, registerSubmit, sc
     if (isNew && !(Number(sell) > 0)) e.sell_price = "Enter the selling price for the new variant.";
     if (mrp && sell && Number(mrp) < Number(sell)) e.mrp = "MRP can't be lower than the selling price.";
     if (hsnInvalid(hsn)) e.hsn = HSN_ERROR;
+    if (costInvalid(cost)) e.cost = COST_ERROR;
     return e;
   };
 
@@ -482,6 +509,8 @@ function ExistingProductForm({ stockPoints, setBusy, onAdded, registerSubmit, sc
       onAdded(await api.post("/inventory/add-stock/", {
         entry: "existing", product: product.id, ...(isNew ? { new_variant: true, spec: spec.trim() } : { variant: variant.id }),
         colour: tidyColour(colour), stock_point: Number(store), quantity: qty, ...priceBody, location: location.trim(),
+        // what this batch cost; the server averages it with the units already in stock
+        ...(cost ? { cost: Number(cost) } : {}),
         // blank keeps the product's saved HSN
         ...(hsn ? { hsn } : {}),
       }));
@@ -555,6 +584,12 @@ function ExistingProductForm({ stockPoints, setBusy, onAdded, registerSubmit, sc
             <F label="MRP (₹)" error={errors.mrp} hint={variant ? `Currently ${money(variant.mrp)}` : "Optional — defaults to the selling price"}>
               {(id, err) => <input id={id} className="st-input as-mono" inputMode="numeric" value={mrp} onChange={(e) => { setMrp(digits(e.target.value)); clear("mrp"); }} aria-invalid={!!err} placeholder="0" />}
             </F>
+            <CostInput value={cost} onChange={(x) => { setCost(x); clear("cost"); }} error={errors.cost}
+              hint={variant
+                ? variant.cost_estimated || !variant.cost
+                  ? `Not entered yet${variant.cost ? ` — profit uses an estimate of ${money(variant.cost)}` : ""}. Enter what this batch cost.`
+                  : `Average cost now ${money(variant.cost)} — this batch is averaged in`
+                : "Recommended — needed for real profit"} />
             {product && (
               <ColourInput label="Colour of this stock" value={colour} onChange={typeColour} error={errors.colour}
                 hint={variant ? `This variant: ${colourText(variant.colour)}` : colourDiffers ? undefined : "Saved on the new variant"} />
@@ -583,6 +618,7 @@ function ExistingProductForm({ stockPoints, setBusy, onAdded, registerSubmit, sc
               <div><dt>After saving</dt><dd className="as-mono">{(isNew ? 0 : current) + qty}</dd></div>
             </dl>
           )}
+          {product && <MarginNote cost={cost} sell={sell || variant?.sell_price} />}
           {product && <SerialNote name={product.display_name} quantity={qty} />}
         </section>
       </div>

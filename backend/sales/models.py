@@ -113,6 +113,21 @@ class InvoiceItem(models.Model):
     # Signed so a repair bill can carry a "Less: advance received" line;
     # sale lines are validated non-negative in the serializer.
     price = models.IntegerField(help_text="Snapshot of the unit price at the time of invoicing.")
+    # What one unit cost the business, locked when the line is created, so a
+    # later cost correction never rewrites past profit (reports.profit_loss).
+    # None = no cost recorded (labour, visit charge, rent, or not entered).
+    PRODUCT, PART, SERVICE = "product", "part", "service"
+    unit_cost = models.PositiveIntegerField(null=True, blank=True)
+    cost_estimated = models.BooleanField(default=False, help_text="unit_cost was the automatic guess, not a purchase price.")
+    item_kind = models.CharField(max_length=10, blank=True, help_text="product / part: goods whose cost must be known.")
+
+    def save(self, *args, **kwargs):
+        if self.variant_id and not self.item_kind:
+            self.item_kind = self.PRODUCT
+        if self.variant_id and self.unit_cost is None and not self.pk:
+            self.unit_cost = self.variant.cost
+            self.cost_estimated = self.variant.cost_estimated
+        super().save(*args, **kwargs)
 
     @property
     def label(self):

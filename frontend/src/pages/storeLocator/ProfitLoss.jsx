@@ -33,7 +33,7 @@ const PERIODS = [
   { id: "this_year", label: "This year" },
   { id: "custom", label: "Custom" },
 ];
-const SOURCE_LABEL = { sale: "Product sales", repair: "Repairs", rental: "Rentals" };
+const SOURCE_LABEL = { sale: "Product sales", repair: "Repairs", rental: "Rentals", onsite: "On-site service" };
 const TX_KINDS = [
   { id: "settled", label: "Counted invoices" },
   { id: "expenses", label: "Expenses" },
@@ -166,12 +166,23 @@ function MetricCard({ icon: Icon, label, value, sub, tone: t = "blue", flag, loa
   );
 }
 
+// How far cost of goods can be trusted (reports.profit_loss): complete | estimated | incomplete
+const RELIABILITY = {
+  complete: { label: "Real costs", tone: "green" },
+  estimated: { label: "Partly estimated", tone: "amber" },
+  incomplete: { label: "Costs missing", tone: "red" },
+};
+const reliabilityOf = (q) => q.reliability || (q.cogs_complete ? "complete" : "incomplete");
+
 function DataQuality({ st, period }) {
   const q = st.data_quality;
+  const level = reliabilityOf(q);
   const notes = [];
-  if (q.uncosted_revenue > 0) notes.push(`${money(q.uncosted_revenue)} of revenue (repairs, rentals or unlinked sale lines) has no recorded cost, so gross profit on it is overstated.`);
-  if (q.missing_cost_lines > 0) notes.push(`${plural(q.missing_cost_lines, "sale line")} worth ${money(q.missing_cost_value)} use a product with no cost price.`);
-  notes.push("Cost of goods uses each product's current catalogue cost. Products added or imported without a cost get an automatic estimate (a fixed share of the selling price), so COGS is only as accurate as those cost prices.");
+  if (q.missing_cost_lines > 0) notes.push(`${plural(q.missing_cost_lines, "bill line")} worth ${money(q.missing_cost_value)} sold goods with no purchase cost entered. They count as free, so profit is overstated — enter the costs in Inventory → Costs (spare parts too).`);
+  if (q.unlinked_sale_value > 0) notes.push(`${money(q.unlinked_sale_value)} of sale lines aren't linked to a product, so what those goods cost is unknown.`);
+  if (q.estimated_cost_lines > 0) notes.push(`${plural(q.estimated_cost_lines, "bill line")} (${money(q.estimated_value)} of sales) use an estimated cost of ${money(q.estimated_cost)} — 78% of the selling price, because the real cost wasn't entered when the stock was added. Enter real costs in Inventory → Costs; sales from then on use them.`);
+  if (q.service_revenue > 0) notes.push(`${money(q.service_revenue)} is labour, visit charges or rent, which have no goods cost; staff salaries and rent paid belong in Accounting → Expenses. Parts used on a repair count only where "Our cost" was entered on its line.`);
+  if (q.cost_basis === "locked_at_sale") notes.push("Each bill line keeps the cost its goods had when it was billed (the average purchase cost of the stock), so correcting a cost later never changes past profit.");
   if (q.expense_status === "unavailable") notes.push("Expense records aren't available on this server yet (the expense database migration hasn't been applied), so expenses and net profit can't be shown.");
   else if (!q.expenses_recorded) notes.push("No expenses are recorded for this store in this period. That isn't the same as zero expenses, so net profit is shown as unavailable until rent, salaries and other costs are recorded in Accounting → Expenses.");
   if (period && !period.complete) notes.push("This period hasn't ended yet, so expenses for it may still be added.");
@@ -180,7 +191,12 @@ function DataQuality({ st, period }) {
     <div className="pl-quality" role="note">
       <span className="pl-quality-icon"><Info size={16} aria-hidden="true" /></span>
       <div className="min-w-0">
-        <p className="pl-quality-title">{q.cogs_complete && q.expenses_recorded ? "How far these figures go" : "Incomplete cost data — read profit with care"}</p>
+        <p className="pl-quality-title">
+          {level === "incomplete" ? "Some goods have no cost — profit is overstated"
+            : level === "estimated" ? "Some costs are estimates — profit is approximate"
+              : q.expenses_recorded ? "How far these figures go" : "Real product costs · expenses not recorded"}
+          {" "}<Badge tone={RELIABILITY[level].tone}>{RELIABILITY[level].label}</Badge>
+        </p>
         <ul>{notes.map((n) => <li key={n}>{n}</li>)}</ul>
       </div>
     </div>
@@ -343,6 +359,7 @@ function Line_({ label, value, kind, note, indent }) {
 /* The statement, laid out like a P&L: each line, then its subtotal. */
 function Statement({ st }) {
   const sale = st.by_source.find((r) => r.source === "sale");
+  const partsCost = st.by_source.filter((r) => r.source !== "sale").reduce((n, r) => n + (r.cogs || 0), 0);
   return (
     <Panel icon={ReceiptText} title="Profit & Loss statement" className="sl-span-2">
       <div className="pl-statement">
@@ -351,8 +368,8 @@ function Statement({ st }) {
         <Line_ indent label="Less: refunds & returns" value={-st.refunds} note={plural(st.refund_count, "refund")} />
         <Line_ kind="sub" label="Net revenue" value={st.revenue} />
         <p className="pl-sec">Cost of goods sold</p>
-        <Line_ indent label="Product cost of units sold, less restocked returns" value={-st.cogs} note="Current catalogue cost price" />
-        <Line_ indent label="Repair & rental direct costs" value="Not recorded" />
+        <Line_ indent label="Products sold, less restocked returns" value={-(sale?.cogs || 0)} note="Cost locked on each bill line when it was billed" />
+        <Line_ indent label="Spare parts on repair & on-site jobs" value={partsCost ? -partsCost : "None entered"} note="Part costs, and “Our cost” typed on repair lines" />
         <Line_ kind="total" label="Gross profit" value={st.gross_profit} note={`Gross margin ${pctText(st.gross_margin_pct)}`} />
         {sale && sale.revenue !== 0 && (
           <Line_ indent label="of which product sales" value={sale.gross_profit} note={`Margin ${pctText(sale.gross_margin_pct)}`} />
@@ -436,14 +453,14 @@ function Transactions({ storeId, period }) {
             </div>
           ) : (
             <div key={r.id} className="pl-tx-row">
-              <span className="pl-tx-main"><b>{r.code}</b><span className="pl-tx-sub">{fmtDay(r.date)} · {r.status}{r.is_advance ? " · advance" : ""}</span></span>
+              <span className="pl-tx-main"><b>{r.code}</b><span className="pl-tx-sub">{fmtDay(r.date)} · {r.status}{r.is_advance ? " · advance" : ""}{r.cost_missing ? " · cost missing" : r.cost_estimated ? " · estimated cost" : ""}</span></span>
               <span data-label="Customer" className="pl-wrap">{r.party}</span>
               <span data-label="Source">{SOURCE_LABEL[r.source]}</span>
               <span data-label="Billed" className="pl-r pl-mono">{signed(r.billed)}</span>
               <span data-label="Refunded" className="pl-r pl-mono">{r.refunded ? signed(-r.refunded) : "—"}</span>
               <span data-label="Revenue" className="pl-r pl-mono">{kind === "settled" ? signed(r.revenue) : <span className="sl-empty">Not counted</span>}</span>
               <span data-label="Gross profit" className="pl-r pl-mono" data-tone={r.gross_profit === null ? undefined : tone(r.gross_profit)}>
-                {r.gross_profit === null ? <span className="sl-empty" title="No recorded cost for this work">No cost data</span> : signed(r.gross_profit)}
+                {r.gross_profit === null ? <span className="sl-empty" title="No goods cost on this bill (labour, rent, or parts without “Our cost”)">No goods cost</span> : signed(r.gross_profit)}
               </span>
             </div>
           )))}
@@ -467,7 +484,7 @@ function CmpRow({ r, total, currentId, onPick }) {
         {total ? <b>All stores (consolidated)</b> : (
           <button type="button" className="sl-link-btn" onClick={() => onPick(r.store.id)} aria-label={`Open Profit & Loss for ${r.store.name}`}>{r.store.name}</button>
         )}
-        {!r.data_quality.cogs_complete && <span className="pl-tx-sub">Cost data incomplete</span>}
+        {reliabilityOf(r.data_quality) !== "complete" && <span className="pl-tx-sub">{reliabilityOf(r.data_quality) === "estimated" ? "Some costs estimated" : "Some costs missing"}</span>}
       </span>
       <span data-label="Revenue" className="pl-r pl-mono">{signed(r.revenue)}</span>
       <span data-label="Cost of goods" className="pl-r pl-mono">{signed(r.cogs)}</span>
@@ -545,14 +562,15 @@ export default function ProfitLoss({ store, stores, ownerView, onBack, onSwitchS
 
   const cards = useMemo(() => {
     if (!st) return null;
-    const incomplete = !st.data_quality.cogs_complete;
+    const level = reliabilityOf(st.data_quality);
+    const flag = level === "estimated" ? "Estimated" : level === "incomplete" ? "Incomplete" : null;
     return [
       { icon: TrendingUp, label: "Revenue", value: signed(st.revenue), tone: "blue",
         sub: `${money(st.billed)} billed · ${money(st.refunds)} refunded` },
       { icon: Package, label: "Cost of goods sold", value: signed(st.cogs), tone: "amber",
-        sub: "Product sales, at current cost price", flag: incomplete ? "Partial" : null },
+        sub: "Products and parts, at the cost locked when billed", flag },
       { icon: st.gross_profit < 0 ? TrendingDown : TrendingUp, label: st.gross_profit < 0 ? "Gross loss" : "Gross profit",
-        value: signed(st.gross_profit), tone: tone(st.gross_profit), flag: incomplete ? "Incomplete" : null,
+        value: signed(st.gross_profit), tone: tone(st.gross_profit), flag,
         sub: st.gross_profit < 0 ? "Cost of goods exceeded revenue" : "Revenue less cost of goods" },
       st.expenses === null
         ? { icon: Wallet, label: "Expenses", value: "Unavailable", tone: "grey", sub: EXPENSE_GAP[st.data_quality.expense_status] }
@@ -561,7 +579,7 @@ export default function ProfitLoss({ store, stores, ownerView, onBack, onSwitchS
       st.net_profit === null
         ? { icon: Landmark, label: "Net profit / loss", value: "Unavailable", tone: "grey", sub: "Needs the period's expense records" }
         : { icon: Landmark, label: st.net_profit < 0 ? "Net loss" : "Net profit", value: signed(st.net_profit), tone: tone(st.net_profit),
-          sub: "Gross profit less expenses", flag: incomplete ? "Incomplete" : null },
+          sub: "Gross profit less expenses", flag },
       { icon: Percent, label: "Net margin", value: pctText(st.net_margin_pct), tone: st.net_margin_pct === null ? "grey" : tone(Number(st.net_margin_pct)),
         sub: `Gross margin ${pctText(st.gross_margin_pct)} · ${plural(st.transactions, "paid invoice")}` },
     ];

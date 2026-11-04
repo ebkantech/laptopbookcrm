@@ -110,8 +110,11 @@ class ProfitLossFigureTests(ProfitLossTestBase):
             self.assertIsNone(st[key], key)
         quality = st["data_quality"]
         self.assertEqual(quality["expense_status"], "none_recorded")
-        self.assertFalse(quality["cogs_complete"])
+        # every product sold has a real cost; repair labour and rent carry no goods cost by nature
+        self.assertTrue(quality["cogs_complete"])
+        self.assertEqual(quality["reliability"], "complete")
         self.assertEqual(quality["uncosted_revenue"], 9000 + 3000)
+        self.assertEqual(quality["cost_basis"], "locked_at_sale")
         self.assertTrue(quality["expenses_tracked"])
         self.assertFalse(quality["expenses_recorded"])
         self.assertFalse(quality["tax_tracked"])

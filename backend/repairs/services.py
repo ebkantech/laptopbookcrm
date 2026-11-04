@@ -116,7 +116,8 @@ def finalize_estimate(ticket, user, lines, terms="", revision=False):
         if unit_price is None or unit_price < 0:
             raise ValidationError({"lines": "Unit price must be zero or greater."})
         total_amount += quantity * unit_price
-        prepared_lines.append({"service": service, "description": description, "quantity": quantity, "unit_price": unit_price})
+        prepared_lines.append({"service": service, "description": description, "quantity": quantity, "unit_price": unit_price,
+                               "unit_cost": line.get("unit_cost")})
         if service:
             selected_services.append(service)
 
@@ -550,7 +551,8 @@ def _clean_revision_lines(lines):
         if price is None or price < 0:
             raise ValidationError({"lines": "Unit price must be zero or greater."})
         total += quantity * price
-        out.append({"service": service.pk if service else None, "description": description, "quantity": quantity, "unit_price": price})
+        out.append({"service": service.pk if service else None, "description": description, "quantity": quantity, "unit_price": price,
+                    "unit_cost": line.get("unit_cost")})
     return out, total
 
 
@@ -559,7 +561,8 @@ def _revision_lines_for_estimate(revision):
 
     ids = [row["service"] for row in revision.lines if row["service"]]
     found = {s.pk: s for s in Service.objects.filter(pk__in=ids)}
-    return [{"service": found.get(row["service"]), "description": row["description"], "quantity": row["quantity"], "unit_price": row["unit_price"]} for row in revision.lines]
+    return [{"service": found.get(row["service"]), "description": row["description"], "quantity": row["quantity"], "unit_price": row["unit_price"],
+             "unit_cost": row.get("unit_cost")} for row in revision.lines]
 
 
 @transaction.atomic

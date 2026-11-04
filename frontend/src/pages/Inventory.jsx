@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import JsBarcode from "jsbarcode";
 import {
-  Check, Loader2, MapPin, Pencil, Plus, Printer, ScanBarcode, ScanLine, Search, X,
+  Check, IndianRupee, Loader2, MapPin, Pencil, Plus, Printer, ScanBarcode, ScanLine, Search, X,
 } from "lucide-react";
 import { C, F, money } from "../lib/theme";
 import { api } from "../lib/api";
@@ -11,6 +11,8 @@ import { Eyebrow, ErrorNote, Pill, PillButton, SearchInput, Spinner } from "../c
 import PageHeader from "../components/PageHeader";
 // Add stock -- New product / Existing product (restock): inventory/AddStockModal.jsx
 import AddStockModal from "./inventory/AddStockModal";
+// Inventory -> Costs: products / parts still on an estimated or missing purchase cost
+import CostReviewModal from "./inventory/CostReviewModal";
 import TraceSerialModal from "../components/serials/TraceSerialModal";
 import { SERIAL_STATUS_COLOR } from "../components/serials/serialStatus";
 import { printSerialLabels } from "../components/serials/serialLabels";
@@ -422,6 +424,51 @@ function PrintModal({ product, variant, onClose }) {
   );
 }
 
+/* A variant's purchase cost (weighted average of what was paid), for staff who
+ * can edit inventory. "Estimated" = still the automatic 78%-of-price guess. */
+function VariantCost({ variant, onSaved }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const guessed = variant.cost_estimated || !variant.cost;
+  const save = async () => {
+    if (!(Number(value) > 0)) { setError("Enter the cost (₹1 or more)."); return; }
+    setBusy(true);
+    setError("");
+    try {
+      const saved = await api.post(`/costs/variant/${variant.id}/`, { cost: Number(value) });
+      setEditing(false);
+      onSaved(variant.id, saved.cost);
+    } catch (e) {
+      setError(e.body?.detail || e.body?.cost?.[0] || e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (editing) {
+    return (
+      <span className="flex flex-wrap items-center gap-1.5 text-xs" style={{ fontFamily: F.body }}>
+        <input autoFocus inputMode="numeric" value={value} onChange={(e) => setValue(e.target.value.replace(/\D/g, "").slice(0, 9))}
+          onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(false); }}
+          placeholder="Real cost ₹" aria-label={`Purchase cost of ${variant.code}`} className="w-28 px-2 py-1" style={{ border: `1px solid ${C.rule}`, fontFamily: F.mono }} />
+        <button type="button" onClick={save} disabled={busy} title="Save cost"><Check size={13} style={{ color: C.green }} /></button>
+        <button type="button" onClick={() => { setEditing(false); setError(""); }} title="Cancel"><X size={13} style={{ color: C.inkSoft }} /></button>
+        {error && <span style={{ color: C.carbon }}>{error}</span>}
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-center gap-1.5 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
+      Cost <b style={{ fontFamily: F.mono, color: guessed ? C.amber : C.ink }}>{variant.cost ? money(variant.cost) : "none"}</b>
+      {guessed && <Pill color={C.amber}>{variant.cost ? "estimated" : "missing"}</Pill>}
+      <button type="button" onClick={() => { setValue(guessed ? "" : String(variant.cost)); setEditing(true); }} title="Enter the real purchase cost" aria-label={`Edit cost of ${variant.code}`}>
+        <Pencil size={11} style={{ color: C.inkSoft }} />
+      </button>
+    </span>
+  );
+}
+
 export default function Inventory() {
   const { can } = useSession();
   const [products, setProducts] = useState(null);
@@ -451,6 +498,8 @@ export default function Inventory() {
   const [printing, setPrinting] = useState(null); // { product, variant }
   const [flash, setFlash] = useState("");
   const [searching, setSearching] = useState(false);
+  const [costing, setCosting] = useState(false);
+  const [costsToFix, setCostsToFix] = useState(null);
   // Each search gets a number; only the newest one may update the list, so
   // a slow response for "del" can't overwrite the results for "dell".
   const loadSeq = useRef(0);
@@ -473,6 +522,12 @@ export default function Inventory() {
   useEffect(() => {
     api.get("/stock-points/?active=1").then((d) => setStockPoints(d.results ?? d)).catch(() => {});
   }, []);
+
+  const canEditStock = can("inventory.edit");
+  const loadCostCount = () => {
+    api.get("/costs/review/").then((d) => setCostsToFix(d.summary.variants_to_fix + d.summary.parts_to_fix), () => setCostsToFix(null));
+  };
+  useEffect(() => { if (canEditStock) loadCostCount(); }, [canEditStock]);
 
   // a store was renamed / edited: refresh the store list and the stock rows' store names
   useEffect(() => onStoreChanged(() => {
@@ -498,6 +553,7 @@ export default function Inventory() {
   const onStockAdded = (result) => {
     setAdding(false);
     load(query);
+    if (canEditStock) loadCostCount();
     setOpenProduct(result.product);
     const bits = [];
     if (result.generated_product_code) bits.push(`product code ${result.product.product_code} auto-generated`);
@@ -509,6 +565,14 @@ export default function Inventory() {
     const level = result.previous_quantity !== undefined ? ` Stock there: ${result.previous_quantity} → ${result.new_quantity}.` : ` Stock there: ${result.new_quantity}.`;
     setFlash(`Added stock at ${result.stock_point}${result.location ? ` (${result.location})` : ""}.${level}${bits.length ? " " + bits.join(", ") + "." : ""}`);
     setTimeout(() => setFlash(""), 6000);
+  };
+
+  // A corrected cost: patch the variant in the open panel and the list.
+  const onCostSaved = (variantId, cost) => {
+    const patch = (p) => ({ ...p, variants: p.variants.map((v) => (v.id === variantId ? { ...v, cost, cost_estimated: false } : v)) });
+    setOpenProduct((p) => (p ? patch(p) : p));
+    setProducts((list) => list.map(patch));
+    loadCostCount();
   };
 
   // Patch one stock row in both the open detail panel and the list,
@@ -537,7 +601,12 @@ export default function Inventory() {
         <div className="flex flex-1 items-center gap-2 sm:flex-none">
           <PillButton icon={ScanBarcode} onClick={() => setScanning(true)} className="flex-1 justify-center sm:flex-none">Scan</PillButton>
           <PillButton icon={ScanLine} onClick={() => setTracing("")} className="flex-1 justify-center sm:flex-none">Trace serial</PillButton>
-          {can("inventory.edit") && (
+          {canEditStock && (
+            <PillButton icon={IndianRupee} onClick={() => setCosting(true)} className="flex-1 justify-center sm:flex-none">
+              Costs{costsToFix ? <span className="ml-1 rounded-full px-1.5 text-[11px]" style={{ backgroundColor: `${C.amber}22`, color: C.amber, fontWeight: 700 }} title="Products / parts without a real purchase cost">{costsToFix}</span> : null}
+            </PillButton>
+          )}
+          {canEditStock && (
             <PillButton icon={Plus} primary onClick={() => setAdding(true)} className="flex-1 justify-center sm:flex-none">Add stock</PillButton>
           )}
         </div>
@@ -634,6 +703,7 @@ export default function Inventory() {
                     <div>
                       <p className="text-sm" style={{ fontFamily: F.body, fontWeight: 600, color: C.ink }}>{v.spec}</p>
                       <p className="text-xs" style={{ fontFamily: F.mono, color: C.stamp }} title="Variant SKU">SKU {v.code}{v.colour ? <span style={{ color: C.inkSoft }}> · {v.colour}</span> : null}</p>
+                      {canEditStock && <div className="mt-1"><VariantCost key={`${v.id}-${v.cost}`} variant={v} onSaved={onCostSaved} /></div>}
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{money(v.sell_price)} <span style={{ color: C.inkSoft, textDecoration: "line-through" }}>{money(v.mrp)}</span></span>
@@ -660,6 +730,7 @@ export default function Inventory() {
       )}
 
       {scanning && <ScanModal onClose={() => setScanning(false)} onFound={onScanFound} />}
+      {costing && <CostReviewModal onClose={() => setCosting(false)} onChanged={() => { load(query); loadCostCount(); }} />}
       {adding && <AddStockModal stockPoints={stockPoints} onClose={() => setAdding(false)} onAdded={onStockAdded} />}
       {tracing !== null && <TraceSerialModal key={tracing} initial={tracing} onClose={() => setTracing(null)} />}
       {printing && <PrintModal product={printing.product} variant={printing.variant} onClose={() => setPrinting(null)} />}

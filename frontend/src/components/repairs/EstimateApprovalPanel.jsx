@@ -3,6 +3,8 @@ import { CheckCircle2, Copy, ExternalLink, FileCheck2, Plus, Send, ShieldCheck, 
 
 import { ErrorNote, Eyebrow, Pill } from "../Atoms";
 import { api } from "../../lib/api";
+import { LINE_GRID, LineHeader } from "./ManualLines";
+import { badCost, costField } from "./bookingModel";
 import { C, F, money } from "../../lib/theme";
 
 
@@ -10,7 +12,7 @@ const DEFAULT_TERMS = "I approve the final repair work and total amount shown in
 
 function initialLines(ticket) {
   const existing = ticket.current_estimate?.lines;
-  if (existing?.length) return existing.map((line) => ({ service_id: line.service_id || null, description: line.description, quantity: line.quantity, unit_price: line.unit_price }));
+  if (existing?.length) return existing.map((line) => ({ service_id: line.service_id || null, description: line.description, quantity: line.quantity, unit_price: line.unit_price, unit_cost: line.unit_cost ?? "" }));
   return (ticket.services || []).map((service) => ({ service_id: service.id, description: service.label, quantity: 1, unit_price: service.charge }));
 }
 
@@ -47,14 +49,14 @@ export default function EstimateApprovalPanel({ ticket, services, canManage, can
 
   const finalize = async () => {
     setError("");
-    if (!lines.length || lines.some((line) => !String(line.description || "").trim() || Number(line.quantity) < 1 || Number(line.unit_price) < 0)) {
+    if (!lines.length || lines.some((line) => !String(line.description || "").trim() || Number(line.quantity) < 1 || Number(line.unit_price) < 0 || badCost(line))) {
       setError("Add at least one valid work or cost line.");
       return;
     }
     setBusy("finalize");
     try {
       const updated = await api.post(`/tickets/${ticket.id}/finalize-estimate/`, {
-        lines: lines.map((line) => ({ service_id: line.service_id || null, description: line.description.trim(), quantity: Number(line.quantity), unit_price: Number(line.unit_price) })),
+        lines: lines.map((line) => ({ service_id: line.service_id || null, description: line.description.trim(), quantity: Number(line.quantity), unit_price: Number(line.unit_price), ...costField(line) })),
         terms: terms.trim(),
       });
       onChanged(updated);
@@ -127,7 +129,8 @@ export default function EstimateApprovalPanel({ ticket, services, canManage, can
 
       {editing && (
         <div className="mt-3 space-y-2">
-          {lines.map((line, index) => <div key={`${line.service_id || "custom"}-${index}`} className="grid grid-cols-12 gap-1.5"><input className="col-span-6 px-2 py-1 text-xs" value={line.description} onChange={(event) => updateLine(index, "description", event.target.value)} style={{ border: `1px solid ${C.rule}` }} aria-label="Work description" /><input className="col-span-2 px-2 py-1 text-xs" type="number" min="1" value={line.quantity} onChange={(event) => updateLine(index, "quantity", event.target.value)} style={{ border: `1px solid ${C.rule}` }} aria-label="Quantity" /><input className="col-span-3 px-2 py-1 text-xs" type="number" min="0" value={line.unit_price} onChange={(event) => updateLine(index, "unit_price", event.target.value)} style={{ border: `1px solid ${C.rule}` }} aria-label="Unit price" /><button onClick={() => removeLine(index)} className="col-span-1 flex items-center justify-center" aria-label="Remove line"><Trash2 size={14} style={{ color: C.carbon }} /></button></div>)}
+          <LineHeader small />
+          {lines.map((line, index) => <div key={`${line.service_id || "custom"}-${index}`} style={LINE_GRID}><input className="min-w-0 px-2 py-1 text-xs" value={line.description} onChange={(event) => updateLine(index, "description", event.target.value)} style={{ border: `1px solid ${C.rule}` }} aria-label="Work description" /><input className="min-w-0 px-2 py-1 text-xs" type="number" min="1" value={line.quantity} onChange={(event) => updateLine(index, "quantity", event.target.value)} style={{ border: `1px solid ${C.rule}` }} aria-label="Quantity" /><input className="min-w-0 px-2 py-1 text-xs" type="number" min="0" value={line.unit_price} onChange={(event) => updateLine(index, "unit_price", event.target.value)} style={{ border: `1px solid ${C.rule}` }} aria-label="Unit price" /><input className="min-w-0 px-2 py-1 text-xs" type="number" min="0" value={line.unit_cost ?? ""} onChange={(event) => updateLine(index, "unit_cost", event.target.value)} placeholder="₹ cost" style={{ border: `1px dashed ${C.rule}` }} aria-label="Our cost (staff only)" /><button onClick={() => removeLine(index)} className="flex items-center justify-center" aria-label="Remove line"><Trash2 size={14} style={{ color: C.carbon }} /></button></div>)}
           <select defaultValue="" onChange={(event) => { addService(event.target.value); event.target.value = ""; }} className="w-full px-2 py-1.5 text-xs" style={{ border: `1px solid ${C.rule}` }}><option value="">Add a catalogue service…</option>{services.map((service) => <option key={service.id} value={service.id}>{service.label} — {money(service.charge)}</option>)}</select>
           <button onClick={() => setLines((current) => [...current, { service_id: null, description: "", quantity: 1, unit_price: 0 }])} className="flex items-center gap-1 text-xs" style={{ color: C.blue }}><Plus size={13} /> Add custom line</button>
           <p className="text-right text-sm" style={{ fontFamily: F.mono, fontWeight: 700 }}>Total: {money(total)}</p>

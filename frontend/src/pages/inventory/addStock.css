@@ -109,3 +109,18 @@
 .as-foot { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: flex-end; width: 100%; }
 @media (max-width: 560px) { .as-foot .st-btn { flex: 1 1 0; } }
 @media (pointer: coarse) { .as .st-btn, .as-tile, .as-choice button, .as-segment button { min-height: 2.75rem; } }
+
+/* Inventory -> Costs (CostReviewModal) */
+.cr-body { display: grid; gap: 0.85rem; --as-tint: var(--st-accent-soft); }
+.cr-summary { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.cr-list { display: grid; gap: 0.5rem; }
+.cr-row { display: grid; gap: 0.6rem; padding: 0.75rem 0.9rem; border: 1px solid var(--cb-rule); border-radius: var(--cb-radius-md); background: var(--cb-surface); }
+@media (min-width: 640px) { .cr-row { grid-template-columns: minmax(0, 1fr) auto; align-items: center; } }
+.cr-title { font-size: 13.5px; font-weight: 700; color: var(--cb-ink); overflow-wrap: anywhere; }
+.cr-sub { font-size: 12px; color: var(--cb-ink-soft); }
+.cr-sub b { color: var(--cb-ink); }
+.cr-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.cr-edit .st-input { width: 8.5rem; }
+.cr-bulk { display: grid; gap: 0.5rem; padding-top: 0.85rem; border-top: 1px solid var(--cb-rule); }
+.cr-bulk-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.cr-bulk-actions .st-btn { display: inline-flex; align-items: center; gap: 0.4rem; }

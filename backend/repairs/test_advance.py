@@ -41,6 +41,24 @@ class RepairAdvanceTests(TestCase):
     def pay(self, invoice):
         return self.client_.post(f"/api/invoices/{invoice.id}/settle/", {"pay_method": "Cash"}, format="json")
 
+    def test_our_cost_is_locked_on_the_bill(self):
+        """"Our cost" on an estimate line reaches the repair bill as a part cost; other lines stay labour."""
+        ticket = self.book(payment=RepairTicket.FULL)
+        RepairTicket.objects.filter(pk=ticket.pk).update(status=RepairTicket.DIAGNOSING)
+        ticket.refresh_from_db()
+        finalize_estimate(ticket, self.owner, [
+            {"service": None, "description": "Screen panel", "quantity": 1, "unit_price": 6000, "unit_cost": 3500},
+            {"service": self.service, "description": "Fitting", "quantity": 1, "unit_price": 1000},
+        ])
+        approve_on_behalf(ticket, self.owner, "Approved at the counter")
+        staff = self.client_.get(f"/api/tickets/{ticket.id}/").json()
+        self.assertEqual([l["unit_cost"] for l in staff["current_estimate"]["lines"]], [3500, None])
+        RepairTicket.objects.filter(pk=ticket.pk).update(status=RepairTicket.READY)
+        self.assertEqual(self.client_.post(f"/api/tickets/{ticket.id}/settle/").status_code, 200)
+        bill = Invoice.objects.get(repair_ticket=ticket, is_advance=False)
+        rows = {i.description: (i.item_kind, i.unit_cost) for i in bill.items.all()}
+        self.assertEqual(rows, {"Screen panel": ("part", 3500), "Fitting": ("service", None)})
+
     def test_booking_raises_an_advance_invoice_and_ignores_client_amount(self):
         ticket = self.book()
         self.assertEqual(ticket.advance_paid, 0)  # nothing received yet

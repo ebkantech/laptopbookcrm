@@ -293,6 +293,9 @@ class RepairEstimateLine(models.Model):
     description = models.CharField(max_length=160)
     quantity = models.PositiveSmallIntegerField(default=1)
     unit_price = models.PositiveIntegerField()
+    # What the part / outside work for this line cost us (staff only, never on
+    # the customer's estimate). Carried to the invoice line for Profit & Loss.
+    unit_cost = models.PositiveIntegerField(null=True, blank=True)
 
     class Meta:
         ordering = ["id"]

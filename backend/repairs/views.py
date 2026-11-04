@@ -544,7 +544,10 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
                 return Response({"detail": "A final customer, Admin, or Super Admin approval is required before settlement."}, status=400)
             estimate = ticket.current_estimate
             if estimate:
-                lines = [{"description": line.description, "qty": line.quantity, "price": line.unit_price} for line in estimate.lines.all()]
+                # a line with our parts cost entered counts as goods in the profit report; the rest is labour
+                lines = [{"description": line.description, "qty": line.quantity, "price": line.unit_price,
+                          "item_kind": "part" if line.unit_cost else "service", "unit_cost": line.unit_cost or None}
+                         for line in estimate.lines.all()]
             else:
                 lines = [{"description": svc.label, "qty": 1, "price": svc.charge} for svc in ticket.services.all()]
             unpaid_advance = ticket.unpaid_advance

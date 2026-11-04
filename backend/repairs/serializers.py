@@ -30,6 +30,9 @@ class EstimateLineInputSerializer(serializers.Serializer):
     description = serializers.CharField(max_length=160, allow_blank=False, trim_whitespace=True)
     quantity = serializers.IntegerField(min_value=1, default=1)
     unit_price = serializers.IntegerField(min_value=0, required=False)
+    # staff-only: what the parts on this line cost the shop (for the profit
+    # report). Never shown to the customer; blank = labour only.
+    unit_cost = serializers.IntegerField(min_value=0, max_value=100_000_000, required=False, allow_null=True)
 
     def validate(self, attrs):
         if attrs.get("unit_price") is None and not attrs.get("service"):
@@ -166,6 +169,13 @@ class RepairEstimateLineSerializer(serializers.ModelSerializer):
         fields = ["id", "service_id", "description", "quantity", "unit_price", "line_total"]
 
 
+class StaffRepairEstimateLineSerializer(RepairEstimateLineSerializer):
+    """Adds our parts cost -- staff screens only; the public approval page uses the base serializer."""
+
+    class Meta(RepairEstimateLineSerializer.Meta):
+        fields = RepairEstimateLineSerializer.Meta.fields + ["unit_cost"]
+
+
 class RepairApprovalSummarySerializer(serializers.ModelSerializer):
     status = serializers.CharField(source="effective_status", read_only=True)
     decided_by_name = serializers.SerializerMethodField()
@@ -179,7 +189,7 @@ class RepairApprovalSummarySerializer(serializers.ModelSerializer):
 
 
 class RepairEstimateSerializer(serializers.ModelSerializer):
-    lines = RepairEstimateLineSerializer(many=True, read_only=True)
+    lines = StaffRepairEstimateLineSerializer(many=True, read_only=True)
     approval_status = serializers.CharField(read_only=True)
     approval = serializers.SerializerMethodField()
     balance_due = serializers.IntegerField(read_only=True)

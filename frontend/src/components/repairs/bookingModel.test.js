@@ -24,3 +24,10 @@ test("pricingPayload is explicit about the advance and only prices for those who
   assert.deepEqual(pricingPayload({ lines, payment: "advance", advance: "", canPrice: false }), { advance_amount: 0 });
   assert.deepEqual(pricingPayload({ lines, payment: "full", advance: "900", canPrice: true }), { estimate_lines: [{ description: "Board fix", quantity: 2, unit_price: 1500 }] });
 });
+
+test("our cost is sent only when typed in, and must be a valid amount", () => {
+  assert.deepEqual(cleanLines([{ description: "Screen", quantity: 1, unit_price: "6000", unit_cost: "3500" }]),
+    [{ description: "Screen", quantity: 1, unit_price: 6000, unit_cost: 3500 }]);
+  assert.equal(validatePricing({ lines: [{ description: "Screen", quantity: 1, unit_price: "6000", unit_cost: "3500" }], payment: "full" }), "");
+  assert.match(validatePricing({ lines: [{ description: "Screen", quantity: 1, unit_price: "6000", unit_cost: "-1" }], payment: "full" }), /Our cost/);
+});

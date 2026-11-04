@@ -122,3 +122,16 @@ class WriteOffTests(Base):
         self.assertEqual(PartStock.objects.get(part=self.part, stock_point=self.shop).quantity, 1)  # 3 - 2 issued; nothing credited
         self.a.post(url, body, format="json")                                                # clear the rest
         self.assertEqual(self.c.get("/api/leads/parts_due/").json()["items"], [])
+
+
+class PartCostOnBillTests(Base):
+    def test_part_line_carries_the_part_cost_or_is_flagged_missing(self):
+        from sales.models import InvoiceItem
+
+        self.part.cost = 450
+        self.part.save(update_fields=["cost"])
+        pk, _ = self.to_approved()
+        self.t.post(f"/api/leads/{pk}/start/")
+        self.assertEqual(self.t.post(f"/api/leads/{pk}/complete/", {}, format="json").status_code, 200)
+        line = InvoiceItem.objects.get(invoice__lead_id=pk, item_kind="part")
+        self.assertEqual(line.unit_cost, 450)

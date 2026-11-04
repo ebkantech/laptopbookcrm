@@ -466,9 +466,10 @@ def _resolve_variant(product, data):
 
     sell_price = max(sell_price, 0)
     mrp = _int_or_zero(data.get("mrp")) or sell_price
-    cost = _int_or_zero(data.get("cost")) or round(sell_price * 0.78)
+    bought = _int_or_zero(data.get("cost"))
+    cost = bought or round(sell_price * 0.78)
     variant = Variant.objects.create(
-        product=product, spec=spec, mrp=mrp, sell_price=sell_price, cost=cost,
+        product=product, spec=spec, mrp=mrp, sell_price=sell_price, cost=cost, cost_estimated=not bought,
         code=next_code("VC-SKU", Variant, "code"),
     )
     return variant, True, None

@@ -18,11 +18,22 @@ no floats; percentages are Decimals rounded half-up to 0.1):
   Revenue          = Billed - Refunds  (== sum(Invoice.net_total), the
                      existing revenue rule). Refunds count against the
                      invoice's own date, exactly as the existing reports.
-  COGS             = sum(qty x Variant.cost) of product lines on settled
-                     sale invoices, less the cost of units returned AND put
-                     back on the shelf (Refund.restocked). Units returned
-                     without restocking stay in COGS -- the goods weren't
-                     recovered.
+  COGS             = sum(qty x InvoiceItem.unit_cost) of the goods lines
+                     (products and spare parts) on settled invoices of any
+                     kind, less the cost of units returned AND put back on
+                     the shelf (Refund.restocked). Units returned without
+                     restocking stay in COGS -- the goods weren't recovered.
+                     unit_cost is the cost locked on the line when it was
+                     billed (the product's weighted average purchase cost,
+                     the part's cost, or "our cost" typed on a repair line),
+                     so correcting a cost later never rewrites past profit.
+  Reliability      = "incomplete" when goods were billed with no cost at
+                     all (they'd count as free) or sale lines aren't linked
+                     to a product; else "estimated" when some costs are
+                     still the automatic 78%-of-price guess; else
+                     "complete". Labour, visit charges and rent carry no
+                     goods cost by nature -- staff wages and rent paid are
+                     expenses.
   Gross profit     = Revenue - COGS
   Operating / other expenses
                    = active (not cancelled) accounting.Expense rows at the
@@ -50,7 +61,7 @@ from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.db import connection
-from django.db.models import Case, Count, ExpressionWrapper, F, IntegerField, OuterRef, Q, Subquery, Sum, Value, When
+from django.db.models import Case, Count, Exists, ExpressionWrapper, F, IntegerField, OuterRef, Q, Subquery, Sum, Value, When
 from django.db.models.functions import Coalesce, TruncMonth
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -70,8 +81,16 @@ DAILY_TREND_MAX_DAYS = 62
 MONTHLY_MIN, MONTHLY_MAX = 6, 24
 
 LINE_VALUE = ExpressionWrapper(F("qty") * F("price"), output_field=IntegerField())
-LINE_COST = ExpressionWrapper(F("qty") * F("variant__cost"), output_field=IntegerField())
-RETURN_COST = ExpressionWrapper(F("qty") * F("invoice_item__variant__cost"), output_field=IntegerField())
+LINE_COST = ExpressionWrapper(F("qty") * F("unit_cost"), output_field=IntegerField())
+RETURN_COST = ExpressionWrapper(F("qty") * F("invoice_item__unit_cost"), output_field=IntegerField())
+# goods lines -- products and spare parts -- whose cost must be known
+GOODS = Q(item_kind__in=(InvoiceItem.PRODUCT, InvoiceItem.PART))
+COSTED = GOODS & Q(unit_cost__gt=0)
+MISSING = GOODS & (Q(unit_cost__isnull=True) | Q(unit_cost=0))
+ESTIMATED = COSTED & Q(cost_estimated=True)
+RETURN_COSTED = Q(invoice_item__item_kind__in=(InvoiceItem.PRODUCT, InvoiceItem.PART), invoice_item__unit_cost__gt=0)
+COSTED_SOURCES = (Invoice.SALE, Invoice.REPAIR, Invoice.ONSITE)  # sources that can bill goods
+RELIABLE, ESTIMATED_COSTS, INCOMPLETE = "complete", "estimated", "incomplete"
 # an expense as Profit & Loss counts it: the bill less claimable input GST
 EXPENSE_VALUE = ExpressionWrapper(
     F("amount") - Case(When(gst_claimable=True, then=F("gst_amount")), default=Value(0)), output_field=IntegerField(),
@@ -172,8 +191,10 @@ def _settled(prefix, store_ids, start, end):
 def _empty_store():
     return {
         "billed": {s: 0 for s in SOURCES}, "refunds": {s: 0 for s in SOURCES}, "invoices": {s: 0 for s in SOURCES},
-        "refund_count": 0, "sale_cost": 0, "restocked_cost": 0,
-        "missing_cost_lines": 0, "missing_cost_value": 0, "unlinked_sale_value": 0,
+        "refund_count": 0, "cost": {s: 0 for s in SOURCES}, "restocked_cost": {s: 0 for s in SOURCES},
+        "costed_lines": {s: 0 for s in SOURCES},
+        "estimated_cost_lines": 0, "estimated_cost": 0, "estimated_value": 0,
+        "missing_cost_lines": 0, "missing_cost_value": 0, "unlinked_sale_value": 0, "service_value": 0,
         "outstanding": 0, "outstanding_count": 0, "cancelled": 0, "cancelled_count": 0,
         "operating_expenses": 0, "other_expenses": 0, "expense_count": 0,
     }
@@ -201,22 +222,32 @@ def raw_figures(store_ids, start, end):
         fig["refunds"][row["invoice__source"]] += row["v"] or 0
         fig["refund_count"] += row["n"]
 
-    sale_lines = InvoiceItem.objects.filter(**_settled("invoice", store_ids, start, end), invoice__source=Invoice.SALE)
-    for row in (sale_lines.values("invoice__stock_point_id").order_by().annotate(
-            cost=Sum(LINE_COST, filter=Q(variant__isnull=False)),
-            missing_lines=Count("id", filter=Q(variant__cost=0)),
-            missing_value=Sum(LINE_VALUE, filter=Q(variant__cost=0)),
-            unlinked=Sum(LINE_VALUE, filter=Q(variant__isnull=True)))):
-        fig = out[row["invoice__stock_point_id"]]
-        fig["sale_cost"] = row["cost"] or 0
-        fig["missing_cost_lines"] = row["missing_lines"]
-        fig["missing_cost_value"] = row["missing_value"] or 0
-        fig["unlinked_sale_value"] = row["unlinked"] or 0
+    unlinked = Q(invoice__source=Invoice.SALE) & ~GOODS
+    lines = InvoiceItem.objects.filter(**_settled("invoice", store_ids, start, end))
+    for row in (lines.values("invoice__stock_point_id", "invoice__source").order_by().annotate(
+            cost=Sum(LINE_COST, filter=COSTED),
+            costed=Count("id", filter=COSTED),
+            est_lines=Count("id", filter=ESTIMATED),
+            est_cost=Sum(LINE_COST, filter=ESTIMATED),
+            est_value=Sum(LINE_VALUE, filter=ESTIMATED),
+            missing_lines=Count("id", filter=MISSING),
+            missing_value=Sum(LINE_VALUE, filter=MISSING),
+            unlinked=Sum(LINE_VALUE, filter=unlinked),
+            service=Sum(LINE_VALUE, filter=~GOODS & ~unlinked))):
+        fig, src = out[row["invoice__stock_point_id"]], row["invoice__source"]
+        fig["cost"][src] += row["cost"] or 0
+        fig["costed_lines"][src] += row["costed"]
+        fig["estimated_cost_lines"] += row["est_lines"]
+        fig["estimated_cost"] += row["est_cost"] or 0
+        fig["estimated_value"] += row["est_value"] or 0
+        fig["missing_cost_lines"] += row["missing_lines"]
+        fig["missing_cost_value"] += row["missing_value"] or 0
+        fig["unlinked_sale_value"] += row["unlinked"] or 0
+        fig["service_value"] += row["service"] or 0
 
-    for row in (RefundItem.objects.filter(**_settled("refund__invoice", store_ids, start, end), refund__invoice__source=Invoice.SALE,
-                                          refund__restocked=True, invoice_item__variant__isnull=False)
-                .values("refund__invoice__stock_point_id").order_by().annotate(cost=Sum(RETURN_COST))):
-        out[row["refund__invoice__stock_point_id"]]["restocked_cost"] = row["cost"] or 0
+    for row in (RefundItem.objects.filter(RETURN_COSTED, **_settled("refund__invoice", store_ids, start, end), refund__restocked=True)
+                .values("refund__invoice__stock_point_id", "refund__invoice__source").order_by().annotate(cost=Sum(RETURN_COST))):
+        out[row["refund__invoice__stock_point_id"]]["restocked_cost"][row["refund__invoice__source"]] += row["cost"] or 0
 
     open_or_cancelled = InvoiceItem.objects.filter(invoice__stock_point_id__in=store_ids, invoice__date__range=(start, end))
     for row in (open_or_cancelled.filter(invoice__status__in=Invoice.OUTSTANDING + (Invoice.CANCELLED,))
@@ -295,12 +326,19 @@ def statement(fig):
     refunds = sum(fig["refunds"].values())
     revenue = billed - refunds
     by_source = {s: fig["billed"][s] - fig["refunds"][s] for s in SOURCES}
-    cogs = fig["sale_cost"] - fig["restocked_cost"]
+    cogs_by = {s: fig["cost"][s] - fig["restocked_cost"][s] for s in SOURCES}
+    # a source shows a cost only where goods can be billed and (beyond plain sales) some were
+    shows_cost = {s: s == Invoice.SALE or (s in COSTED_SOURCES and fig["costed_lines"][s] > 0) for s in SOURCES}
+    cogs = sum(cogs_by.values())
     gross = revenue - cogs
-    product_gross = by_source[Invoice.SALE] - cogs
-    # revenue nothing in the CRM records a direct cost for
-    uncosted = by_source[Invoice.REPAIR] + by_source[Invoice.RENTAL] + by_source[Invoice.ONSITE] + fig["unlinked_sale_value"]
-    cogs_complete = uncosted == 0 and fig["missing_cost_lines"] == 0
+    # revenue with no goods cost: labour, visit charges, rent -- plus sale lines not linked to a product
+    uncosted = fig["service_value"] + fig["unlinked_sale_value"]
+    if fig["missing_cost_lines"] or fig["unlinked_sale_value"]:
+        reliability = INCOMPLETE
+    elif fig["estimated_cost_lines"]:
+        reliability = ESTIMATED_COSTS
+    else:
+        reliability = RELIABLE
     status = expense_status(fig)
     known = status == EXPENSES_RECORDED
     net = gross - fig["operating_expenses"] - fig["other_expenses"] if known else None
@@ -325,22 +363,28 @@ def statement(fig):
             {
                 "source": s, "billed": fig["billed"][s], "refunds": fig["refunds"][s], "revenue": by_source[s],
                 "invoices": fig["invoices"][s],
-                "cogs": cogs if s == Invoice.SALE else None,
-                "gross_profit": product_gross if s == Invoice.SALE else None,
-                "gross_margin_pct": pct(product_gross, by_source[s]) if s == Invoice.SALE else None,
+                "cogs": cogs_by[s] if shows_cost[s] else None,
+                "gross_profit": by_source[s] - cogs_by[s] if shows_cost[s] else None,
+                "gross_margin_pct": pct(by_source[s] - cogs_by[s], by_source[s]) if shows_cost[s] else None,
             }
             for s in SOURCES
         ],
         "data_quality": {
-            "cogs_complete": cogs_complete,
+            "reliability": reliability,
+            "cogs_complete": reliability == RELIABLE,
             "uncosted_revenue": uncosted,
+            "service_revenue": fig["service_value"],
+            "unlinked_sale_value": fig["unlinked_sale_value"],
             "missing_cost_lines": fig["missing_cost_lines"],
             "missing_cost_value": fig["missing_cost_value"],
+            "estimated_cost_lines": fig["estimated_cost_lines"],
+            "estimated_cost": fig["estimated_cost"],
+            "estimated_value": fig["estimated_value"],
             "expense_status": status,
             "expenses_tracked": status != EXPENSES_UNAVAILABLE,
             "expenses_recorded": known,
             "tax_tracked": False,
-            "cost_basis": "current_catalogue_cost",
+            "cost_basis": "locked_at_sale",
         },
     }
 
@@ -381,10 +425,8 @@ def bucketed(store_id, start, end, monthly):
     ids = [store_id]
     add(InvoiceItem.objects.filter(**_settled("invoice", ids, start, end)), "invoice__date", LINE_VALUE, "revenue")
     add(Refund.objects.filter(**_settled("invoice", ids, start, end)), "invoice__date", F("amount"), "revenue", -1)
-    add(InvoiceItem.objects.filter(**_settled("invoice", ids, start, end), invoice__source=Invoice.SALE, variant__isnull=False),
-        "invoice__date", LINE_COST, "cogs")
-    add(RefundItem.objects.filter(**_settled("refund__invoice", ids, start, end), refund__invoice__source=Invoice.SALE,
-                                  refund__restocked=True, invoice_item__variant__isnull=False),
+    add(InvoiceItem.objects.filter(COSTED, **_settled("invoice", ids, start, end)), "invoice__date", LINE_COST, "cogs")
+    add(RefundItem.objects.filter(RETURN_COSTED, **_settled("refund__invoice", ids, start, end), refund__restocked=True),
         "refund__invoice__date", RETURN_COST, "cogs", -1)
     if expenses_available():
         expenses = expense_rows(Expense.objects.filter(stock_point_id=store_id), start, end)
@@ -453,9 +495,9 @@ def invoice_rows(store_id, period, kind, source=None):
     billed = (InvoiceItem.objects.filter(invoice=OuterRef("pk")).order_by().values("invoice")
               .annotate(v=Sum(LINE_VALUE)).values("v"))
     refunded = Refund.objects.filter(invoice=OuterRef("pk")).order_by().values("invoice").annotate(v=Sum("amount")).values("v")
-    cost = (InvoiceItem.objects.filter(invoice=OuterRef("pk"), variant__isnull=False).order_by().values("invoice")
+    cost = (InvoiceItem.objects.filter(COSTED, invoice=OuterRef("pk")).order_by().values("invoice")
             .annotate(v=Sum(LINE_COST)).values("v"))
-    restocked = (RefundItem.objects.filter(refund__invoice=OuterRef("pk"), refund__restocked=True, invoice_item__variant__isnull=False)
+    restocked = (RefundItem.objects.filter(RETURN_COSTED, refund__invoice=OuterRef("pk"), refund__restocked=True)
                  .order_by().values("refund__invoice").annotate(v=Sum(RETURN_COST)).values("v"))
     zero = Value(0, output_field=IntegerField())
     qs = (Invoice.objects.filter(stock_point_id=store_id, date__range=(period.start, period.end), status__in=statuses)
@@ -466,7 +508,12 @@ def invoice_rows(store_id, period, kind, source=None):
               cost_v=Case(
                   When(source=Invoice.SALE, then=Coalesce(Subquery(cost, output_field=IntegerField()), zero)
                        - Coalesce(Subquery(restocked, output_field=IntegerField()), zero)),
+                  # repair / on-site: a cost only when parts with a cost were billed
+                  When(source__in=(Invoice.REPAIR, Invoice.ONSITE), then=Subquery(cost, output_field=IntegerField())
+                       - Coalesce(Subquery(restocked, output_field=IntegerField()), zero)),
                   default=None, output_field=IntegerField()),
+              cost_estimated=Exists(InvoiceItem.objects.filter(ESTIMATED, invoice=OuterRef("pk"))),
+              cost_missing=Exists(InvoiceItem.objects.filter(MISSING, invoice=OuterRef("pk"))),
           ).order_by("-date", "-id"))
     if source in SOURCES:
         qs = qs.filter(source=source)
@@ -483,11 +530,13 @@ def serialize_invoice(inv, kind):
         "revenue": revenue if counted else 0,
         "cogs": inv.cost_v if counted else None,
         "gross_profit": (revenue - inv.cost_v) if counted and inv.cost_v is not None else None,
+        "cost_estimated": inv.cost_estimated,
+        "cost_missing": inv.cost_missing,
     }
 
 
 def refund_rows(store_id, period, source=None):
-    restocked_cost = (RefundItem.objects.filter(refund=OuterRef("pk"), invoice_item__variant__isnull=False).order_by()
+    restocked_cost = (RefundItem.objects.filter(RETURN_COSTED, refund=OuterRef("pk")).order_by()
                       .values("refund").annotate(v=Sum(RETURN_COST)).values("v"))
     qs = (Refund.objects.filter(**_settled("invoice", [store_id], period.start, period.end))
           .select_related("invoice__party")

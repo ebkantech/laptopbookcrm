@@ -152,7 +152,7 @@ class VariantSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Variant
-        fields = ["id", "code", "spec", "colour", "mrp", "sell_price", "cost", "stock", "total_stock"]
+        fields = ["id", "code", "spec", "colour", "mrp", "sell_price", "cost", "cost_estimated", "stock", "total_stock"]
 
 
 class ProductSerializer(serializers.ModelSerializer):
@@ -182,7 +182,8 @@ class PartSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Part
-        fields = ["id", "slug", "name", "compatible_brands", "stock"]
+        fields = ["id", "slug", "name", "compatible_brands", "cost", "stock"]
+        read_only_fields = ["cost"]  # set through the cost review (catalog.cost_views)
 
 
 class ServiceSerializer(serializers.ModelSerializer):

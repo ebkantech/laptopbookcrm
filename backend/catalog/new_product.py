@@ -188,6 +188,8 @@ class NewProductSerializer(serializers.Serializer):
     specs = serializers.DictField(child=serializers.CharField(max_length=120, allow_blank=True), required=False, default=dict)
     quantity = serializers.IntegerField(min_value=1, max_value=MAX_QUANTITY)
     sell_price = serializers.IntegerField(min_value=1, max_value=100_000_000)
+    # purchase price per unit (from the supplier bill); blank = estimated for now
+    cost = serializers.IntegerField(min_value=1, max_value=100_000_000, required=False, allow_null=True)
     mrp = serializers.IntegerField(min_value=1, max_value=100_000_000, required=False, allow_null=True)
     location = serializers.CharField(max_length=80, required=False, allow_blank=True, default="")
 
@@ -258,10 +260,12 @@ def create(data, user, stock_point):
         product_code=next_code(CODE_PREFIX.get(data["category"], "VC-ACC"), Product, "product_code"),
     )
     sell = data["sell_price"]
+    bought = data.get("cost")
     variant = Variant.objects.create(
         product=product, spec=spec, colour=data["colour"], sell_price=sell, mrp=data.get("mrp") or sell,
-        # no purchase cost is taken on this form: the existing estimate
-        cost=round(sell * ESTIMATED_COST_SHARE), code=next_code("VC-SKU", Variant, "code"),
+        # the purchase price when entered; otherwise the estimate, flagged as such
+        cost=bought or round(sell * ESTIMATED_COST_SHARE), cost_estimated=not bought,
+        code=next_code("VC-SKU", Variant, "code"),
     )
     stock = Stock.objects.create(variant=variant, stock_point=stock_point, quantity=data["quantity"],
                                  location=data["location"].strip())
@@ -285,6 +289,7 @@ class ExistingStockSerializer(serializers.Serializer):
     hsn = serializers.CharField(max_length=20, required=False, allow_blank=True, default="")
     quantity = serializers.IntegerField(min_value=1, max_value=MAX_QUANTITY)
     sell_price = serializers.IntegerField(min_value=1, max_value=100_000_000, required=False, allow_null=True)
+    cost = serializers.IntegerField(min_value=1, max_value=100_000_000, required=False, allow_null=True)
     mrp = serializers.IntegerField(min_value=1, max_value=100_000_000, required=False, allow_null=True)
     location = serializers.CharField(max_length=80, required=False, allow_blank=True, default="")
 
@@ -336,10 +341,13 @@ def add_existing(data, user, stock_point):
     """Add the units to the chosen (or new) variant at this store only, with
     one new serial number each. Runs inside AddStockView's transaction.
     Returns (product, variant, stock, before, created_variant, changes, serials)."""
+    from .costing import average_in, units_in_stock
+
     product = data["product"]
     variant = data["variant"]
     created = variant is None
     changes = {}
+    bought = data.get("cost")
     if data["hsn"] and data["hsn"] != product.hsn:
         changes["hsn"] = (product.hsn, data["hsn"])
         product.hsn = data["hsn"]
@@ -351,8 +359,10 @@ def add_existing(data, user, stock_point):
         sell = data["sell_price"]
         variant = Variant.objects.create(
             product=product, spec=data["spec"], colour=data["colour"], sell_price=sell, mrp=data.get("mrp") or sell,
-            # the same specification in another colour costs the same; otherwise the existing estimate
-            cost=sibling.cost if sibling else round(sell * ESTIMATED_COST_SHARE),
+            # the purchase price when entered; else the same specification in another
+            # colour costs the same; otherwise the estimate, flagged as such
+            cost=bought or (sibling.cost if sibling else round(sell * ESTIMATED_COST_SHARE)),
+            cost_estimated=False if bought else (sibling.cost_estimated if sibling else True),
             code=next_code("VC-SKU", Variant, "code"),
         )
     else:
@@ -366,6 +376,9 @@ def add_existing(data, user, stock_point):
         if prices:
             variant.save(update_fields=list(prices))
             changes.update(prices)
+        if bought:
+            # averaged with the units already held (all stores), before these arrive
+            changes.update(average_in(variant, units_in_stock(variant), data["quantity"], bought))
 
     stock, _ = Stock.objects.get_or_create(variant=variant, stock_point=stock_point, defaults={"quantity": 0})
     before = stock.quantity

@@ -5,11 +5,13 @@ import { ErrorNote, Eyebrow, Pill } from "../Atoms";
 import ApprovalLinkCard from "./ApprovalLinkCard";
 import { revisionDiff } from "./performanceModel";
 import { api } from "../../lib/api";
+import { LINE_GRID, LineHeader } from "./ManualLines";
+import { badCost, costField } from "./bookingModel";
 import { C, F, money } from "../../lib/theme";
 
 function startingLines(ticket) {
   const lines = ticket.current_estimate?.lines || [];
-  return lines.map((l) => ({ service_id: l.service_id || null, description: l.description, quantity: l.quantity, unit_price: l.unit_price }));
+  return lines.map((l) => ({ service_id: l.service_id || null, description: l.description, quantity: l.quantity, unit_price: l.unit_price, unit_cost: l.unit_cost ?? "" }));
 }
 
 // Estimate changes after diagnosis: staff propose -> Admin/Super Admin accept (client re-approves) or decline -> back to staff.
@@ -40,11 +42,11 @@ export default function RevisionPanel({ ticket, services, canWork, canApprove, o
   };
 
   const propose = () => run("propose", async () => {
-    if (!lines.length || lines.some((l) => !String(l.description || "").trim() || Number(l.quantity) < 1 || Number(l.unit_price) < 0)) throw new Error("Add at least one valid line.");
+    if (!lines.length || lines.some((l) => !String(l.description || "").trim() || Number(l.quantity) < 1 || Number(l.unit_price) < 0 || badCost(l))) throw new Error("Add at least one valid line.");
     if (!reason.trim()) throw new Error("Say what changed and why.");
     const data = await api.post(`/tickets/${ticket.id}/revise/`, {
       reason: reason.trim(),
-      lines: lines.map((l) => ({ service_id: l.service_id || null, description: l.description.trim(), quantity: Number(l.quantity), unit_price: Number(l.unit_price) })),
+      lines: lines.map((l) => ({ service_id: l.service_id || null, description: l.description.trim(), quantity: Number(l.quantity), unit_price: Number(l.unit_price), ...costField(l) })),
     });
     setOpen(false); setReason("");
     if (data.approval) setApproval(data.approval);
@@ -103,12 +105,14 @@ export default function RevisionPanel({ ticket, services, canWork, canApprove, o
 
       {open && (
         <div className="mt-3 space-y-2">
+          <LineHeader small />
           {lines.map((l, i) => (
-            <div key={i} className="grid grid-cols-12 gap-1.5">
-              <input className="col-span-6 px-2 py-1 text-xs" value={l.description} onChange={(e) => update(i, "description", e.target.value)} style={{ border: `1px solid ${C.rule}` }} aria-label="Work description" />
-              <input className="col-span-2 px-2 py-1 text-xs" type="number" min="1" value={l.quantity} onChange={(e) => update(i, "quantity", e.target.value)} style={{ border: `1px solid ${C.rule}` }} aria-label="Quantity" />
-              <input className="col-span-3 px-2 py-1 text-xs" type="number" min="0" value={l.unit_price} onChange={(e) => update(i, "unit_price", e.target.value)} style={{ border: `1px solid ${C.rule}` }} aria-label="Unit price" />
-              <button type="button" onClick={() => setLines((cur) => cur.filter((_, n) => n !== i))} className="col-span-1 flex items-center justify-center" aria-label="Remove line"><Trash2 size={14} style={{ color: C.carbon }} /></button>
+            <div key={i} style={LINE_GRID}>
+              <input className="min-w-0 px-2 py-1 text-xs" value={l.description} onChange={(e) => update(i, "description", e.target.value)} style={{ border: `1px solid ${C.rule}` }} aria-label="Work description" />
+              <input className="min-w-0 px-2 py-1 text-xs" type="number" min="1" value={l.quantity} onChange={(e) => update(i, "quantity", e.target.value)} style={{ border: `1px solid ${C.rule}` }} aria-label="Quantity" />
+              <input className="min-w-0 px-2 py-1 text-xs" type="number" min="0" value={l.unit_price} onChange={(e) => update(i, "unit_price", e.target.value)} style={{ border: `1px solid ${C.rule}` }} aria-label="Unit price" />
+              <input className="min-w-0 px-2 py-1 text-xs" type="number" min="0" value={l.unit_cost ?? ""} onChange={(e) => update(i, "unit_cost", e.target.value)} placeholder="₹ cost" style={{ border: `1px dashed ${C.rule}` }} aria-label="Our cost (staff only)" />
+              <button type="button" onClick={() => setLines((cur) => cur.filter((_, n) => n !== i))} className="flex items-center justify-center" aria-label="Remove line"><Trash2 size={14} style={{ color: C.carbon }} /></button>
             </div>
           ))}
           <select defaultValue="" onChange={(e) => { addService(e.target.value); e.target.value = ""; }} className="w-full px-2 py-1.5 text-xs" style={{ border: `1px solid ${C.rule}` }}>

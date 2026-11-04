@@ -74,7 +74,12 @@ class Variant(models.Model):
     colour = models.CharField(max_length=40, blank=True, default="", db_default="")
     mrp = models.PositiveIntegerField()
     sell_price = models.PositiveIntegerField()
+    # Purchase cost per unit -- the weighted average of what was paid
+    # (catalog.costing). Profit & Loss locks it onto each invoice line at sale.
     cost = models.PositiveIntegerField()
+    # True while `cost` is only the automatic guess (78% of the selling price)
+    # because no purchase cost was entered: such profit is an estimate.
+    cost_estimated = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.code} -- {self.spec}"
@@ -106,6 +111,7 @@ class Part(models.Model):
     slug = models.SlugField(max_length=32, unique=True)
     name = models.CharField(max_length=80)
     compatible_brands = models.JSONField(default=list, blank=True, help_text="List of brand names this part fits.")
+    cost = models.PositiveIntegerField(default=0, help_text="Purchase cost per unit; 0 = not entered yet.")
 
     def __str__(self):
         return self.name
