@@ -62,7 +62,7 @@ def send_invite_whatsapp(party, invite, link):
     Uses the approved template WHATSAPP_TEMPLATE_PORTAL_INVITE when
     configured (body {{1}} customer name, {{2}} portal link, {{3}} link
     expiry), else the free-text body. Returns a summary safe to show
-    staff: {"status", "reason", "provider_id"}. A number already flagged
+    staff: {"status", "reason", "provider_id", "error_code"}. A number already flagged
     as not on WhatsApp is skipped -- the emailed code covers that customer.
     """
     from .models import WhatsAppDeliveryLog
@@ -77,7 +77,9 @@ def send_invite_whatsapp(party, invite, link):
         WhatsAppDeliveryLog.objects.create(
             party=party, provider_message_id=result["provider_id"], status=WhatsAppDeliveryLog.SENT,
         )
-    return {"status": result.get("status"), "reason": result.get("reason"), "provider_id": result.get("provider_id")}
+    return {"status": result.get("status"), "reason": result.get("reason"), "provider_id": result.get("provider_id"),
+            # tells a timeout (may have gone out) from a rejection on the chat record
+            "error_code": result.get("error_code")}
 
 
 OTP_MASK = "******"

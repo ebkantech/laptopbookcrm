@@ -5,7 +5,7 @@ from datetime import timedelta
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
@@ -571,7 +571,7 @@ class RentalIssueViewSet(viewsets.ModelViewSet):
         issue = self.get_object()
         user_id = request.data.get("assigned_to")
         scope = StoreScope(request.user)
-        if user_id and not scope.all and not User.objects.filter(pk=user_id, stock_point_id=scope.store_id).exists():
+        if user_id and not scope.all and not User.objects.filter(Q(stock_point_id=scope.store_id) | Q(stock_points=scope.store_id), pk=user_id).exists():
             raise ValidationError({"assigned_to": "Pick someone from your own store."})
         issue.assigned_to_id = user_id
         if issue.status == RentalIssue.OPEN:

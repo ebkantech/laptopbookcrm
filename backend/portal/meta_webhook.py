@@ -9,11 +9,13 @@ and set WHATSAPP_APP_SECRET (App settings > Basic > App secret) so each
 POST's X-Hub-Signature-256 can be checked. Either setting missing means the
 endpoint refuses everything -- the safe default.
 
-Only `statuses` are used: they move a CRM Message (and its
-WhatsAppDeliveryLog row) from "sent" (Meta accepted it) to delivered / read,
-or to failed with Meta's reason -- e.g. 131047 when free text was sent
-outside the customer's 24-hour window. This is the ONLY place a message
-becomes "delivered". Inbound customer messages are not stored yet.
+`statuses` move a CRM Message (and its WhatsAppDeliveryLog row) from
+"sent" (Meta accepted it) to delivered / read, or to failed with Meta's
+reason -- e.g. 131047 when free text was sent outside the customer's
+24-hour window. This is the ONLY place a message becomes "delivered".
+
+`messages` (customer replies) are stored as inbound chat messages on every
+party whose phone is the sender's number, once per Meta message id.
 
 (The older portal/whatsapp-webhook/ endpoint takes a custom shared-secret
 format for other providers and is unchanged.)
@@ -22,6 +24,7 @@ import hashlib
 import hmac
 import json
 import logging
+from datetime import datetime, timezone as dt_timezone
 
 from django.conf import settings
 from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
@@ -32,7 +35,7 @@ logger = logging.getLogger("crmbook.notify")
 
 # Later states never move back: a "delivered" callback that arrives after
 # "read" is ignored. "failed" can follow "sent" (e.g. 131047).
-_RANK = {"sending": 0, "unknown": 0, "sent": 1, "delivered": 2, "read": 3}
+_RANK = {"sending": 0, "unknown": 0, "failed": 0, "sent": 1, "delivered": 2, "read": 3}
 _META_STATUSES = {"sent", "delivered", "read", "failed"}
 
 
@@ -60,20 +63,94 @@ def _apply_status(item):
         detail = " ".join(str(part) for part in (first.get("code") or "", first.get("title") or first.get("message") or "") if part)
         detail = (f"WhatsApp reported the message failed: {detail}" if detail else "WhatsApp reported the message failed")[:300]
 
+    at = _provider_time(item.get("timestamp"))
     updated = 0
-    for message in Message.objects.filter(provider_message_id=provider_id):
-        current = message.delivery_status
-        if new != "failed" and _RANK.get(new, 0) <= _RANK.get(current, 0):
+    # Matched by Meta's own message id (wamid) only -- never by number or text.
+    for message in Message.objects.filter(provider_message_id=provider_id).select_related("party"):
+        if not _moves_forward(message.delivery_status, new):
             continue
-        if new == "failed" and current == "read":
-            continue
+        _check_recipient(item.get("recipient_id"), message.party, provider_id)
         message.delivery_status = new
         message.delivery_error = detail
-        message.delivery_updated_at = timezone.now()
+        message.delivery_updated_at = at
         message.save(update_fields=["delivery_status", "delivery_error", "delivery_updated_at"])
         updated += 1
-    WhatsAppDeliveryLog.objects.filter(provider_message_id=provider_id).update(status=new, detail=detail[:300])
+    # the log follows the same rule, so a repeated or late event never moves it back
+    for log in WhatsAppDeliveryLog.objects.filter(provider_message_id=provider_id):
+        if _moves_forward(log.status, new):
+            log.status, log.detail = new, detail[:300]
+            log.save(update_fields=["status", "detail", "updated_at"])
     return updated
+
+
+_MEDIA_LABELS = {"image": "Image", "video": "Video", "audio": "Voice message", "document": "Document",
+                 "sticker": "Sticker", "location": "Location", "contacts": "Contact card"}
+
+
+def _inbound_body(item):
+    kind = item.get("type")
+    part = item.get(kind) if isinstance(item.get(kind), dict) else {}
+    if kind == "text":
+        return str(part.get("body") or "")
+    if kind == "button":
+        return str(part.get("text") or "")
+    if kind == "interactive":
+        reply = part.get("button_reply") or part.get("list_reply") or {}
+        return str(reply.get("title") or "") if isinstance(reply, dict) else ""
+    if kind == "reaction":
+        return f"Reacted {part.get('emoji')}" if part.get("emoji") else "Removed a reaction"
+    if kind in _MEDIA_LABELS:
+        caption = part.get("caption") or part.get("filename") or part.get("name") or ""
+        return f"[{_MEDIA_LABELS[kind]}] {caption}".strip()
+    return "[Unsupported WhatsApp message]"
+
+
+def _store_inbound(item):
+    from crmbook_backend.notify import normalize_whatsapp_number
+    from parties.models import Message, Party
+
+    provider_id, sender = item.get("id"), normalize_whatsapp_number(str(item.get("from") or ""))
+    if not provider_id or not sender:
+        return 0
+    # Meta retries until it gets a 200, so the same reply can arrive more than once
+    if Message.objects.filter(provider_message_id=provider_id, direction=Message.IN).exists():
+        return 0
+    parties = [party for party in Party.objects.filter(phone__contains=sender[-4:])
+               if normalize_whatsapp_number(party.phone) == sender]
+    if not parties:
+        logger.warning("[WhatsApp webhook] reply %s is from a number no party has -- not stored", provider_id)
+        return 0
+    body, at = _inbound_body(item) or "[Empty WhatsApp message]", _provider_time(item.get("timestamp"))
+    for party in parties:
+        message = Message.objects.create(party=party, channel=Message.WHATSAPP, direction=Message.IN,
+                                         body=body, provider_message_id=provider_id)
+        Message.objects.filter(pk=message.pk).update(at=at)  # `at` is auto_now_add
+    return len(parties)
+
+
+def _moves_forward(current, new):
+    """Duplicates and out-of-order callbacks are no-ops; failed can follow anything but read."""
+    if new == "failed":
+        return current not in ("failed", "read")
+    return _RANK.get(new, 0) > _RANK.get(current, 0)
+
+
+def _provider_time(value):
+    """Meta's own event time (unix seconds) -- the receipt time if it's missing or malformed."""
+    try:
+        return datetime.fromtimestamp(int(value), tz=dt_timezone.utc)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return timezone.now()
+
+
+def _check_recipient(recipient_id, party, provider_id):
+    # The wamid already identifies the message; a recipient that isn't the
+    # party's current number means the number changed after sending.
+    from crmbook_backend.notify import normalize_whatsapp_number
+
+    if recipient_id and normalize_whatsapp_number(str(recipient_id)) != normalize_whatsapp_number(party.phone):
+        logger.warning("[WhatsApp webhook] status for %s was for a number other than party %s's current one",
+                       provider_id, party.pk)
 
 
 @csrf_exempt
@@ -100,10 +177,12 @@ def meta_whatsapp_webhook(request):
         found = container.get(key) if isinstance(container, dict) else None
         return [item for item in found if isinstance(item, dict)] if isinstance(found, list) else []
 
-    updated = 0
+    updated = received = 0
     for entry in items(payload, "entry"):
         for change in items(entry, "changes"):
             for status_item in items(change.get("value"), "statuses"):
                 updated += _apply_status(status_item)
+            for message_item in items(change.get("value"), "messages"):
+                received += _store_inbound(message_item)
     # always 200 for a verified request, or Meta keeps retrying it
-    return JsonResponse({"updated": updated})
+    return JsonResponse({"updated": updated, "received": received})

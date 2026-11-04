@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from sales.models import Invoice
+from sales.serializers import InvoiceItemSerializer
 from .models import Message, Party
 
 
@@ -78,11 +79,39 @@ class PartyInvoiceSerializer(serializers.ModelSerializer):
         model = Invoice
         fields = [
             "id", "code", "source", "date", "status", "stock_point_name", "total",
-            "item_count", "pay_method", "recurring_interval",
+            "item_count", "pay_method", "recurring_interval", "due_date",
         ]
 
     def get_item_count(self, obj):
         return obj.items.count()
+
+
+class PartyInvoiceItemSerializer(InvoiceItemSerializer):
+    """One invoice line for the party popup: the sales serializer's fields
+    plus the product and variant split out, so each can be shown and copied
+    on its own. line_total is qty x price -- the same sum Invoice.total adds up."""
+    product = serializers.SerializerMethodField()
+    spec = serializers.SerializerMethodField()
+    colour = serializers.SerializerMethodField()
+    line_total = serializers.SerializerMethodField()
+
+    class Meta(InvoiceItemSerializer.Meta):
+        fields = InvoiceItemSerializer.Meta.fields + ["product", "spec", "colour", "line_total"]
+
+    def get_product(self, obj):
+        # repair/rental lines are services or rent: their description is the item
+        if obj.description or not obj.variant_id:
+            return obj.description
+        return obj.variant.product.display_name
+
+    def get_spec(self, obj):
+        return obj.variant.spec if obj.variant_id else ""
+
+    def get_colour(self, obj):
+        return obj.variant.colour if obj.variant_id else ""
+
+    def get_line_total(self, obj):
+        return obj.qty * obj.price
 
 
 class PartySerializer(serializers.ModelSerializer):

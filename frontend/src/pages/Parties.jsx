@@ -1,21 +1,30 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, CheckCircle2, Copy, KeyRound, Mail, Phone, RefreshCw, Repeat2, ShieldCheck, X, Ban } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Clock, Copy, KeyRound, Mail, MessageCircle, Phone, RefreshCw, ShieldCheck, X, Ban } from "lucide-react";
 import { C, F, fmt, money } from "../lib/theme";
 import { api } from "../lib/api";
 import { Pill, PillButton, SearchInput, Spinner, ErrorNote } from "../components/Atoms";
 import PageHeader from "../components/PageHeader";
 import { PartyThread } from "../components/PartyThread";
 import { PartyActionsMenu, PartyEditModal } from "../components/parties/PartyActions";
+import PartyInvoices from "../components/parties/PartyInvoices";
 import { announcePartyChanged, PARTY_CHANGED_EVENT } from "../lib/partyEvents";
 import { copyText } from "../lib/copyText";
 import { useSession } from "../context/SessionContext";
-
-const STATUS_COLOR = { Paid: C.green, "Payment link sent": C.amber, Overdue: C.carbon };
 
 // Backend timestamps carry their offset; show them in the viewer's local time with the zone named.
 const fmtDateTime = (value) => new Date(value).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
 
 const OTP_RE = /^\d{6}$/;
+// how long after sending a WhatsApp message the popup keeps watching for Delivered / Read
+const DELIVERY_WATCH_MS = 3 * 24 * 60 * 60 * 1000;
+const WHATSAPP_CHECK_ERROR = "Unable to verify WhatsApp number. Please try again";
+// recheck-whatsapp's whatsapp_status values ("unknown" is shown as pending)
+const WHATSAPP_STATUS = {
+  verified: { label: "WhatsApp Verified", color: C.green, icon: CheckCircle2 },
+  not_verified: { label: "WhatsApp Not Verified", color: C.carbon, icon: AlertTriangle },
+  pending: { label: "Verification Pending", color: C.amber, icon: Clock },
+  unable: { label: "Unable to Verify", color: C.inkSoft, icon: AlertTriangle },
+};
 
 function PartyDetail({ partyId, onClose }) {
   const { can } = useSession();
@@ -37,6 +46,12 @@ function PartyDetail({ partyId, onClose }) {
   const [revokeBusy, setRevokeBusy] = useState(false);
   const [portalBusy, setPortalBusy] = useState(false);
   const [rechecking, setRechecking] = useState(false);
+  // Outcome of the last Check WhatsApp in this popup: { phone, status: "verified" | "not_verified" | "pending" | "unable", message }.
+  // Tied to the number checked, so it never shows against a different number after an edit.
+  const [whatsappCheck, setWhatsappCheck] = useState(null);
+  // The one open action section: null (none), "ledger" (portal link) or "whatsapp" (WhatsApp and email together).
+  // A new popup opens with neither.
+  const [openSection, setOpenSection] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -49,6 +64,26 @@ function PartyDetail({ partyId, onClose }) {
   }, [partyId]);
 
   useEffect(() => () => window.clearTimeout(copyTimer.current), []);
+
+  // Delivered / Read and customer replies arrive later, from Meta's webhook. While a recent WhatsApp message
+  // can still move on, or the chat is open, re-read the thread on the same 15 s, visible-tab-only rhythm as
+  // the OTP check above.
+  // sent times of the WhatsApp messages that can still move on (the effect checks they're recent)
+  const awaitingDelivery = (party?.messages || []).filter((message) => message.channel === "whatsapp" && message.direction === "out"
+    && ["sending", "sent", "delivered"].includes(message.delivery_status)).map((message) => message.at).join("|");
+  const chatOpen = openSection === "whatsapp";
+  useEffect(() => {
+    const now = Date.now();
+    if (!chatOpen && !awaitingDelivery.split("|").some((at) => at && now - new Date(at).getTime() < DELIVERY_WATCH_MS)) return undefined;
+    let alive = true;
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      api.get(`/parties/${partyId}/`).then((data) => { if (alive) setParty((current) => ({ ...current, messages: data.messages })); }).catch(() => {});
+    };
+    const id = window.setInterval(refresh, 15000);
+    window.addEventListener("focus", refresh);
+    return () => { alive = false; window.clearInterval(id); window.removeEventListener("focus", refresh); };
+  }, [partyId, awaitingDelivery, chatOpen]);
 
   // Every code issued to this customer, each shown inside its OWN email-history
   // entry (stored entries keep the code masked; the digits come from the
@@ -85,13 +120,22 @@ function PartyDetail({ partyId, onClose }) {
   }, [partyId, canSeeOtp, portalEnabled, otpRefresh]);
 
   async function recheckWhatsapp() {
+    if (rechecking) return;
+    const phone = party.phone;
     setRechecking(true);
-    setPortalError("");
+    setWhatsappCheck(null);
     try {
       const result = await api.post(`/parties/${partyId}/recheck-whatsapp/`, {});
       setParty((p) => ({ ...p, whatsapp_verified: result.whatsapp_verified, whatsapp_checked_at: result.whatsapp_checked_at }));
+      // whatsapp_status comes from the CRM's own delivery records first; "unknown" means nothing proves it
+      // either way (the Meta Cloud API has no number lookup) -- shown as pending, never as "not verified".
+      const status = result.whatsapp_status === "unknown" ? "pending" : result.whatsapp_status || "pending";
+      const reason = result.reason || "";
+      setWhatsappCheck({ phone, status, message: result.whatsapp_status === "unknown"
+        ? `No delivered CRM WhatsApp message to this number yet${reason ? ` (${reason})` : ""}`
+        : status === "unable" && !reason ? WHATSAPP_CHECK_ERROR : reason });
     } catch (error) {
-      setPortalError(error.message);
+      setWhatsappCheck({ phone, status: "unable", message: error.status === 403 ? "Your role needs Parties management permission to check WhatsApp." : WHATSAPP_CHECK_ERROR });
     } finally {
       setRechecking(false);
     }
@@ -154,12 +198,24 @@ function PartyDetail({ partyId, onClose }) {
   }
   if (!party) return <div className="fixed inset-0 z-20 flex items-end justify-center bg-slate-950/55 p-0 sm:items-center sm:p-4" onClick={onClose}><div className="w-full max-w-md rounded-t-2xl p-5 sm:rounded-2xl" data-panel style={{ background: C.slip }} onClick={(event) => event.stopPropagation()}>{partyLoading ? <Spinner label="Loading customer details…" /> : <ErrorNote message={partyError || "Couldn't load this customer."} />}<button type="button" onClick={onClose} className="mt-2 w-full rounded-lg px-3 py-2 text-sm" style={{ color: C.inkSoft, border: `1px solid ${C.rule}` }}>Close</button></div></div>;
 
+  const checkShown = whatsappCheck?.phone === party.phone ? whatsappCheck : null;
+  // a check made in this popup wins; otherwise the stored result (true / false), or nothing until checked
+  const whatsappStatus = rechecking ? null
+    : checkShown?.status || (party.whatsapp_verified === true ? "verified" : party.whatsapp_verified === false ? "not_verified" : null);
+  const updateMessage = (message) => setParty((current) => ({ ...current, messages: current.messages.some((item) => item.id === message.id) ? current.messages.map((item) => item.id === message.id ? message : item) : [...current.messages, message] }));
+  const hideMessage = (id) => setParty((current) => ({ ...current, messages: current.messages.filter((message) => message.id !== id) }));
+  // A closed section stays mounted (clipped and inert) so a half-typed message or a generated link survives closing it.
+  const sectionProps = (id) => ({ id: `party-section-${id}`, inert: openSection !== id, className: openSection === id ? "" : "h-0 overflow-hidden" });
+
   return (
     <div className="fixed inset-0 z-20 flex items-end justify-center sm:items-center" style={{ backgroundColor: "rgba(4,9,18,0.7)" }} onClick={onClose}>
-      <div className="max-h-[88dvh] w-full max-w-2xl overflow-y-auto rounded-t-2xl p-4 sm:rounded-2xl sm:p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between">
-          <div>
-            <p style={{ fontFamily: F.display, fontWeight: 600, fontSize: 18, color: C.ink }}>{party.name}</p>
+      <div className="max-h-[88dvh] w-full max-w-2xl overflow-y-auto overscroll-contain rounded-t-2xl px-4 pb-4 sm:rounded-2xl sm:px-6 sm:pb-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }} onClick={(e) => e.stopPropagation()}>
+        {/* Party details: the first thing in the panel (which has no top padding), pinned at its top edge while
+            the rest scrolls beneath. The negative side margins stretch its background across the side padding. */}
+        <div className="sticky top-0 z-10 -mx-4 px-4 pb-4 pt-3 sm:-mx-6 sm:px-6 sm:pt-4" style={{ backgroundColor: C.slip, borderBottom: `1px solid ${C.rule}`, boxShadow: "0 6px 12px -10px rgba(23,32,51,0.35)" }}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="break-words" style={{ fontFamily: F.display, fontWeight: 600, fontSize: 18, color: C.ink }}>{party.name}</p>
             <p className="mt-1 text-xs capitalize" style={{ fontFamily: F.mono, color: C.inkSoft }}>{party.type} · {party.customer_classification} · {party.city} · customer since {fmt(party.joined)}</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={18} style={{ color: C.inkSoft }} /></button>
@@ -167,21 +223,41 @@ function PartyDetail({ partyId, onClose }) {
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <a href={`tel:${party.phone}`} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs" style={{ border: `1px solid ${C.rule}`, fontFamily: F.body, color: C.ink }}><Phone size={12} />{party.phone}</a>
-          {party.email && <a href={`mailto:${party.email}`} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs" style={{ border: `1px solid ${C.rule}`, fontFamily: F.body, color: C.ink }}><Mail size={12} />{party.email}</a>}
+          {party.email && <a href={`mailto:${party.email}`} className="flex min-w-0 items-center gap-1.5 break-all px-2.5 py-1.5 text-xs" style={{ border: `1px solid ${C.rule}`, fontFamily: F.body, color: C.ink }}><Mail size={12} className="shrink-0" />{party.email}</a>}
           {party.gstin && <span className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{party.gstin}</span>}
-          {party.whatsapp_verified === true && <Pill color={C.green}><CheckCircle2 size={11} />WhatsApp verified</Pill>}
-          {party.whatsapp_verified === false && (
-            <>
-              <Pill color={C.carbon}><AlertTriangle size={11} />No WhatsApp on this number</Pill>
-              <PillButton icon={RefreshCw} disabled={rechecking} onClick={recheckWhatsapp}>{rechecking ? "Checking…" : "Re-check"}</PillButton>
-            </>
-          )}
-          {party.whatsapp_verified == null && (
-            <PillButton icon={RefreshCw} disabled={rechecking} onClick={recheckWhatsapp}>{rechecking ? "Checking…" : "Check WhatsApp"}</PillButton>
+          {whatsappStatus && (() => {
+            const { label, color, icon: Icon } = WHATSAPP_STATUS[whatsappStatus];
+            return <Pill color={color}><Icon size={11} />{label}</Pill>;
+          })()}
+          {whatsappStatus !== "verified" && (
+            <PillButton icon={RefreshCw} disabled={rechecking} onClick={recheckWhatsapp}>
+              {rechecking ? "Checking WhatsApp…" : whatsappStatus ? "Re-check" : "Check WhatsApp"}
+            </PillButton>
           )}
         </div>
+        {checkShown?.message && !rechecking && (
+          <p role={checkShown.status === "unable" ? "alert" : "status"} className="mt-2 break-words text-xs" style={{ color: checkShown.status === "unable" ? C.carbon : C.inkSoft }}>{checkShown.message}.</p>
+        )}
+        {portalError && <p role="alert" className="mt-2 break-words text-xs" style={{ color: C.carbon }}>{portalError}</p>}
+        </div>
 
-        <section className="mt-6 rounded-lg p-4" style={{ backgroundColor: C.slip2, border: `1px solid ${C.rule}` }}>
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          {[["ledger", ShieldCheck, "Customer Ledger"], ["whatsapp", MessageCircle, "WhatsApp / Email"]].map(([id, Icon, label]) => {
+            const active = openSection === id;
+            return (
+              <button key={id} type="button" aria-expanded={active} aria-controls={`party-section-${id}`} onClick={() => setOpenSection(active ? null : id)}
+                className={`flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-center text-sm leading-tight transition-all duration-150 active:scale-[0.98] ${active
+                  ? "border-[var(--cb-accent)] bg-[rgba(49,87,213,0.07)] shadow-[0_0_0_3px_var(--cb-accent-ring)]"
+                  : "border-[var(--cb-rule)] bg-[var(--cb-surface)] shadow-[0_1px_2px_rgba(23,32,51,0.05)] hover:border-[var(--cb-rule-strong)] hover:bg-[var(--cb-paper)]"}`}
+                style={{ fontFamily: F.body, fontWeight: 600, color: active ? C.stamp : C.ink }}>
+                <Icon size={16} className="shrink-0" style={{ color: active ? C.stamp : C.inkSoft }} /><span className="min-w-0 break-words">{label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div {...sectionProps("ledger")}>
+        <section className="mt-5 rounded-lg p-4" style={{ backgroundColor: C.slip2, border: `1px solid ${C.rule}` }}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck size={15} style={{ color: C.stamp }} />Customer portal access</p>
@@ -196,7 +272,6 @@ function PartyDetail({ partyId, onClose }) {
               </PillButton>
             </div>
           </div>
-          {portalError && <p className="mt-3 text-xs" style={{ color: C.carbon }}>{portalError}</p>}
           {portalLink && <div className="mt-3">
             <p className="text-xs" style={{ color: C.inkSoft }}>
               {linkPolicy?.policy === "rental_tenure"
@@ -215,37 +290,17 @@ function PartyDetail({ partyId, onClose }) {
             {deliveryNote && <p className="mt-1 text-xs" style={{ color: C.inkSoft }}>{deliveryNote}</p>}
           </div>}
         </section>
-
-        <p className="mt-6 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.14em", color: C.inkSoft }}>WhatsApp & email</p>
-        <div className="mt-3">
-          <PartyThread partyId={party.id} messages={party.messages} otpByMessage={otpHistory}
-            onChanged={(message) => setParty((current) => ({ ...current, messages: current.messages.some((item) => item.id === message.id) ? current.messages.map((item) => item.id === message.id ? message : item) : [...current.messages, message] }))}
-            onHidden={(id) => setParty((current) => ({ ...current, messages: current.messages.filter((message) => message.id !== id) }))} />
         </div>
 
-        <p className="mt-6 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.14em", color: C.inkSoft }}>
-          Transaction history — {party.invoice_count} invoice{party.invoice_count !== 1 ? "s" : ""}, {money(party.total_spent)} total
-        </p>
-        <div className="mt-3 space-y-2">
-          {party.invoices.map((inv) => (
-            <div key={inv.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 rounded-xl" style={{ backgroundColor: C.slip2 }}>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{inv.code}</span>
-                  {inv.recurring_interval && <Pill color={C.blue}><Repeat2 size={10} />{inv.recurring_interval}</Pill>}
-                </div>
-                <p className="mt-0.5 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
-                  {fmt(inv.date)} · {inv.stock_point_name} · {inv.item_count} item{inv.item_count !== 1 ? "s" : ""} · {inv.pay_method}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 600, color: C.ink }}>{money(inv.total)}</span>
-                <Pill color={STATUS_COLOR[inv.status]}>{inv.status}</Pill>
-              </div>
-            </div>
-          ))}
-          {!party.invoices.length && <p className="text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>No purchases recorded yet.</p>}
+        <div {...sectionProps("whatsapp")}>
+          <p className="mt-5 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.14em", color: C.inkSoft }}>WhatsApp & email</p>
+          <div className="mt-3">
+            {/* one shared thread: its own WhatsApp | Email switch picks the channel shown */}
+            <PartyThread partyId={party.id} messages={party.messages} otpByMessage={otpHistory} onChanged={updateMessage} onHidden={hideMessage} />
+          </div>
         </div>
+
+        <PartyInvoices partyId={party.id} invoices={party.invoices} invoiceCount={party.invoice_count} totalSpent={party.total_spent} />
       </div>
     </div>
   );
@@ -325,7 +380,7 @@ export default function Parties() {
           {!parties.length && <p className="px-3 py-10 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>No parties match that search.</p>}
         </div>
       </div>
-      {selected && <PartyDetail partyId={selected} onClose={() => setSelected(null)} />}
+      {selected && <PartyDetail key={selected} partyId={selected} onClose={() => setSelected(null)} />}
       {editing && <PartyEditModal party={editing} onClose={() => setEditing(null)} onSaved={(party) => {
         setParties((items) => items.map((item) => item.id === party.id ? party : item));
         setEditing(null);

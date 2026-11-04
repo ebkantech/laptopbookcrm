@@ -73,13 +73,17 @@ class BankAccountViewSet(viewsets.ModelViewSet):
     }
 
     def get_queryset(self):
-        # an account's balance and entries span every store -- Owner only
+        # an account's balance and entries span every store -- Owner only,
+        # whichever store the sidebar has in view
         qs = super().get_queryset()
-        return qs if StoreScope(self.request.user).all else qs.none()
+        return qs if StoreScope(self.request.user).owner else qs.none()
 
     @transaction.atomic
     def perform_create(self, serializer):
+        # Owner / Super Admin (the Owner role) or a superuser only -- an Admin
+        # holding bankbook.edit still can't open an account
         StoreScope(self.request.user).require_owner("Bank accounts are business-wide -- only the Owner can add one.")
+        # always a new row: an existing account is only ever changed by PATCH on its own id
         account = serializer.save()
         self._single_default(account)
 

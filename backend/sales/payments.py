@@ -50,6 +50,7 @@ import urllib.error
 import urllib.request
 import uuid
 
+from django.db import transaction
 from django.utils import timezone
 
 logger = logging.getLogger("crmbook.payments")
@@ -246,6 +247,16 @@ def mark_link_paid(link, payment_id=None, rrn=None):
     """Settle the invoice from a confirmed UPI payment. Idempotent."""
     from .models import Invoice, PaymentLink
 
+    with transaction.atomic():
+        # the invoice row first, so a revision or a manual settle can't interleave
+        invoice = Invoice.objects.select_for_update().get(pk=link.invoice_id)
+        link = PaymentLink.objects.select_for_update().get(pk=link.pk)
+        return _mark_link_paid(invoice, link, payment_id, rrn)
+
+
+def _mark_link_paid(invoice, link, payment_id, rrn):
+    from .models import Invoice, PaymentLink
+
     if link.status == PaymentLink.PAID:
         return False
     now = timezone.now()
@@ -254,8 +265,12 @@ def mark_link_paid(link, payment_id=None, rrn=None):
     link.provider_payment_id = payment_id or ""
     link.save(update_fields=["status", "paid_at", "provider_payment_id"])
 
-    invoice = link.invoice
-    if invoice.status in Invoice.OUTSTANDING:  # never revive a cancelled invoice
+    if invoice.status in Invoice.OUTSTANDING and link.amount != invoice.total:
+        # a link sent before the invoice was revised: the money is recorded on
+        # the link, but staff must reconcile it -- never settle a different total
+        logger.warning("UPI link %s paid ₹%s but invoice %s is now ₹%s -- not settled",
+                       link.pk, link.amount, invoice.code, invoice.total)
+    elif invoice.status in Invoice.OUTSTANDING:  # never revive a cancelled invoice
         reference = " / ".join(x for x in [f"UPI RRN {rrn}" if rrn else "", payment_id or ""] if x) or f"UPI link {link.provider_link_id}"
         invoice.status = Invoice.PAID
         invoice.pay_method = "UPI"

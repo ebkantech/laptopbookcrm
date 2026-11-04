@@ -1,5 +1,7 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.db.models.signals import post_save, pre_save
+from django.dispatch import receiver
 
 
 class Permission(models.Model):
@@ -50,14 +52,68 @@ class User(AbstractUser):
     stock_point = models.ForeignKey(
         "catalog.StockPoint", on_delete=models.SET_NULL, null=True, blank=True, related_name="assigned_staff",
     )
+    # Multi-role / multi-store: every role and shop the account is assigned.
+    # `role` and `stock_point` stay the primary (default) ones and are always
+    # members of these sets; the account works under ONE role and in ONE
+    # store at a time, chosen per request and validated against these
+    # (accounts.context).
+    roles = models.ManyToManyField(Role, related_name="assigned_users", blank=True)
+    stock_points = models.ManyToManyField("catalog.StockPoint", related_name="staff_access", blank=True)
 
     def has_perm_code(self, codename: str) -> bool:
         if self.is_superuser:
             return True
         return bool(self.role and self.role.has_perm(codename))
 
+    def assigned_role_ids(self):
+        ids = set(self.roles.values_list("id", flat=True))
+        primary = self.__dict__.get("_primary_role_id", self.role_id)
+        return ids | {primary} if primary else ids
+
+    def assigned_store_ids(self):
+        ids = set(self.stock_points.values_list("id", flat=True))
+        return ids | {self.stock_point_id} if self.stock_point_id else ids
+
+    def save(self, *args, **kwargs):
+        # The active role (accounts.context) lasts one request only: an
+        # account saved while switched keeps its primary role in the database.
+        if "_primary_role_id" in self.__dict__ and self.role_id != self._primary_role_id:
+            active = self.role
+            self.role_id = self._primary_role_id
+            try:
+                return super().save(*args, **kwargs)
+            finally:
+                self.role = active
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         return self.get_full_name() or self.username
+
+
+@receiver(pre_save, sender=User)
+def _remember_primary_assignments(sender, instance, raw=False, update_fields=None, **kwargs):
+    if raw or instance.pk is None or (update_fields is not None and not {"role", "stock_point"} & set(update_fields)):
+        instance._saved_primaries = None
+        return
+    instance._saved_primaries = User.objects.filter(pk=instance.pk).values_list("role_id", "stock_point_id").first()
+
+
+@receiver(post_save, sender=User)
+def _sync_primary_assignments(sender, instance, created=False, raw=False, update_fields=None, **kwargs):
+    """The primary role / store is always one of the assigned ones; changing
+    the primary replaces the old one (a role change must take its old
+    permissions away), any additional roles / stores stay."""
+    if raw or (update_fields is not None and not {"role", "stock_point"} & set(update_fields)):
+        return
+    old_role, old_store = getattr(instance, "_saved_primaries", None) or (None, None)
+    if old_role and old_role != instance.role_id:
+        instance.roles.remove(old_role)
+    if instance.role_id:
+        instance.roles.add(instance.role_id)
+    if old_store and old_store != instance.stock_point_id:
+        instance.stock_points.remove(old_store)
+    if instance.stock_point_id:
+        instance.stock_points.add(instance.stock_point_id)
 
 
 class NotificationRule(models.Model):

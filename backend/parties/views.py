@@ -7,7 +7,7 @@ from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from accounts.permissions import HasPerm
+from accounts.permissions import HasPerm, _log_denial
 from accounts.store_scope import StoreScope
 from crmbook_backend.notify import check_whatsapp_number, send_email, send_whatsapp
 from portal.models import PortalAccessLog, PortalInvite, WhatsAppDeliveryLog
@@ -22,7 +22,9 @@ from django.shortcuts import get_object_or_404
 from sales.models import Invoice
 
 from .models import Message, MessageHidden, MessageRevision, Party
-from .serializers import MessageRecordSerializer, MessageSerializer, PartyDetailSerializer, PartySerializer
+from .serializers import (
+    MessageRecordSerializer, MessageSerializer, PartyDetailSerializer, PartyInvoiceItemSerializer, PartySerializer,
+)
 from . import whatsapp as party_whatsapp
 
 
@@ -129,6 +131,7 @@ class PartyViewSet(viewsets.ModelViewSet):
         "create": "parties.manage", "update": "parties.edit",
         "partial_update": "parties.edit", "destroy": "parties.manage",
         "portal_account": "parties.view",
+        "invoice_items": "parties.view",
         "portal_invite": "parties.manage", "portal_reset_link": "parties.manage",
         "send_message": "parties.manage",
         "recheck_whatsapp": "parties.manage",
@@ -212,6 +215,31 @@ class PartyViewSet(viewsets.ModelViewSet):
                 "expires_at": latest_invite.expires_at,
                 "usable": latest_invite.is_valid,
             },
+        })
+
+    @action(detail=True, methods=["get"], url_path=r"invoices/(?P<invoice_id>\d+)/items")
+    def invoice_items(self, request, pk=None, invoice_id=None):
+        """
+        The lines of one of this party's invoices, for the detail popup's
+        expandable invoice rows. Line items are invoice data, so on top of
+        parties.view the account needs invoices.view -- the same as opening
+        the invoice itself -- and the invoice must be this party's and in
+        the account's store (404 otherwise, like the nested invoice list).
+        """
+        if not (request.user.is_superuser or request.user.has_perm_code("invoices.view")):
+            _log_denial(request, "invoices.view")
+            return Response({"detail": "Your role needs Invoices view permission to see invoice items."}, status=403)
+        party = get_object_or_404(Party, pk=pk)
+        invoices = StoreScope(request.user).filter(Invoice.objects.filter(party=party), "stock_point")
+        invoice = get_object_or_404(
+            invoices.prefetch_related("items__variant__product", "items__refund_items"), pk=invoice_id,
+        )
+        return Response({
+            "invoice": invoice.id,
+            "code": invoice.code,
+            "date": invoice.date,
+            "total": invoice.total,
+            "items": PartyInvoiceItemSerializer(invoice.items.all(), many=True).data,
         })
 
     @action(detail=True, methods=["post"], url_path="portal-invite")

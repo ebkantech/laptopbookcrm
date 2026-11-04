@@ -22,6 +22,7 @@ from catalog.models import StockPoint
 from catalog.status import require_active
 from crmbook_backend.notify import send_email
 
+from .context import context_payload
 from .models import NotificationRule, Permission, Role, StaffNotification, User
 from .permissions import HasPerm, IsStaffAccount
 from .staff import (
@@ -232,7 +233,7 @@ class UserViewSet(viewsets.ModelViewSet):
     Deleting is Owner-only and only for accounts with no history --
     everyone else is deactivated (is_active) instead.
     """
-    queryset = User.objects.select_related("role", "stock_point").all()
+    queryset = User.objects.select_related("role", "stock_point").prefetch_related("roles", "stock_points").all()
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated, HasPerm]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
@@ -259,7 +260,7 @@ class UserViewSet(viewsets.ModelViewSet):
             return qs
         if scope.store_id is None:
             return qs.filter(pk=self.request.user.pk)
-        return qs.filter(Q(stock_point_id=scope.store_id) | Q(pk=self.request.user.pk))
+        return qs.filter(Q(stock_point_id=scope.store_id) | Q(stock_points=scope.store_id) | Q(pk=self.request.user.pk)).distinct()
 
     def _out(self, user, status_code=200):
         user = User.objects.select_related("role", "stock_point").get(pk=user.pk)
@@ -273,12 +274,16 @@ class UserViewSet(viewsets.ModelViewSet):
         writer.is_valid(raise_exception=True)
         data = writer.validated_data
         check_role_grant(actor, data.get("role"))
-        if not scope.all:
+        for role in data.get("roles", []):
+            check_role_grant(actor, role)
+        if not scope.owner and data.get("stock_points"):
+            raise PermissionDenied("Only the Owner can give staff access to more stores.")
+        if not scope.owner:
             # a store administrator adds staff to their own store only
             if "stock_point" in data and (data["stock_point"] is None or data["stock_point"].pk != scope.store_id):
                 raise PermissionDenied("You can only add staff to your own store -- only the Owner sets other Store Locations.")
             # re-read: the status must be the current one, not the copy cached on the actor
-            data["stock_point"] = StockPoint.objects.filter(pk=actor.stock_point_id).first()
+            data["stock_point"] = StockPoint.objects.filter(pk=scope.store_id).first()
             require_active(data["stock_point"], "staff assignments")
         user = writer.save()
         log_admin_action(actor, "create", user, role=user.role_id, store=user.stock_point_id,
@@ -294,8 +299,15 @@ class UserViewSet(viewsets.ModelViewSet):
         data = writer.validated_data
         if "role" in data and data["role"] != user.role:
             check_role_grant(actor, data["role"])
+        if "roles" in data:
+            held = user.assigned_role_ids()
+            for role in data["roles"]:
+                if role.pk not in held:
+                    check_role_grant(actor, role)
         if "stock_point" in data and data["stock_point"] != user.stock_point:
             StoreScope(actor).require_owner("Only the Owner can change a staff member's Store Location.")
+        if "stock_points" in data and {s.pk for s in data["stock_points"]} != user.assigned_store_ids():
+            StoreScope(actor).require_owner("Only the Owner can change which stores a staff member works at.")
         if data.get("is_active") is False and is_last_owner(user):
             raise ValidationError({"is_active": "This is the last active Owner account -- it can't be deactivated."})
         writer.save()
@@ -489,7 +501,8 @@ class UserViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="me")
     def me(self, request):
-        return Response(UserSerializer(request.user, context=self.get_serializer_context()).data)
+        data = UserSerializer(request.user, context=self.get_serializer_context()).data
+        return Response({**data, **context_payload(request.user)})
 
     @action(detail=False, methods=["post"], url_path="me/change-password", throttle_classes=[PasswordChangeThrottle])
     def change_password(self, request):

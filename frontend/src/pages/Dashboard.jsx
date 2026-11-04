@@ -41,6 +41,7 @@ import { C, F, compact, money } from "../lib/theme";
 import { api } from "../lib/api";
 import { onStoreChanged } from "../lib/storeEvents";
 import PageHeader from "../components/PageHeader";
+import RoleSwitcher from "../components/RoleSwitcher";
 
 /* -------------------------------------------------------
    PREMIUM DASHBOARD DESIGN SYSTEM
@@ -564,6 +565,8 @@ export default function Dashboard({ onGo }) {
           title="Dashboard"
           subtitle={`${visibleSections.map((s) => sectionLabel[s]).join(" · ") || "No sections visible"} · Live business insights`}
           actions={
+            <div className="flex items-center gap-2">
+            <RoleSwitcher style={{ ...cardStyle, color: UI.text, fontFamily: F.body }} />
             <button
               type="button"
               onClick={retry}
@@ -579,6 +582,7 @@ export default function Dashboard({ onGo }) {
               <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
               <span className="hidden sm:inline">{loading ? "Updating…" : "Refresh data"}</span>
             </button>
+            </div>
           }
         />
       </div>

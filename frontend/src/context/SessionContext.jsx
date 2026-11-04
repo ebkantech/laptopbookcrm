@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { api } from "../lib/api";
+import { api, CONTEXT_RESET_EVENT } from "../lib/api";
 import { onStoreChanged } from "../lib/storeEvents";
 
 const SessionContext = createContext(null);
@@ -7,6 +7,10 @@ const SessionContext = createContext(null);
 export function SessionProvider({ children }) {
   const [me, setMe] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Bumped whenever the active store or role changes: the shell remounts the
+  // open page with it, so every page refetches under the new context.
+  const [contextVersion, setContextVersion] = useState(0);
+  const [switching, setSwitching] = useState(false);
 
   const loadMe = useCallback(async () => {
     if (!api.isAuthenticated()) {
@@ -37,6 +41,34 @@ export function SessionProvider({ children }) {
     return onStoreChanged(({ id }) => { if (id === myStore) loadMe(); });
   }, [myStore, loadMe]);
 
+  // The server dropped a stored store / role choice the account no longer
+  // holds (lib/api.js): reload who we are and refresh the open page.
+  useEffect(() => {
+    const onReset = () => { loadMe().then(() => setContextVersion((v) => v + 1)); };
+    window.addEventListener(CONTEXT_RESET_EVENT, onReset);
+    return () => window.removeEventListener(CONTEXT_RESET_EVENT, onReset);
+  }, [loadMe]);
+
+  // Switch the store or the role -- each leaves the other as it is. The
+  // server validates the choice; /users/me/ then reports the permissions,
+  // stores and roles that apply under it.
+  const switchContext = async (next) => {
+    const previous = api.workContext();
+    setSwitching(true);
+    api.setWorkContext(next);
+    try {
+      setMe(await api.get("/users/me/"));
+      setContextVersion((v) => v + 1);
+    } catch (error) {
+      api.setWorkContext(previous);
+      throw error;
+    } finally {
+      setSwitching(false);
+    }
+  };
+  const switchStore = (store) => switchContext({ store });
+  const switchRole = (role) => switchContext({ role });
+
   const login = async (username, password) => {
     await api.login(username, password);
     await loadMe();
@@ -51,7 +83,7 @@ export function SessionProvider({ children }) {
   const can = (codename) => !!me && (me.is_superuser || (me.permissions || []).includes(codename));
 
   return (
-    <SessionContext.Provider value={{ me, loading, login, logout, can, refresh: loadMe }}>
+    <SessionContext.Provider value={{ me, loading, login, logout, can, refresh: loadMe, switchStore, switchRole, switching, contextVersion }}>
       {children}
     </SessionContext.Provider>
   );

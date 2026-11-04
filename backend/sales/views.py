@@ -60,6 +60,13 @@ class InvoiceViewSet(StoreScopedMixin, viewsets.ModelViewSet):
             qs = qs.filter(party_id=party)
         return qs
 
+    def destroy(self, request, *args, **kwargs):
+        # Deleting a sale would drop its lines without putting the units
+        # back; cancelling keeps the record and returns the stock.
+        if self.get_object().source == Invoice.SALE:
+            return Response({"detail": "A sale invoice can't be deleted -- cancel it instead, so its items go back into stock."}, status=409)
+        return super().destroy(request, *args, **kwargs)
+
     @action(detail=True, methods=["post"])
     @transaction.atomic
     def settle(self, request, pk=None):
@@ -70,7 +77,25 @@ class InvoiceViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         "paid_on": "2026-10-03"} -- paid_on defaults to today. A reference
         is required for every method except cash.
         """
-        invoice = self.get_object()
+        # the invoice row is locked, so a revision or a UPI payment can't
+        # change it between the checks and the save
+        with transaction.atomic():
+            invoice = Invoice.objects.select_for_update().get(pk=self.get_object().pk)
+            response = self._settle(request, invoice)
+        if response is not None:
+            return response
+        # Task 2 wiring: "any payment done" -- who actually gets pinged is
+        # configured on Settings > Staff alerts, not hardcoded here.
+        notify_staff(
+            "payment_received",
+            f"Invoice {invoice.code} settled",
+            f"Invoice {invoice.code} for {invoice.party.name} was marked paid -- ₹{invoice.total}.",
+        )
+        return Response(InvoiceSerializer(invoice).data)
+
+    def _settle(self, request, invoice):
+        """Validate and record the payment on the locked invoice; an error
+        Response, or None once it's marked paid."""
         if invoice.status in Invoice.SETTLED:
             return Response({"detail": "This invoice is already marked paid."}, status=400)
         if invoice.status == Invoice.CANCELLED:
@@ -97,14 +122,7 @@ class InvoiceViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         invoice.settled_by = request.user
         invoice.save(update_fields=["status", "pay_method", "payment_reference", "paid_on", "settled_by"])
         on_invoice_paid(invoice)
-        # Task 2 wiring: "any payment done" -- who actually gets pinged is
-        # configured on Settings > Staff alerts, not hardcoded here.
-        notify_staff(
-            "payment_received",
-            f"Invoice {invoice.code} settled",
-            f"Invoice {invoice.code} for {invoice.party.name} was marked paid -- ₹{invoice.total}.",
-        )
-        return Response(InvoiceSerializer(invoice).data)
+        return None
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):

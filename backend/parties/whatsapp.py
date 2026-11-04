@@ -9,6 +9,7 @@ transaction -- and the row records what actually happened. The number is
 always the party's own Party.phone, read on the server; the request can't
 choose a recipient.
 """
+import re
 from datetime import timedelta
 
 from django.db.models import Q
@@ -64,6 +65,11 @@ def _apply_result(message, result):
     return message
 
 
+def apply_send_result(message, result):
+    """Record a send made elsewhere (the portal invite's WhatsApp) on its "sending" chat row."""
+    return _apply_result(message, result)
+
+
 def deliver(message):
     """Send a row already claimed as "sending". Must not run inside an atomic block."""
     party = message.party
@@ -99,3 +105,65 @@ def claim_for_retry(message, confirm_uncertain=False):
     if message.delivery_status == Message.DELIVERY_SENDING:
         raise RetryRefused("This message is already being sent.", "in_progress")
     raise RetryRefused("This message wasn't sent through WhatsApp, so it can't be resent.", "not_sendable")
+
+
+# What the CRM's own WhatsApp history proves about a party's number. Meta's
+# Cloud API can't look a number up (notify.check_whatsapp_number), so the
+# only real proof is a message the CRM sent that Meta's webhook confirmed
+# delivered or read (portal/meta_webhook.py is the only place that happens).
+VERIFIED, NOT_VERIFIED, PENDING, UNABLE = "verified", "not_verified", "pending", "unable"
+# 131026 "message undeliverable" is the closest Meta comes to "not on WhatsApp",
+# but Meta lists other causes for it too (terms not accepted, an outdated app),
+# so it is reported as unable-to-verify, never as a confirmed "no". The webhook
+# stores it as "WhatsApp reported the message failed: 131026 ...", a failed
+# send as notify's hint text "...may not be on WhatsApp".
+_UNDELIVERABLE = re.compile(r"\b131026\b|may not be on WhatsApp")
+
+
+def last_phone_change(party):
+    """When staff last edited this party's phone number (Activity Logs keep
+    the time, with the number itself masked), or None if never recorded."""
+    from accounts.models import ActivityLog
+
+    return (ActivityLog.objects
+            .filter(record_type="parties.party", record_id=str(party.pk), changes__has_key="phone")
+            .order_by("-at").values_list("at", flat=True).first())
+
+
+def delivery_evidence(party):
+    """
+    (status, reason) from the party's outbound CRM WhatsApp messages, or
+    (None, None) when they prove nothing. Messages carry no recipient
+    number -- each went to the party's own Party.phone at the time -- so
+    only messages written after the last phone change count, and a
+    message only ever counts for its own party.
+
+    verified   a message was delivered or read, or the customer replied on WhatsApp
+    pending    the latest message was accepted by Meta, delivery not yet confirmed
+    unable     the latest send failed (undeliverable, auth, rate limit, network...)
+
+    Meta never confirms "this number isn't on WhatsApp", so this never
+    returns not_verified -- that only comes from the console provider's check.
+    """
+    messages = party.messages.filter(channel=Message.WHATSAPP, direction=Message.OUT).exclude(
+        delivery_status__in=["", Message.DELIVERY_SIMULATED])
+    since = last_phone_change(party)
+    if since:
+        messages = messages.filter(at__gt=since)
+    if messages.filter(delivery_status__in=[Message.DELIVERY_DELIVERED, Message.DELIVERY_READ]).exists():
+        return VERIFIED, "a WhatsApp message from the CRM was delivered to this number"
+    # a reply received through Meta's webhook (CRM-typed history has no Meta id)
+    replies = party.messages.filter(channel=Message.WHATSAPP, direction=Message.IN).exclude(provider_message_id="")
+    if since:
+        replies = replies.filter(at__gt=since)
+    if replies.exists():
+        return VERIFIED, "the customer has sent a WhatsApp message from this number"
+    latest = messages.order_by("-at", "-id").first()
+    if latest is None:
+        return None, None
+    if latest.delivery_status == Message.DELIVERY_FAILED and _UNDELIVERABLE.search(latest.delivery_error or ""):
+        return UNABLE, ("WhatsApp couldn't deliver the latest message (Meta error 131026): the number may not be on "
+                        "WhatsApp, or the customer hasn't accepted WhatsApp's terms or updated the app")
+    if latest.delivery_status in (Message.DELIVERY_SENT, Message.DELIVERY_SENDING):
+        return PENDING, "the latest WhatsApp message was accepted by Meta, but its delivery isn't confirmed yet"
+    return UNABLE, latest.delivery_error or "the latest WhatsApp message couldn't be sent"

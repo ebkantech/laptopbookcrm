@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, IndianRupee, Mail, Plus, Printer, Repeat2, ShieldCheck, X } from "lucide-react";
+import { Check, IndianRupee, Mail, PencilLine, Plus, Printer, Repeat2, ShieldCheck, X } from "lucide-react";
 import { C, F, fmt, money, todayISO } from "../lib/theme";
 import { api } from "../lib/api";
 import { onStoreChanged } from "../lib/storeEvents";
@@ -9,6 +9,7 @@ import PageHeader from "../components/PageHeader";
 import PrintableInvoice from "../components/invoices/PrintableInvoice";
 import UpiPaymentLink from "../components/invoices/UpiPaymentLink";
 import PartyPicker from "../components/invoices/PartyPicker";
+import { canRevise, revisionLines, unitsOnInvoice } from "../components/invoices/invoiceRevision";
 
 const STATUS_COLOR = { Paid: "#36D399", "Payment link sent": "#F5A623", Overdue: "#FB5B5B", Cancelled: "#8A8F98", Refunded: "#7C6FD8" };
 const isOutstanding = (inv) => inv.status === "Payment link sent" || inv.status === "Overdue";
@@ -26,19 +27,30 @@ const REFERENCE_HINT = {
 };
 const WARRANTY_STATUS_COLOR = { Active: "#36D399", "Expiring soon": "#F5A623", Expired: "#FB5B5B" };
 
-function NewInvoiceModal({ products, stockPoints, onClose, onCreate }) {
+// New sale invoice, or -- given `revising` -- the same form filled from an
+// unpaid sale invoice, saved back onto it (same number; the server moves
+// stock only by what changed).
+function NewInvoiceModal({ products, stockPoints, revising, defaultStockPoint, onClose, onCreate }) {
   // No default customer: pre-selecting the first name made it easy to
   // bill the wrong person.
-  const [party, setParty] = useState(null);
-  const [stockPoint, setStockPoint] = useState(stockPoints.find((s) => s.kind === "shop")?.id);
+  const [party, setParty] = useState(revising?.party ?? null);
+  // a new sale starts at the store in view (sidebar store switcher), else the first shop
+  const [stockPoint, setStockPoint] = useState(revising?.stock_point
+    ?? stockPoints.find((s) => s.id === defaultStockPoint)?.id ?? stockPoints.find((s) => s.kind === "shop")?.id);
   const blankLine = () => ({ productId: "", variantId: "", qty: 1, price: "" });
-  const [lines, setLines] = useState([blankLine()]);
+  const [lines, setLines] = useState(() => (revising ? revisionLines(revising, products) : [blankLine()]));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const shopSlug = stockPoints.find((s) => s.id === stockPoint)?.slug;
+  // a revised invoice's own stock point may since have been made inactive
+  const pointOptions = revising && !stockPoints.some((s) => s.id === revising.stock_point)
+    ? [...stockPoints, { id: revising.stock_point, name: revising.stock_point_name }]
+    : stockPoints;
+  const shopSlug = pointOptions.find((s) => s.id === stockPoint)?.slug;
   const variantOf = (line) => products.find((p) => p.id === +line.productId)?.variants.find((v) => v.id === +line.variantId);
-  const inStock = (variant) => variant?.stock?.find((s) => s.stock_point === shopSlug)?.quantity ?? 0;
+  // when revising at the same shop, the units already on this invoice are available to it too
+  const inStock = (variant) => (variant?.stock?.find((s) => s.stock_point === shopSlug)?.quantity ?? 0)
+    + (variant ? unitsOnInvoice(revising, variant.id, stockPoint) : 0);
   const setLine = (i, patch) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
   const pickProduct = (i, productId) => {
     const v = products.find((p) => p.id === +productId)?.variants[0];
@@ -62,10 +74,9 @@ function NewInvoiceModal({ products, stockPoints, onClose, onCreate }) {
     }
     setBusy(true);
     try {
-      await onCreate({
-        party, stock_point: stockPoint, date: todayISO(),
-        items: filled.map((l) => ({ variant: +l.variantId, qty: +l.qty, price: +l.price })),
-      });
+      const items = filled.map((l) => ({ variant: +l.variantId, qty: +l.qty, price: +l.price }));
+      // a revision keeps its invoice date; only the customer, shop and lines change
+      await onCreate(revising ? { party, stock_point: stockPoint, items } : { party, stock_point: stockPoint, date: todayISO(), items });
     } catch (e) {
       const body = e.body || {};
       setError([].concat(body.items || body.detail || e.message).join(" · "));
@@ -78,7 +89,7 @@ function NewInvoiceModal({ products, stockPoints, onClose, onCreate }) {
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(4,9,18,0.7)" }}>
       <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto p-6" data-panel style={{ backgroundColor: C.slip }}>
-        <div className="flex items-center justify-between"><span className="text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.14em", color: C.inkSoft }}>New sale invoice</span><button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={16} style={{ color: C.inkSoft }} /></button></div>
+        <div className="flex items-center justify-between"><span className="text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.14em", color: C.inkSoft }}>{revising ? `Revise ${revising.code}` : "New sale invoice"}</span><button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={16} style={{ color: C.inkSoft }} /></button></div>
 
         <div className="mt-4 space-y-3">
           <div className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
@@ -87,7 +98,7 @@ function NewInvoiceModal({ products, stockPoints, onClose, onCreate }) {
           </div>
           <label className="text-xs" style={{ display: "block", fontFamily: F.body, color: C.inkSoft }}>Sold through (stock is taken from here)
             <select value={stockPoint} onChange={(e) => setStockPoint(+e.target.value)} className="mt-1 w-full py-2 text-sm outline-none" style={field}>
-              {stockPoints.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {pointOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </label>
 
@@ -109,7 +120,7 @@ function NewInvoiceModal({ products, stockPoints, onClose, onCreate }) {
                       <select value={l.variantId} onChange={(e) => pickVariant(i, e.target.value)} disabled={!product} className="w-full py-1.5 text-sm outline-none" style={field}>
                         {product?.variants.map((x) => <option key={x.id} value={x.id}>{x.spec}</option>)}
                       </select>
-                      {v && <span className="text-[11px]" style={{ fontFamily: F.mono, color: short ? C.carbon : C.inkSoft }}>{have} in stock here</span>}
+                      {v && <span className="text-[11px]" style={{ fontFamily: F.mono, color: short ? C.carbon : C.inkSoft }}>{have} {revising ? "available" : "in stock"} here</span>}
                     </div>
                     <input type="number" min={1} value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} title="Quantity" className="py-1.5 text-center text-sm outline-none" style={{ ...field, fontFamily: F.mono, borderColor: short ? C.carbon : C.rule }} />
                     <input value={l.price} onChange={(e) => setLine(i, { price: e.target.value.replace(/\D/g, "") })} placeholder="₹ each" title="Unit price -- edit for a discount" className="py-1.5 text-right text-sm outline-none" style={{ ...field, fontFamily: F.mono }} />
@@ -130,7 +141,7 @@ function NewInvoiceModal({ products, stockPoints, onClose, onCreate }) {
 
         <ErrorNote message={error} />
         <button onClick={submit} disabled={busy} className="mt-5 flex w-full items-center justify-center gap-2 py-2.5 text-xs uppercase" style={{ backgroundColor: C.stamp, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em", opacity: busy ? 0.7 : 1 }}>
-          <Plus size={13} /> {busy ? "Creating…" : "Generate invoice"}
+          {revising ? <><Check size={13} /> {busy ? "Saving…" : "Save revised invoice"}</> : <><Plus size={13} /> {busy ? "Creating…" : "Generate invoice"}</>}
         </button>
       </div>
     </div>
@@ -406,7 +417,7 @@ function RefundHistory({ invoice }) {
   );
 }
 
-function InvoiceDetail({ invoice, onClose, onSettle, onChanged }) {
+function InvoiceDetail({ invoice, onClose, onSettle, onChanged, onRevise }) {
   const { can } = useSession();
   const [warranty, setWarranty] = useState(undefined); // undefined = loading, null = none
   const [printing, setPrinting] = useState(false);
@@ -428,6 +439,11 @@ function InvoiceDetail({ invoice, onClose, onSettle, onChanged }) {
             {invoice.reference && <p className="mt-0.5 text-xs" style={{ fontFamily: F.body, color: C.ink }}>{invoice.source_label}: {invoice.reference}</p>}
           </div>
           <div className="flex items-center gap-2">
+            {canRevise(invoice, can) && (
+              <button onClick={() => onRevise(invoice)} className="flex items-center gap-1 px-2 py-1 text-xs" style={{ border: `1px solid ${C.rule}`, fontFamily: F.body, fontWeight: 600, color: C.ink }}>
+                <PencilLine size={12} /> Revise
+              </button>
+            )}
             <button onClick={() => setPrinting(true)} className="flex items-center gap-1 px-2 py-1 text-xs" style={{ border: `1px solid ${C.rule}`, fontFamily: F.body, fontWeight: 600, color: C.ink }}>
               <Printer size={12} /> Print
             </button>
@@ -504,7 +520,7 @@ const SOURCE_COLOR = { sale: C.stamp, repair: C.amber, rental: C.blue, onsite: C
  * on this screen.
  */
 export default function Invoices() {
-  const { can } = useSession();
+  const { can, me } = useSession();
   const [invoices, setInvoices] = useState(null);
   const [products, setProducts] = useState([]);
   const [stockPoints, setStockPoints] = useState([]);
@@ -513,13 +529,18 @@ export default function Invoices() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
+  const [revising, setRevising] = useState(null);
   const [openInvoice, setOpenInvoice] = useState(null);
+
+  // Only products that have something sellable: stock and prices live
+  // on variants, so a product with none yet can't go on an invoice.
+  // Reloaded after every sale, cancellation or return, so the new-sale
+  // form's "in stock here" counts are the server's, never stale.
+  const loadProducts = () => api.getAll("/products/").then((all) => setProducts(all.filter((p) => p.variants.length))).catch(() => {});
 
   useEffect(() => {
     api.getAll("/invoices/").then(setInvoices).catch((e) => setError(e.message));
-    // Only products that have something sellable: stock and prices live
-    // on variants, so a product with none yet can't go on an invoice.
-    api.getAll("/products/").then((all) => setProducts(all.filter((p) => p.variants.length)));
+    loadProducts();
     api.get("/stock-points/?active=1").then((d) => setStockPoints(d.results ?? d));
   }, []);
 
@@ -533,6 +554,19 @@ export default function Invoices() {
     const inv = await api.post("/invoices/", payload);
     setInvoices((l) => [inv, ...l]);
     setAdding(false);
+    loadProducts();
+  };
+
+  // same invoice, same number: the server swaps its lines and moves stock by the difference
+  const revise = async (payload) => {
+    invoiceChanged(await api.patch(`/invoices/${revising.id}/`, payload));
+    setRevising(null);
+  };
+
+  // cancelling or refunding a sale puts its units back on the shelf
+  const invoiceChanged = (inv) => {
+    replaceInvoice(inv);
+    if (inv.source === "sale") loadProducts();
   };
 
   const replaceInvoice = (inv) => {
@@ -619,6 +653,11 @@ export default function Invoices() {
               <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{inv.stock_point_name}</span>
               <span className="text-sm sm:min-w-24 sm:text-right" style={{ fontFamily: F.mono, fontWeight: 600, color: C.ink }}>{money(inv.total)}</span>
               <Pill color={STATUS_COLOR[inv.status]}>{invoiceStatusLabel(inv)}</Pill>
+              {canRevise(inv, can) && (
+                <button type="button" onClick={(e) => { e.stopPropagation(); setRevising(inv); }} className="flex items-center gap-1 rounded-full px-3 py-1.5 text-xs" style={{ border: `1px solid ${C.rule}`, color: C.ink, fontFamily: F.body, fontWeight: 700 }}>
+                  <PencilLine size={11} /> Revise
+                </button>
+              )}
               {isOutstanding(inv) && can("invoices.settle") && (
                 <button type="button" onClick={(e) => { e.stopPropagation(); setOpenInvoice(inv); }} className="flex items-center gap-1 rounded-full px-3 py-1.5 text-xs" style={{ border: `1px solid ${C.green}66`, backgroundColor: `${C.green}0D`, color: C.green, fontFamily: F.body, fontWeight: 700 }}>
                   <IndianRupee size={11} /> Record payment
@@ -634,8 +673,10 @@ export default function Invoices() {
         </div>
       </div>
 
-      {adding && <NewInvoiceModal products={products} stockPoints={stockPoints} onClose={() => setAdding(false)} onCreate={create} />}
-      {openInvoice && <InvoiceDetail invoice={openInvoice} onClose={() => setOpenInvoice(null)} onSettle={settle} onChanged={replaceInvoice} />}
+      {adding && <NewInvoiceModal products={products} stockPoints={stockPoints} defaultStockPoint={me?.active_store} onClose={() => setAdding(false)} onCreate={create} />}
+      {/* lines are matched to products, so wait for them */}
+      {revising && products.length > 0 && <NewInvoiceModal key={revising.id} products={products} stockPoints={stockPoints} revising={revising} onClose={() => setRevising(null)} onCreate={revise} />}
+      {openInvoice && <InvoiceDetail invoice={openInvoice} onClose={() => setOpenInvoice(null)} onSettle={settle} onChanged={invoiceChanged} onRevise={(inv) => { setOpenInvoice(null); setRevising(inv); }} />}
     </div>
   );
 }

@@ -9,13 +9,15 @@ Two separate questions are asked of every request:
 Only the Owner / Super Admin sees every store: a superuser, or the
 built-in "owner" role (which can't be created, edited or handed out
 through the API -- see RoleWriteSerializer and UserViewSet.set_role).
-Everyone else is limited to User.stock_point, which only the Owner can
-set. An account with no assignment reaches no store's records at all --
-it never falls back to "everything".
+Everyone else is limited to the stores assigned to them (User.stock_point
+plus User.stock_points), which only the Owner can set, and works in one of
+them at a time. An account with no assignment reaches no store's records
+at all -- it never falls back to "everything".
 
-A store is never taken from the request: querysets are filtered by the
-account's own assignment, and a stock point named in a write payload is
-checked against it.
+The store in view comes from the sidebar's store switcher (X-Active-Store),
+but only after accounts.context has checked it against the account's own
+assignment; querysets are filtered by it, and a stock point named in a
+write payload is checked against it.
 """
 from django.db.models import Q
 from rest_framework.exceptions import PermissionDenied
@@ -34,12 +36,28 @@ def sees_all_stores(user):
 
 
 class StoreScope:
-    """The stock points one user may reach. `store_id` is None for the Owner (all stores)."""
+    """
+    The stock points one user's request reaches.
+      owner     -- the Owner / Super Admin privilege (unaffected by the store
+                   switcher): may write anywhere and do business-wide things.
+      all       -- the data in view is every store: the Owner with "All
+                   Stores" (or no store) selected.
+      store_id  -- the one store in view otherwise: the store chosen in the
+                   switcher (validated by accounts.context against the
+                   account's assignments), else the account's primary store.
+    """
 
     def __init__(self, user):
         self.user = user
-        self.all = sees_all_stores(user)
-        self.store_id = None if self.all else getattr(user, "stock_point_id", None)
+        self.owner = sees_all_stores(user)
+        active = getattr(user, "_active_store_id", None)
+        self.all = self.owner and active is None
+        if self.all:
+            self.store_id = None
+        elif active is not None:
+            self.store_id = active
+        else:
+            self.store_id = _default_store_id(user)
 
     @property
     def assigned(self):
@@ -65,7 +83,8 @@ class StoreScope:
         return qs.distinct() if distinct else qs
 
     def allows(self, stock_point_id):
-        if self.all:
+        # the Owner may record work at any store, whichever one is in view
+        if self.owner:
             return True
         if self.store_id is None or stock_point_id in (None, ""):
             return False
@@ -85,8 +104,18 @@ class StoreScope:
             raise PermissionDenied(f"You can only work with {what} at your assigned store.")
 
     def require_owner(self, detail):
-        if not self.all:
+        if not self.owner:
             raise PermissionDenied(detail)
+
+
+def _default_store_id(user):
+    """The primary store, or -- if only additional stores are assigned -- the first of those."""
+    if getattr(user, "stock_point_id", None):
+        return user.stock_point_id
+    if not getattr(user, "is_authenticated", False) or not hasattr(user, "assigned_store_ids"):
+        return None
+    ids = user.assigned_store_ids()
+    return min(ids) if ids else None
 
 
 def _payload_value(data, field):

@@ -81,7 +81,7 @@ def can_manage_expenses(user):
 def require_store_access(scope, stock_point_id):
     """The expense's store must be one this account reaches; None = shared."""
     if stock_point_id is None:
-        if not scope.all:
+        if not scope.owner:
             raise PermissionDenied(SHARED_DETAIL)
         return
     if not scope.allows(stock_point_id):
