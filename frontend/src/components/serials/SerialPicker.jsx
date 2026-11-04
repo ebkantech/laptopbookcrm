@@ -23,13 +23,15 @@ export default function SerialPicker({ variantId, stockPointId, qty, value, onCh
   }, [variantId, stockPointId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!info || !info.tracked) return null;
+  // units already on this invoice (a revision) stay pickable though they aren't "in stock" yet
+  const options = [...new Set([...info.serials, ...value])];
   const need = Math.max(0, (+qty || 0) - info.untracked);
   const toggle = (sn) => onChange(value.includes(sn) ? value.filter((x) => x !== sn) : [...value, sn]);
   const addScanned = () => {
     const sn = scan.trim().toUpperCase();
     setScan("");
     if (!sn) return;
-    if (!info.serials.includes(sn)) { setNote(`${sn} is not in stock here for this item.`); return; }
+    if (!options.includes(sn)) { setNote(`${sn} is not in stock here for this item.`); return; }
     setNote("");
     if (!value.includes(sn)) onChange([...value, sn]);
   };
@@ -49,8 +51,8 @@ export default function SerialPicker({ variantId, stockPointId, qty, value, onCh
       </div>
       {note && <p className="mt-1 text-[11px]" style={{ color: C.carbon }}>{note}</p>}
       <div className="mt-1.5 flex flex-wrap gap-1">
-        {info.serials.length === 0 && <span className="text-[11px]" style={{ color: C.inkSoft }}>No units with serial numbers in stock here.</span>}
-        {info.serials.map((sn) => {
+        {options.length === 0 && <span className="text-[11px]" style={{ color: C.inkSoft }}>No units with serial numbers in stock here.</span>}
+        {options.map((sn) => {
           const on = value.includes(sn);
           return (
             <button key={sn} type="button" role="checkbox" aria-checked={on} onClick={() => toggle(sn)} className="rounded px-2 py-0.5 text-[11px]"

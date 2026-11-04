@@ -214,3 +214,12 @@ def trace(serial):
                     "invoice": e.invoice.code if e.invoice else None}
                    for e in serial.events.select_related("stock_point", "actor", "invoice")],
     }
+
+
+def release_for_revision(invoice, actor):
+    """An unpaid sale is being edited: its units go back in stock so the new
+    lines can keep the same units or pick others (sales.serializers.update)."""
+    for r in StockSerial.objects.filter(invoice_item__invoice=invoice, status=StockSerial.SOLD):
+        r.status, r.sold_at, r.invoice_item = StockSerial.IN_STOCK, None, None
+        r.save(update_fields=["status", "sold_at", "invoice_item"])
+        log(r, SerialEvent.SALE_CANCELLED, f"Back in stock -- invoice {invoice.code} revised", actor, invoice=invoice)

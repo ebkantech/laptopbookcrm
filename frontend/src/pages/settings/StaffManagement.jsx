@@ -221,12 +221,12 @@ export default function StaffManagement() {
                       {u.email && <span className="st-sub" title={u.email}>{u.email}</span>}
                     </span>
                   </span>
-                  <span role="cell" data-label="Role" title={u.is_superuser ? "Superuser" : u.role_label || "No role"}>{u.is_superuser ? "Superuser" : u.role_label || <span className="st-sub">No role</span>}</span>
+                  <span role="cell" data-label="Role" title={u.is_superuser ? "Superuser" : (u.role_labels?.length ? u.role_labels.join(", ") : u.role_label) || "No role"}>{u.is_superuser ? "Superuser" : u.role_label || <span className="st-sub">No role</span>}{!u.is_superuser && u.roles?.length > 1 && <span className="st-sub"> +{u.roles.length - 1}</span>}</span>
                   <span role="cell" data-label="Store Location">
                     {u.sees_all_stores ? <span className="st-badge" data-tone="violet"><ShieldCheck size={11} aria-hidden="true" />All stores</span>
                       : u.staff_kind === "outsourced" ? <span className="st-badge" data-tone="violet" title={u.company}>Outsourced{u.company ? ` · ${u.company}` : ""}</span>
                       : u.staff_kind === "field" ? <span className="st-badge" data-tone="blue">Field · any store</span>
-                      : u.stock_point ? <span className="st-badge" title={u.stock_point_name}>{u.stock_point_name}</span>
+                      : u.stock_point ? <span className="st-badge" title={(u.stock_point_names?.length ? u.stock_point_names : [u.stock_point_name]).join(", ")}>{u.stock_point_name}{u.stock_points?.length > 1 ? ` +${u.stock_points.length - 1}` : ""}</span>
                         : <span className="st-badge" data-tone="amber">Unassigned</span>}
                   </span>
                   <span role="cell" data-label="Status">
@@ -288,6 +288,9 @@ function StaffForm({ user, roles, allRoles, shops, ownerView, me, onClose, onCre
     email: user?.email || "", phone: user?.phone || "", role: user?.role ? String(user.role) : "",
     stock_point: user ? (user.stock_point ? String(user.stock_point) : "") : ownerView ? "" : String(me.stock_point || ""),
     is_active: user ? user.is_active : true, staff_kind: user?.staff_kind || "store", company: user?.company || "", mode: "link", password: "", password_confirm: "",
+    // multi-role / multi-store: everything assigned besides the primary role / store
+    extra_roles: (user?.roles || []).filter((id) => id !== user.role),
+    extra_stores: (user?.stock_points || []).filter((id) => id !== user.stock_point),
   });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
@@ -295,6 +298,11 @@ function StaffForm({ user, roles, allRoles, shops, ownerView, me, onClose, onCre
   // keep the current role listed even if this administrator couldn't grant it
   const roleOptions = editing && user.role && !roles.some((r) => r.id === user.role)
     ? [...roles, ...(allRoles || []).filter((r) => r.id === user.role)] : roles;
+  // additional roles: grantable ones, plus any already held (kept even if this administrator couldn't grant them)
+  const extraRoleOptions = [...roleOptions, ...(allRoles || []).filter((r) => form.extra_roles.includes(r.id) && !roleOptions.some((o) => o.id === r.id))]
+    .filter((r) => String(r.id) !== form.role);
+  const extraStoreOptions = shops.filter((s) => String(s.id) !== form.stock_point && (s.is_active !== false || form.extra_stores.includes(s.id)));
+  const toggle = (key, id) => set(key)(form[key].includes(id) ? form[key].filter((x) => x !== id) : [...form[key], id]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -311,7 +319,12 @@ function StaffForm({ user, roles, allRoles, shops, ownerView, me, onClose, onCre
       email: form.email.trim(), phone: form.phone.trim(), role: form.role ? Number(form.role) : null, is_active: form.is_active,
       staff_kind: form.staff_kind, company: form.staff_kind === "outsourced" ? form.company.trim() : "",
     };
-    if (ownerView && form.staff_kind === "store") body.stock_point = form.stock_point ? Number(form.stock_point) : null;
+    body.roles = [...new Set([...(form.role ? [Number(form.role)] : []), ...form.extra_roles.filter((id) => String(id) !== form.role)])];
+    // field / outsourced technicians belong to no store: the server clears their stores
+    if (ownerView && form.staff_kind === "store") {
+      body.stock_point = form.stock_point ? Number(form.stock_point) : null;
+      body.stock_points = [...new Set([...(body.stock_point ? [body.stock_point] : []), ...form.extra_stores.filter((id) => id !== body.stock_point)])];
+    }
     if (!editing && form.mode === "set") Object.assign(body, { password: form.password, password_confirm: form.password_confirm });
     setBusy(true);
     try {
@@ -375,7 +388,7 @@ function StaffForm({ user, roles, allRoles, shops, ownerView, me, onClose, onCre
         <div className="st-grid" data-cols="2">
           <SelectInput label="Works as" value={form.staff_kind} onChange={set("staff_kind")} error={errors.staff_kind}
             hint="Field technicians and outsourced technicians belong to no store. The role must allow on-site work.">
-            <option value="store">Store staff (one store)</option>
+            <option value="store">Store staff</option>
             <option value="field">Field technician (any store)</option>
             {(me.is_superuser || (me.permissions || []).includes("leads.outsource") || form.staff_kind === "outsourced") && <option value="outsourced">Outsourced technician (external)</option>}
           </SelectInput>
@@ -383,6 +396,36 @@ function StaffForm({ user, roles, allRoles, shops, ownerView, me, onClose, onCre
             <TextInput label="Freelancer / company name" value={form.company} onChange={set("company")} error={errors.company} autoComplete="off" />
           )}
         </div>
+        {extraRoleOptions.length > 0 && (
+          <fieldset className="st-grid">
+            <legend className="st-label mb-1">Additional roles</legend>
+            <span className="st-help">They switch between their roles on the Dashboard; each role keeps only its own permissions.</span>
+            <div className="st-grid" data-cols="2">
+              {extraRoleOptions.map((r) => (
+                <label key={r.id} className="st-switch">
+                  <input type="checkbox" checked={form.extra_roles.includes(r.id)} onChange={() => toggle("extra_roles", r.id)} />
+                  {r.label}
+                </label>
+              ))}
+            </div>
+            {errors.roles && <span className="st-err" role="alert">{errors.roles}</span>}
+          </fieldset>
+        )}
+        {ownerView && form.staff_kind === "store" && extraStoreOptions.length > 0 && (
+          <fieldset className="st-grid">
+            <legend className="st-label mb-1">Also works at</legend>
+            <span className="st-help">They pick the store they're working in from the sidebar and see only that store's data.</span>
+            <div className="st-grid" data-cols="2">
+              {extraStoreOptions.map((sp) => (
+                <label key={sp.id} className="st-switch">
+                  <input type="checkbox" checked={form.extra_stores.includes(sp.id)} onChange={() => toggle("extra_stores", sp.id)} />
+                  {sp.name}{sp.is_active === false ? " (inactive)" : ""}
+                </label>
+              ))}
+            </div>
+            {errors.stock_points && <span className="st-err" role="alert">{errors.stock_points}</span>}
+          </fieldset>
+        )}
         <label className="st-switch">
           <input type="checkbox" checked={form.is_active} onChange={(e) => set("is_active")(e.target.checked)} />
           Account active (can sign in)

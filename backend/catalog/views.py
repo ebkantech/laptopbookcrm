@@ -63,8 +63,10 @@ class StockPointViewSet(mixins.CreateModelMixin, mixins.UpdateModelMixin, viewse
     permission_classes = [permissions.IsAuthenticated, IsStaffAccount]
 
     def get_queryset(self):
-        # Owner: every shop and channel. Store staff: only their own store.
-        qs = StoreScope(self.request.user).filter(super().get_queryset(), "id")
+        # Owner: every shop and channel, whichever store is in view (this is
+        # the store directory). Store staff: only the store they're working in.
+        scope = StoreScope(self.request.user)
+        qs = super().get_queryset() if scope.owner else scope.filter(super().get_queryset(), "id")
         # ?active=1 -- the choices for a NEW operation (invoice, repair,
         # stock, rental, staff assignment): inactive stock points are left
         # out. Without it every stock point is listed, for history and filters.
@@ -327,7 +329,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         # A product's name, codes and deletion reach every store that stocks
         # it, so store staff may only change one no other store holds.
         scope = StoreScope(self.request.user)
-        if scope.all:
+        if scope.owner:
             return
         scope.require_assigned()
         if Stock.objects.filter(variant__product=product).exclude(stock_point_id=scope.store_id).exists():

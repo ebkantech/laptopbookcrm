@@ -22,6 +22,8 @@ import {
 } from "lucide-react";
 import { C, F, APP_NAME, APP_VERSION } from "./lib/theme";
 import { SessionProvider, useSession } from "./context/SessionContext";
+import { accessLabel } from "./lib/accessLevel";
+import StoreSwitcher from "./components/StoreSwitcher";
 import { Spinner } from "./components/Atoms";
 import AnimatedGradientBackground from "./components/AnimatedGradientBackground";
 const Login = lazy(() => import("./pages/Login"));
@@ -108,7 +110,9 @@ const NAV_GROUPS = [
     ],
   },
   {
-    label: "Admin",
+    // labelled with the signed-in account's role (Staff / Admin / Superadmin / Superuser) -- see visibleNavGroups
+    label: "Account",
+    roleLabel: true,
     items: [{ id: "settings", label: "Settings", icon: SettingsIcon }],
   },
 ];
@@ -128,6 +132,7 @@ function visibleNavGroups(me) {
   };
   return NAV_GROUPS.map((group) => ({
     ...group,
+    label: group.roleLabel ? accessLabel(me) : group.label,
     items: group.items.filter(allowed),
   })).filter((group) => group.items.length > 0);
 }
@@ -325,7 +330,7 @@ function UserCard({ me, onLogout, collapsed = false }) {
 }
 
 function Shell() {
-  const { me, logout } = useSession();
+  const { me, logout, contextVersion } = useSession();
   const [view, setView] = useState(routeView);
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -452,6 +457,7 @@ function Shell() {
                 <X size={18} />
               </button>
             </div>
+            <StoreSwitcher />
             <NavGroups groups={groups} view={view} onSelect={selectFromDrawer} />
             <div className="mt-auto pt-6">
               <UserCard me={me} onLogout={logout} />
@@ -471,6 +477,7 @@ function Shell() {
         />
         <div className={`relative flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-5 ${collapsed ? "px-3" : "px-4"}`}>
           <Brand collapsed={collapsed} />
+          <StoreSwitcher collapsed={collapsed} />
           <NavGroups groups={groups} view={view} onSelect={navigate} collapsed={collapsed} />
           <div className="mt-auto space-y-2 pt-6">
             <UserCard me={me} onLogout={logout} collapsed={collapsed} />
@@ -493,7 +500,7 @@ function Shell() {
   {/* Non-owner accounts only reach their own store's records
       (accounts.store_scope); until the Owner assigns one, every
       store-linked list comes back empty -- say why, everywhere. */}
-  {me && !me.sees_all_stores && !me.stock_point && (me.staff_kind || "store") === "store" && (
+  {me && !me.can_select_all_stores && !me.accessible_stores?.length && (me.staff_kind || "store") === "store" && (
     <div
       role="status"
       className="mx-[1rem] mt-3 flex items-start gap-2 rounded-xl px-3 py-2.5 text-xs sm:mx-[2rem]"
@@ -503,7 +510,10 @@ function Shell() {
       <span>Your Store Location has not been assigned yet. Please contact your administrator.</span>
     </div>
   )}
+  {/* keyed by the active store / role: switching either remounts the open
+      page, so it refetches everything under the new context */}
   <Suspense
+    key={contextVersion}
     fallback={
       <div className="flex min-h-0 flex-1 items-center justify-center">
         <Spinner label={`Loading ${current?.label || "module"}…`} />

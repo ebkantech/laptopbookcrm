@@ -257,7 +257,8 @@ class MetaWebhookTests(WhatsAppChatBase):
         self.hook([{"id": "wamid.CHAT1", "status": "delivered"}])  # late, out of order
         message.refresh_from_db()
         self.assertEqual(message.delivery_status, "read")
-        self.assertEqual(WhatsAppDeliveryLog.objects.get(provider_message_id="wamid.CHAT1").status, "delivered")
+        # the log never moves back either
+        self.assertEqual(WhatsAppDeliveryLog.objects.get(provider_message_id="wamid.CHAT1").status, "read")
 
     def test_async_failure_is_recorded(self):
         message = self.sent_message()
@@ -283,3 +284,153 @@ class MetaWebhookTests(WhatsAppChatBase):
             signature = "sha256=" + hmac.new(APP_SECRET.encode(), raw, hashlib.sha256).hexdigest()
             response = self.client.post(self.URL, raw, content_type="application/json", HTTP_X_HUB_SIGNATURE_256=signature)
             self.assertIn(response.status_code, (200, 400), raw)
+
+
+@override_settings(WHATSAPP_APP_SECRET=APP_SECRET, WHATSAPP_WEBHOOK_VERIFY_TOKEN="verify-me")
+class DeliveryStatusTrackingTests(WhatsAppChatBase):
+    """Meta's message id is saved on send and is the only key a status event is matched by."""
+    URL, hook, sent_message = MetaWebhookTests.URL, MetaWebhookTests.hook, MetaWebhookTests.sent_message
+
+    def test_provider_timestamp_is_stored(self):
+        message = self.sent_message()
+        self.hook([{"id": "wamid.CHAT1", "status": "delivered", "timestamp": "1767225600", "recipient_id": "919876543210"}])
+        message.refresh_from_db()
+        self.assertEqual(message.delivery_status, "delivered")
+        self.assertEqual(message.delivery_updated_at.timestamp(), 1767225600)
+
+    def test_duplicate_events_create_nothing_and_change_nothing(self):
+        message = self.sent_message()
+        for _ in range(3):
+            self.hook([{"id": "wamid.CHAT1", "status": "delivered", "timestamp": "1767225600"}])
+        self.hook([{"id": "wamid.CHAT1", "status": "delivered", "timestamp": "1767229999"}])
+        message.refresh_from_db()
+        self.assertEqual(message.delivery_updated_at.timestamp(), 1767225600)  # the first event's time
+        self.assertEqual(WhatsAppDeliveryLog.objects.filter(provider_message_id="wamid.CHAT1").count(), 1)
+        self.assertEqual(Message.objects.filter(provider_message_id="wamid.CHAT1").count(), 1)
+
+    def test_events_match_only_by_message_id(self):
+        message = self.sent_message()
+        self.hook([{"id": "wamid.SOMETHING-ELSE", "status": "read", "recipient_id": "919876543210"}])
+        message.refresh_from_db()
+        self.assertEqual(message.delivery_status, "sent")
+
+    def test_recipient_other_than_the_partys_number_is_logged(self):
+        message = self.sent_message()
+        with self.assertLogs("crmbook.notify", level="WARNING") as logs:
+            self.hook([{"id": "wamid.CHAT1", "status": "delivered", "recipient_id": "919000000000"}])
+        self.assertIn("other than party", logs.output[0])
+        message.refresh_from_db()
+        self.assertEqual(message.delivery_status, "delivered")  # the wamid is authoritative
+
+    def test_failed_after_delivery_failure_is_not_duplicated(self):
+        message = self.sent_message()
+        failure = {"id": "wamid.CHAT1", "status": "failed", "errors": [{"code": 131026, "title": "Message undeliverable"}]}
+        self.hook([failure])
+        self.hook([failure])
+        message.refresh_from_db()
+        self.assertEqual(message.delivery_status, "failed")
+        self.assertIn("131026", message.delivery_error)
+
+    @mock.patch("parties.views.create_portal_invite")
+    def test_portal_link_whatsapp_is_tracked_like_a_chat_message(self, create_invite):
+        from portal.models import PortalInvite
+
+        customer = Party.objects.create(name="Portal Customer", type=Party.RETAIL, phone="9876500099",
+                                        email="c@example.com", joined=date.today())
+        invite = PortalInvite.objects.create(party=customer, expires_at=timezone.now() + timedelta(hours=24))
+        create_invite.return_value = (invite, "sent")
+        with mock.patch("requests.post", return_value=accepted("wamid.INVITE1")):
+            response = self.manager.post(f"/api/parties/{customer.pk}/portal-invite/", {}, format="json")
+        self.assertEqual(response.status_code, 201, response.content)
+        message = Message.objects.get(party=customer, channel=Message.WHATSAPP)
+        self.assertEqual((message.delivery_status, message.provider_message_id), ("sent", "wamid.INVITE1"))
+        self.assertEqual(WhatsAppDeliveryLog.objects.filter(provider_message_id="wamid.INVITE1").count(), 1)
+        self.hook([{"id": "wamid.INVITE1", "status": "read"}])
+        message.refresh_from_db()
+        self.assertEqual(message.delivery_status, "read")
+
+    @mock.patch("parties.views.create_portal_invite")
+    def test_portal_link_skipped_for_flagged_number_stays_a_plain_record(self, create_invite):
+        from portal.models import PortalInvite
+
+        customer = Party.objects.create(name="Flagged", type=Party.RETAIL, phone="9876500098", email="f@example.com",
+                                        joined=date.today(), whatsapp_verified=False)
+        invite = PortalInvite.objects.create(party=customer, expires_at=timezone.now() + timedelta(hours=24))
+        create_invite.return_value = (invite, "sent")
+        with mock.patch("requests.post") as post:
+            self.manager.post(f"/api/parties/{customer.pk}/portal-invite/", {}, format="json")
+        post.assert_not_called()
+        message = Message.objects.get(party=customer, channel=Message.WHATSAPP)
+        self.assertEqual((message.delivery_status, message.provider_message_id), ("", ""))
+
+
+@override_settings(WHATSAPP_APP_SECRET=APP_SECRET, WHATSAPP_WEBHOOK_VERIFY_TOKEN="verify-me")
+class InboundMessageTests(WhatsAppChatBase):
+    """Customer replies arriving on Meta's webhook become inbound chat messages."""
+    URL = MetaWebhookTests.URL
+
+    def receive(self, messages, secret=APP_SECRET):
+        body = json.dumps({"object": "whatsapp_business_account", "entry": [{"changes": [{"field": "messages", "value": {
+            "messaging_product": "whatsapp", "contacts": [{"wa_id": "919876543210"}], "messages": messages}}]}]}).encode()
+        signature = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+        return self.client.post(self.URL, body, content_type="application/json", HTTP_X_HUB_SIGNATURE_256=signature)
+
+    def text(self, body="Is my laptop ready?", wamid="wamid.IN1", sender="919876543210"):
+        return {"from": sender, "id": wamid, "timestamp": "1767225600", "type": "text", "text": {"body": body}}
+
+    def test_reply_is_stored_on_the_matching_party(self):
+        response = self.receive([self.text()])
+        self.assertEqual(response.json()["received"], 1)
+        message = Message.objects.get(provider_message_id="wamid.IN1")
+        self.assertEqual((message.party, message.channel, message.direction, message.body),
+                         (self.party, "whatsapp", "in", "Is my laptop ready?"))
+        self.assertEqual(message.at.timestamp(), 1767225600)
+        self.assertFalse(self.other.messages.exists())
+
+    def test_redelivered_reply_is_stored_once(self):
+        self.receive([self.text()])
+        self.assertEqual(self.receive([self.text()]).json()["received"], 0)
+        self.assertEqual(Message.objects.filter(provider_message_id="wamid.IN1").count(), 1)
+
+    def test_unknown_sender_is_not_stored(self):
+        with self.assertLogs("crmbook.notify", level="WARNING"):
+            response = self.receive([self.text(sender="919000000001")])
+        self.assertEqual((response.status_code, response.json()["received"]), (200, 0))
+        self.assertFalse(Message.objects.filter(direction="in").exists())
+
+    def test_every_party_with_that_number_gets_the_reply(self):
+        twin = Party.objects.create(name="Akif Supplier", type=Party.RETAIL, phone="+91 9876543210", joined=date.today())
+        self.receive([self.text()])
+        self.assertEqual(set(Message.objects.filter(provider_message_id="wamid.IN1").values_list("party", flat=True)),
+                         {self.party.pk, twin.pk})
+
+    def test_non_text_messages_get_a_readable_body(self):
+        self.receive([
+            {"from": "919876543210", "id": "wamid.IMG", "type": "image", "image": {"caption": "screen crack"}},
+            {"from": "919876543210", "id": "wamid.BTN", "type": "interactive", "interactive": {"button_reply": {"title": "Yes"}}},
+            {"from": "919876543210", "id": "wamid.ODD", "type": "ephemeral"},
+        ])
+        bodies = dict(Message.objects.filter(direction="in").values_list("provider_message_id", "body"))
+        self.assertEqual(bodies, {"wamid.IMG": "[Image] screen crack", "wamid.BTN": "Yes",
+                                  "wamid.ODD": "[Unsupported WhatsApp message]"})
+
+    def test_unsigned_reply_is_refused(self):
+        self.assertEqual(self.receive([self.text()], secret="wrong").status_code, 403)
+        self.assertFalse(Message.objects.filter(direction="in").exists())
+
+    def test_reply_shows_in_the_party_thread(self):
+        self.receive([self.text()])
+        thread = self.manager.get(f"/api/parties/{self.party.pk}/").json()["messages"]
+        self.assertIn("Is my laptop ready?", [message["body"] for message in thread if message["direction"] == "in"])
+
+    def test_reply_verifies_the_number(self):
+        self.receive([self.text()])
+        response = self.manager.post(f"/api/parties/{self.party.pk}/recheck-whatsapp/", {}, format="json")
+        self.assertEqual(response.json()["whatsapp_status"], "verified")
+        self.party.refresh_from_db()
+        self.assertTrue(self.party.whatsapp_verified)
+
+    def test_crm_typed_history_reply_does_not_verify(self):
+        Message.objects.create(party=self.party, channel="whatsapp", direction="in", body="noted by staff")
+        response = self.manager.post(f"/api/parties/{self.party.pk}/recheck-whatsapp/", {}, format="json")
+        self.assertNotEqual(response.json()["whatsapp_status"], "verified")

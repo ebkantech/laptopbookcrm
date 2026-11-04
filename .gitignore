@@ -33,3 +33,6 @@ backend/users_export.json
 backend/compare_db.py
 backend/*.zip
 frontend/*.zip
+
+# SQLite in-memory test database file (created by some test runs)
+backend/file:*

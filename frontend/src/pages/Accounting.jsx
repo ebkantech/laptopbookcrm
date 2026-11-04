@@ -151,10 +151,13 @@ function NewBankEntry({ account, onClose, onAdd }) {
   );
 }
 
-function AccountSettings({ account, onClose, onSaved }) {
+// Edits `account` (PATCH on its own id), or -- with account=null -- opens a
+// NEW one (POST): a second account never touches the first. A new account
+// only takes over invoice payments if it's the first or that box is ticked.
+function AccountSettings({ account, isFirst = false, onClose, onSaved }) {
   const [name, setName] = useState(account?.name || "");
   const [opening, setOpening] = useState(String(account?.opening ?? ""));
-  const [isDefault, setIsDefault] = useState(account ? account.is_default : true);
+  const [isDefault, setIsDefault] = useState(account ? account.is_default : isFirst);
   const [error, setError] = useState("");
   const save = async () => {
     if (!name.trim()) return setError("Give the account a name, e.g. HDFC Bank — Current A/c.");
@@ -168,21 +171,24 @@ function AccountSettings({ account, onClose, onSaved }) {
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(4,9,18,0.7)" }}>
       <div className="w-full max-w-sm p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}>
-        <div className="flex items-center justify-between"><Eyebrow>{account ? "Bank account settings" : "Add bank account"}</Eyebrow><button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={16} style={{ color: C.inkSoft }} /></button></div>
+        <div className="flex items-center justify-between"><Eyebrow>{account ? `Edit · ${account.name}` : "Add bank account"}</Eyebrow><button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={16} style={{ color: C.inkSoft }} /></button></div>
         <div className="mt-4 space-y-3">
           <label className="text-xs" style={{ display: "block", color: C.inkSoft }}>Account name<input value={name} onChange={(e) => setName(e.target.value)} placeholder="HDFC Bank — Current A/c ••4821" className="mt-1 w-full px-3 py-2 text-sm outline-none" style={fieldStyle} /></label>
           <label className="text-xs" style={{ display: "block", color: C.inkSoft }}>Opening balance (₹)<input value={opening} onChange={(e) => setOpening(e.target.value.replace(/\D/g, ""))} className="mt-1 w-full px-3 py-2 text-sm outline-none" style={{ ...fieldStyle, fontFamily: F.mono }} /></label>
           <label className="flex items-center gap-2 text-sm" style={{ display: "flex", color: C.ink }}><input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} /> UPI, card, bank transfer and cheque payments on invoices go into this account</label>
         </div>
         <ErrorNote message={error} />
-        <button onClick={save} className="mt-4 w-full py-2.5 text-xs uppercase" style={{ backgroundColor: C.stamp, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em" }}>Save</button>
+        <button onClick={save} className="mt-4 w-full py-2.5 text-xs uppercase" style={{ backgroundColor: C.stamp, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em" }}>{account ? "Save changes" : "Create account"}</button>
       </div>
     </div>
   );
 }
 
 function BankBook() {
-  const { can } = useSession();
+  const { can, me } = useSession();
+  // Opening an account is the Owner / Super Admin's (or a superuser's) --
+  // the server refuses anyone else (accounting.views.BankAccountViewSet).
+  const canOpenAccount = !!me?.sees_all_stores && can("bankbook.edit");
   const [accounts, setAccounts] = useState(null);
   const [accountId, setAccountId] = useState(null);
   const [adding, setAdding] = useState(false);
@@ -199,9 +205,11 @@ function BankBook() {
   if (!accounts.length) {
     return (
       <div className="p-6 text-sm" data-panel style={{ border: `1px dashed ${C.rule}`, color: C.inkSoft }}>
-        No bank account yet. UPI, card, bank-transfer and cheque payments on invoices are posted to your business account.
-        {can("bankbook.edit") && <div className="mt-3"><PillButton icon={Plus} primary onClick={() => setSettings("new")}>Add bank account</PillButton></div>}
-        {settings && <AccountSettings account={null} onClose={() => setSettings(null)} onSaved={(a) => { setSettings(null); load(a.id); }} />}
+        {me?.sees_all_stores
+          ? "No bank account yet. UPI, card, bank-transfer and cheque payments on invoices are posted to your business account."
+          : "Bank accounts are business-wide, so only the Owner can see and manage them."}
+        {canOpenAccount && <div className="mt-3"><PillButton icon={Plus} primary onClick={() => setSettings("new")}>Add bank account</PillButton></div>}
+        {canOpenAccount && settings && <AccountSettings account={null} isFirst onClose={() => setSettings(null)} onSaved={(a) => { setSettings(null); load(a.id); }} />}
       </div>
     );
   }
@@ -224,7 +232,10 @@ function BankBook() {
           <button key={a.id} onClick={() => setAccountId(a.id)} className="px-3 py-1.5 text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: accountId === a.id ? C.onAccent : C.inkSoft, backgroundColor: accountId === a.id ? C.stamp : "transparent", border: `1px solid ${accountId === a.id ? C.stamp : C.rule}` }}>{a.name}{a.is_default ? " · invoice payments" : ""}</button>
         ))}
         {can("bankbook.edit") && acc && (
-          <button onClick={() => setSettings(acc)} className="flex items-center gap-1 px-2 py-1.5 text-xs" style={{ fontFamily: F.body, color: C.inkSoft, border: `1px solid ${C.rule}` }}><Settings2 size={12} /> Name & opening balance</button>
+          <button onClick={() => setSettings(acc)} className="flex items-center gap-1 px-2 py-1.5 text-xs" style={{ fontFamily: F.body, color: C.inkSoft, border: `1px solid ${C.rule}` }}><Settings2 size={12} /> Edit {acc.name}</button>
+        )}
+        {canOpenAccount && (
+          <button onClick={() => setSettings("new")} className="flex items-center gap-1 px-2 py-1.5 text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: C.stamp, border: `1px solid ${C.rule}` }}><Plus size={12} /> Add bank account</button>
         )}
       </div>
       <div className="mt-3 flex flex-wrap gap-3">
@@ -264,7 +275,10 @@ function BankBook() {
       {adding && acc && (
         <NewBankEntry account={acc} onClose={() => setAdding(false)} onAdd={async (body) => { await api.post("/bank-entries/", body); setAdding(false); await load(acc.id); }} />
       )}
-      {settings && <AccountSettings account={settings === "new" ? null : settings} onClose={() => setSettings(null)} onSaved={(a) => { setSettings(null); load(a.id); }} />}
+      {settings && (settings !== "new" || canOpenAccount) && (
+        <AccountSettings key={settings === "new" ? "new" : settings.id} account={settings === "new" ? null : settings}
+          onClose={() => setSettings(null)} onSaved={(a) => { setSettings(null); load(a.id); }} />
+      )}
     </div>
   );
 }

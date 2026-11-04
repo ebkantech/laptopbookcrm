@@ -106,9 +106,12 @@ AUTH_USER_MODEL = 'accounts.User'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 REST_FRAMEWORK = {
+    # The existing JWT / session authentication, plus the active role and
+    # store each request asks for -- validated against the account's own
+    # assignments (accounts.context).
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-        'rest_framework.authentication.SessionAuthentication',
+        'accounts.context.ContextJWTAuthentication',
+        'accounts.context.ContextSessionAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
@@ -212,6 +215,9 @@ if DEBUG:
 CORS_ALLOW_CREDENTIALS = True
 # Lets the portal read throttling waits cross-origin (portal resend/verify 429s).
 CORS_EXPOSE_HEADERS = ["Retry-After"]
+# the active role / store headers (accounts.context) on cross-origin API calls
+from corsheaders.defaults import default_headers as _cors_default_headers  # noqa: E402
+CORS_ALLOW_HEADERS = (*_cors_default_headers, "x-active-role", "x-active-store")
 
 # Django's own session cookie is used by the admin site (and by
 # SessionAuthentication as a DRF fallback) -- hardened regardless, since the

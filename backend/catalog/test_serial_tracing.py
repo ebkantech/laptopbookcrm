@@ -138,3 +138,24 @@ class RentalTests(Base):
         self.assertEqual(self.status("LA00002"), "rented")
         renter.post(f"/api/rental-assets/{r.json()['id']}/return-to-inventory/", {}, format="json")
         self.assertEqual(self.status("LA00002"), "in_stock")
+
+
+class RevisionTests(Base):
+    """An unpaid sale edited after the merge with invoice revision (sales.serializers.update)."""
+
+    def revise(self, inv, qty, serials):
+        return self.seller.patch(f"/api/invoices/{inv['id']}/", {"items": [{"variant": self.v.id, "qty": qty, "price": 40000, "serials": serials}]}, format="json")
+
+    def test_revision_keeps_or_swaps_units_and_stock_stays_right(self):
+        inv = self.sell(1, ["LA00001"]).json()
+        r = self.revise(inv, 1, ["LA00001"])           # same unit again
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(self.status("LA00001"), "sold")
+        r = self.revise(inv, 2, ["LA00002", "LA00003"])  # swap and add one
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual([self.status(s) for s in ("LA00001", "LA00002", "LA00003")], ["in_stock", "sold", "sold"])
+        self.stock.refresh_from_db()
+        self.assertEqual(self.stock.quantity, 1)
+        self.assertEqual(sorted(r.json()["items"][0]["serial_numbers"]), ["LA00002", "LA00003"])
+        self.assertEqual(self.revise(inv, 2, ["LA00002"]).status_code, 400)  # a unit with a serial left unnamed
+        self.assertEqual(self.status("LA00002"), "sold")                      # refused edit changed nothing

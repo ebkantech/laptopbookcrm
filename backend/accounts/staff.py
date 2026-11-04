@@ -63,6 +63,20 @@ def is_staff_admin(user):
     return sees_all_stores(user) or user.has_perm_code(STAFF_ADMIN_PERM)
 
 
+def access_level(user):
+    """
+    Where the account sits in the existing hierarchy, highest first:
+    "superuser" (is_superuser), "superadmin" (the Owner / Super Admin role),
+    "admin" (is_staff_admin -- roles.manage) or "staff". Django's is_staff
+    plays no part, as in accounts.activity.role_tier.
+    """
+    if user.is_superuser:
+        return "superuser"
+    if sees_all_stores(user):
+        return "superadmin"
+    return "admin" if is_staff_admin(user) else "staff"
+
+
 def role_codes(role):
     return set(role.permissions.values_list("codename", flat=True)) if role else set()
 

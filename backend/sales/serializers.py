@@ -1,9 +1,11 @@
+from collections import Counter
+
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
 from rest_framework import serializers
 
 from catalog import serials as serial_tracking
-from catalog.models import Stock
+from catalog.models import Stock, StockSerial
 from catalog.status import require_active
 from .models import Invoice, InvoiceItem, PaymentLink, Refund
 from .services import create_invoice
@@ -150,21 +152,40 @@ class InvoiceSerializer(serializers.ModelSerializer):
         return items
 
     @staticmethod
-    def _check_and_take_stock(items, stock_point):
-        """Lock the shelf rows, refuse to sell more than is there (instead
-        of the database refusing with a server error), then take the units."""
-        wanted = {}
-        for item in items:
-            wanted[item["variant"]] = wanted.get(item["variant"], 0) + item["qty"]
+    def _units(lines, stock_point, sign=1):
+        """{(stock point, variant): units} for these sale lines -- dicts
+        from the request or saved InvoiceItems."""
+        units = Counter()
+        for line in lines:
+            variant, qty = (line["variant"], line["qty"]) if isinstance(line, dict) else (line.variant, line.qty)
+            if variant is not None:
+                units[(stock_point, variant)] += sign * qty
+        return units
+
+    @staticmethod
+    def _move_stock(changes):
+        """
+        Apply a sale's stock changes: {(stock point, variant): units taken
+        off the shelf (+) or put back (-)}. Every shelf row involved is
+        locked first, in id order so two sales can't deadlock; taking more
+        than is there is refused (instead of the database refusing with a
+        server error) before anything moves.
+        """
+        changes = {key: qty for key, qty in changes.items() if qty}
+        if not changes:
+            return {}
+        lookup = Q()
+        for stock_point, variant in changes:
+            lookup |= Q(stock_point=stock_point, variant=variant)
         rows = {
-            row.variant_id: row
-            for row in Stock.objects.select_for_update().filter(stock_point=stock_point, variant__in=list(wanted))
+            (row.stock_point_id, row.variant_id): row
+            for row in Stock.objects.select_for_update().filter(lookup).order_by("pk")
         }
         problems = []
-        for variant, qty in wanted.items():
-            row = rows.get(variant.id)
+        for (stock_point, variant), qty in changes.items():
+            row = rows.get((stock_point.id, variant.id))
             have = row.quantity if row else 0
-            if have < qty:
+            if qty > have:
                 name = f"{variant.product.display_name} ({variant.spec})"
                 problems.append(
                     f"{name}: only {have} in stock at {stock_point.name}" if row
@@ -172,9 +193,13 @@ class InvoiceSerializer(serializers.ModelSerializer):
                 )
         if problems:
             raise serializers.ValidationError({"items": problems})
-        shelf = {variant.id: rows[variant.id].quantity for variant in wanted}
-        for variant, qty in wanted.items():
-            Stock.objects.filter(pk=rows[variant.id].pk).update(quantity=F("quantity") - qty)
+        shelf = {key: row.quantity for key, row in rows.items()}  # before this change
+        for (stock_point, variant), qty in changes.items():
+            row = rows.get((stock_point.id, variant.id))
+            if row:
+                Stock.objects.filter(pk=row.pk).update(quantity=F("quantity") - qty)
+            else:  # only a put-back gets here: the shelf row was removed since the sale
+                Stock.objects.create(variant=variant, stock_point=stock_point, quantity=-qty)
         return shelf
 
     @transaction.atomic
@@ -183,11 +208,115 @@ class InvoiceSerializer(serializers.ModelSerializer):
         validated_data["status"] = Invoice.LINK_SENT
         # take the units off the shared stock pool of the shop/channel sold
         # through -- a sale on any channel moves the same pool
-        shelf = self._check_and_take_stock(items, validated_data["stock_point"])
+        stock_point = validated_data["stock_point"]
+        shelf = self._move_stock(self._units(items, stock_point))
         # serial-tracked products: the exact units going out (checked against the shelf before this sale)
-        picked = serial_tracking.check_sale_lines(items, validated_data["stock_point"], shelf)
+        picked = serial_tracking.check_sale_lines(items, stock_point, {v: q for (sp, v), q in shelf.items() if sp == stock_point.pk})
         lines = [{k: v for k, v in item.items() if k != "serials"} for item in items]
         invoice = create_invoice(source=Invoice.SALE, lines=lines, **validated_data)
-        request = self.context.get("request")
-        serial_tracking.mark_sold(invoice, picked, getattr(request, "user", None))
+        serial_tracking.mark_sold(invoice, picked, getattr(self.context.get("request"), "user", None))
         return invoice
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        """
+        An edit moves stock only by what changed: the sold lines go back on
+        the old shelf and the new lines come off the new one, netted per
+        variant, so resaving the same lines moves nothing. Only an unpaid
+        sale's lines or shop can change -- a paid one is returned through a
+        refund, a cancelled one already put its units back.
+        """
+        items = validated_data.pop("items", None)
+        invoice = Invoice.objects.select_for_update().get(pk=instance.pk)
+        old_point = invoice.stock_point
+        new_point = validated_data.get("stock_point", old_point)
+        if items is not None and invoice.source != Invoice.SALE:
+            raise serializers.ValidationError({"items": ["Repair and rental invoices are billed by their own modules; their lines can't be edited here."]})
+        if invoice.source == Invoice.SALE and (items is not None or new_point.pk != old_point.pk):
+            if invoice.status not in Invoice.OUTSTANDING:
+                raise serializers.ValidationError({"detail": (
+                    "Only an unpaid sale's items or shop can be changed. "
+                    + ("Refund the returned items instead." if invoice.status in Invoice.SETTLED else "This invoice was cancelled.")
+                )})
+            old_lines = list(invoice.items.select_related("variant__product"))
+            user = getattr(self.context.get("request"), "user", None)
+            if items is None and new_point.pk != old_point.pk and StockSerial.objects.filter(invoice_item__invoice=invoice).exists():
+                raise serializers.ValidationError({"stock_point": [
+                    "This invoice has serial-numbered units from " + old_point.name + ". Edit its items and pick the units at the new shop instead."]})
+            if items is not None:
+                # serial-numbered units on the old lines go back to stock first, so the
+                # revision can keep the same units or swap them (catalog.serials)
+                serial_tracking.release_for_revision(invoice, user)
+            new_lines = old_lines if items is None else items
+            changes = self._units(old_lines, old_point, sign=-1)
+            changes.update(self._units(new_lines, new_point))  # Counter.update adds
+            shelf = self._move_stock(changes)
+            if items is not None:
+                # what the new lines could draw on: the shelf before this change, plus
+                # what the old lines held at the same shop
+                available = {}
+                for line in items:
+                    vid = line["variant"].id
+                    if vid in available:
+                        continue
+                    if (new_point.pk, vid) in shelf:
+                        available[vid] = shelf[(new_point.pk, vid)]
+                    else:  # this variant's shelf didn't move (same units as before): read it as it is
+                        row = Stock.objects.filter(variant_id=vid, stock_point=new_point).first()
+                        available[vid] = row.quantity if row else 0
+                    if old_point.pk == new_point.pk:
+                        available[vid] += sum(line_.qty for line_ in old_lines if line_.variant_id == vid)
+                picked = serial_tracking.check_sale_lines(items, new_point, available)
+                old_total = invoice.total
+                invoice.items.all().delete()
+                for line in items:
+                    InvoiceItem.objects.create(invoice=invoice, **{k: v for k, v in line.items() if k != "serials"})
+                serial_tracking.mark_sold(invoice, picked, user)
+                new_total = sum(line["qty"] * line["price"] for line in items)
+                if new_total != old_total:
+                    self._cancel_open_links(invoice)
+                self._note_revision(invoice, old_lines, items, old_total, new_total)
+        return super().update(invoice, validated_data)
+
+    @staticmethod
+    def _cancel_open_links(invoice):
+        """A revised total makes any payment link already sent ask for the
+        wrong amount: stop it, so the customer can only pay a fresh one."""
+        from .payments import cancel_provider_link
+
+        for link in invoice.payment_links.filter(status=PaymentLink.SENT):
+            cancel_provider_link(link)
+        invoice.payment_links.filter(status=PaymentLink.SENT).update(status=PaymentLink.CANCELLED)
+
+    @staticmethod
+    def _note_revision(invoice, old_lines, new_lines, old_total, new_total):
+        """The revision in the staff activity log (who and when come from the
+        request): the totals and every product added, removed or changed."""
+        from accounts import activity
+
+        def by_variant(lines):
+            rows = {}
+            for line in lines:
+                variant, qty, price = (
+                    (line["variant"], line["qty"], line["price"]) if isinstance(line, dict) else (line.variant, line.qty, line.price)
+                )
+                row = rows.setdefault(variant.pk, {"name": f"{variant.product.display_name} ({variant.spec})", "qty": 0, "amount": 0})
+                row["qty"] += qty
+                row["amount"] += qty * price
+            return rows
+
+        before, after = by_variant(old_lines), by_variant(new_lines)
+        lines = []
+        for pk in [*before, *(pk for pk in after if pk not in before)]:
+            old, new = before.get(pk), after.get(pk)
+            if not new:
+                lines.append(f"removed {old['name']} ×{old['qty']}")
+            elif not old:
+                lines.append(f"added {new['name']} ×{new['qty']}")
+            elif (old["qty"], old["amount"]) != (new["qty"], new["amount"]):
+                lines.append(f"{new['name']} ×{old['qty']} ₹{old['amount']:,} → ×{new['qty']} ₹{new['amount']:,}")
+        activity.note(
+            invoice, "revised",
+            f"Revised invoice {invoice.code}: ₹{old_total:,} → ₹{new_total:,}" + (f" ({'; '.join(lines)})" if lines else ""),
+            changes={"total": (old_total, new_total)},
+        )

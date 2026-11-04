@@ -81,7 +81,7 @@ class DashboardView(APIView):
         if not scope.assigned:
             sections = {key: False for key in sections}
         elif not scope.all:
-            channel_slug = request.user.stock_point.slug
+            channel_slug = StockPoint.objects.get(pk=scope.store_id).slug
 
         show_stock_section = sections["stock"]
         can_sales = sections["sales"]

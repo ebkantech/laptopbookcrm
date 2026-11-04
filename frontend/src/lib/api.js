@@ -1,9 +1,16 @@
+import { clearSaved, contextHeaders, dropRefused, emptyContext, readSaved, tokenUserId, writeSaved } from "./workContext";
+
+export const CONTEXT_RESET_EVENT = "cb:context-reset";
+
 // Local Vite proxies /api to Django. Production can override this with the
 // same-origin /api path or its configured API origin.
 const BASE_URL = import.meta.env.VITE_API_URL || "/api";
 
 let accessToken = localStorage.getItem("cb_access") || null;
 let refreshToken = localStorage.getItem("cb_refresh") || null;
+// The active store / role sent with every request (lib/workContext.js); the
+// server validates both against the account each time (accounts.context).
+let workContext = readSaved(localStorage, accessToken && tokenUserId(accessToken));
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 function readCookie(name) {
@@ -71,6 +78,20 @@ async function refreshAccessToken() {
  * body on any other non-2xx response so callers can show a real
  * message instead of a generic failure.
  */
+// A store or role choice the server refused (no longer assigned): drop that
+// part, remember it, tell the session, and say whether to retry the request.
+async function dropRefusedContext(res) {
+  if (res.status !== 403) return false;
+  let code = null;
+  try { code = (await res.clone().json()).code; } catch { /* not JSON */ }
+  const next = dropRefused(workContext, code);
+  if (!next) return false;
+  workContext = next;
+  writeSaved(localStorage, tokenUserId(accessToken), workContext);
+  window.dispatchEvent(new CustomEvent(CONTEXT_RESET_EVENT));
+  return true;
+}
+
 async function request(path, { method = "GET", body, headers = {} } = {}) {
   const verb = method.toUpperCase();
   if (UNSAFE_METHODS.has(verb) && !accessToken) await ensureCsrfCookie();
@@ -81,6 +102,7 @@ async function request(path, { method = "GET", body, headers = {} } = {}) {
         "Content-Type": "application/json",
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         ...(UNSAFE_METHODS.has(verb) && readCookie("csrftoken") ? { "X-CSRFToken": readCookie("csrftoken") } : {}),
+        ...contextHeaders(workContext),
         ...headers,
       },
       credentials: "include",
@@ -92,6 +114,7 @@ async function request(path, { method = "GET", body, headers = {} } = {}) {
     const refreshed = await refreshAccessToken();
     if (refreshed) res = await doFetch();
   }
+  if (await dropRefusedContext(res)) res = await doFetch();
 
   if (!res.ok) {
     throw await responseError(res, "Request failed");
@@ -124,12 +147,14 @@ async function upload(path, formData) {
       headers: {
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         ...(readCookie("csrftoken") ? { "X-CSRFToken": readCookie("csrftoken") } : {}),
+        ...contextHeaders(workContext),
       },
       credentials: "include",
       body: formData,
     });
   let res = await doFetch();
   if (res.status === 401 && refreshToken && (await refreshAccessToken())) res = await doFetch();
+  if (await dropRefusedContext(res)) res = await doFetch();
   if (!res.ok) {
     throw await responseError(res, "Upload failed");
   }
@@ -140,7 +165,9 @@ async function upload(path, formData) {
 // can't send the Authorization header, so fetch it and hand back an
 // object URL. Callers revoke it when done.
 async function blobUrl(path) {
-  const doFetch = () => fetch(`${BASE_URL}${path}`, { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {} });
+  const doFetch = () => fetch(`${BASE_URL}${path}`, {
+    headers: { ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}), ...contextHeaders(workContext) },
+  });
   let res = await doFetch();
   if (res.status === 401 && refreshToken && (await refreshAccessToken())) res = await doFetch();
   if (!res.ok) throw new Error("Couldn't load file");
@@ -184,7 +211,16 @@ export const api = {
     if (!res.ok) throw new Error("Invalid username or password");
     const data = await res.json();
     setTokens(data.access, data.refresh);
+    // this account's own last choice, if it made one in this browser
+    workContext = readSaved(localStorage, tokenUserId(data.access));
     return true;
+  },
+
+  // The active store / role -- see lib/workContext.js.
+  workContext: () => ({ ...workContext }),
+  setWorkContext(next) {
+    workContext = { ...workContext, ...next };
+    writeSaved(localStorage, tokenUserId(accessToken), workContext);
   },
 
   // After a self-service password change the server signs out every other
@@ -215,6 +251,8 @@ export const api = {
       }
     }
     clearTokens();
+    workContext = emptyContext();
+    clearSaved(localStorage);
   },
 
   isAuthenticated() {

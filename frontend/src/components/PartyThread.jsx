@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Copy, KeyRound, Link2, Mail, MessageCircle, Pencil, Send, X } from "lucide-react";
+import { AlertCircle, Check, CheckCheck, Clock, Copy, KeyRound, Link2, Mail, MessageCircle, Pencil, Send, X } from "lucide-react";
 import { C, F } from "../lib/theme";
 import { api } from "../lib/api";
 import { useSession } from "../context/SessionContext";
@@ -27,6 +27,16 @@ const DELIVERY = {
   failed: { label: "Failed", tone: "bad", retry: "Retry" },
   unknown: { label: "Outcome unknown — it may already have been sent", tone: "warn", retry: "Send again anyway", confirm: true },
   simulated: { label: "Not sent — WhatsApp API is in simulation mode", tone: "soft", retry: "Retry" },
+};
+// The same outcomes as WhatsApp-style ticks beside the timestamp. Delivered and
+// Read only ever come from Meta's delivery webhook (portal/meta_webhook.py).
+const READ_BLUE = "#3B9FE0";
+const DELIVERY_TICKS = {
+  sending: { label: "Sending", icon: Clock, color: C.inkSoft },
+  sent: { label: "Sent", icon: Check, color: C.inkSoft, title: "Sent — accepted by WhatsApp, not yet delivered" },
+  delivered: { label: "Delivered", icon: CheckCheck, color: C.inkSoft, title: "Delivered to the customer's phone" },
+  read: { label: "Read", icon: CheckCheck, color: READ_BLUE, title: "Read by the customer" },
+  failed: { label: "Failed", icon: AlertCircle, color: C.carbon, title: "WhatsApp couldn't deliver this message" },
 };
 // SMTP outcome of an outgoing email. "Sent" is the mail server accepting
 // it -- there's no inbox confirmation, and no resend (write it again).
@@ -140,10 +150,13 @@ export function PartyThread({ partyId, messages, onChanged, onHidden, defaultCha
   const deliveryLine = (message) => {
     const states = { whatsapp: DELIVERY, email: EMAIL_DELIVERY }[message.channel];
     const state = states && message.direction === "out" && !message.is_deleted && states[message.delivery_status];
-    if (!state) return null;
+    // WhatsApp sending / sent / delivered / read show as ticks by the time; only outcomes with a reason or a retry get this line
+    if (!state || (message.channel === "whatsapp" && !state.retry)) return null;
     const color = { ok: C.green, read: C.blue, bad: C.carbon, warn: C.amber, soft: C.inkSoft }[state.tone];
     return <div className="mt-0.5 flex flex-wrap items-center justify-end gap-x-2 gap-y-0.5 text-[10px]" style={{ fontFamily: F.body, color }}>
-      <span role="status" className="text-right" style={{ fontWeight: 600 }}>{state.label}{message.delivery_status === "failed" && message.delivery_error ? `: ${message.delivery_error}` : ""}</span>
+      <span role="status" className="text-right" style={{ fontWeight: 600 }}>{message.channel === "whatsapp" && message.delivery_status === "failed"
+        ? message.delivery_error || "WhatsApp couldn't deliver this message" // "Failed" itself is the red indicator by the time
+        : `${state.label}${message.delivery_status === "failed" && message.delivery_error ? `: ${message.delivery_error}` : ""}`}</span>
       {state.retry && canManage && <button type="button" onClick={() => retrySend(message)} disabled={!!retryingId} className="rounded-full px-2 py-0.5 disabled:opacity-50" style={{ border: `1px solid ${color}66`, color, fontWeight: 700 }}>{retryingId === message.id ? "Sending…" : state.retry}</button>}
     </div>;
   };
@@ -208,6 +221,14 @@ export function PartyThread({ partyId, messages, onChanged, onHidden, defaultCha
         {deliveryLine(message)}
         <div className={`mt-0.5 flex items-center gap-1 text-[10px] ${message.direction === "out" ? "justify-end" : "justify-start"}`} style={{ fontFamily: F.mono, color: C.inkSoft }}>
           <span>{new Date(message.at).toLocaleString()}</span>{message.edited_at && !message.is_deleted && <span aria-label="Edited">· edited</span>}
+          {(() => {
+            const tick = message.channel === "whatsapp" && message.direction === "out" && !message.is_deleted && DELIVERY_TICKS[message.delivery_status];
+            if (!tick) return null;
+            const Icon = tick.icon;
+            return <span role="status" title={tick.title || tick.label} className="inline-flex items-center gap-0.5" style={{ fontFamily: F.body, fontWeight: 600, color: tick.color }}>
+              <Icon size={13} aria-hidden="true" strokeWidth={2.4} />{tick.label}
+            </span>;
+          })()}
           {notice[message.id] && <span role="status" style={{ color: notice[message.id] === "Copied" ? C.green : C.carbon }}>· {notice[message.id]}</span>}
         </div>
       </div>)}

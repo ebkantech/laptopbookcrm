@@ -123,3 +123,30 @@ class StaffLoginTests(TestCase):
 
     def test_wrong_password_is_401_not_a_server_error(self):
         self.assertEqual(self.login("login-unassigned", "wrong-password").status_code, 401)
+
+
+class AccessLevelTests(TestCase):
+    """GET /api/users/me/ -> access_level, the sidebar's role label:
+    superuser > superadmin (the Owner / Super Admin role) > admin (roles.manage) > staff."""
+
+    def level(self, user):
+        response = client_for(user).get("/api/users/me/")
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()["access_level"]
+
+    def test_each_account_gets_its_own_level(self):
+        self.assertEqual(self.level(make_user("lvl-super", superuser=True)), "superuser")
+        self.assertEqual(self.level(make_user("lvl-owner", ["parties.view"], owner=True)), "superadmin")
+        self.assertEqual(self.level(make_user("lvl-admin", ["roles.manage"])), "admin")
+        self.assertEqual(self.level(make_user("lvl-staff", ["parties.view", "invoices.create"])), "staff")
+        self.assertEqual(self.level(make_user("lvl-norole")), "staff")
+
+    def test_is_staff_never_decides_the_level(self):
+        superuser = make_user("lvl-super-staff", superuser=True)
+        superuser.is_staff = True
+        superuser.save(update_fields=["is_staff"])
+        self.assertEqual(self.level(superuser), "superuser")
+        staff = make_user("lvl-django-staff", ["parties.view"])
+        staff.is_staff = True
+        staff.save(update_fields=["is_staff"])
+        self.assertEqual(self.level(staff), "staff")

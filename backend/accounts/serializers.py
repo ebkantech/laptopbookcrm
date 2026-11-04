@@ -6,7 +6,7 @@ from catalog.models import StockPoint
 from catalog.status import require_active
 
 from .models import ActivityLog, NotificationRule, Permission, Role, StaffNotification, User
-from .staff import is_staff_admin
+from .staff import access_level, is_staff_admin
 from .store_scope import sees_all_stores
 
 
@@ -119,12 +119,20 @@ class UserSerializer(serializers.ModelSerializer):
     can_view_profit_loss = serializers.SerializerMethodField()
     # Accounting -> Expenses (accounting.expenses.can_manage_expenses)
     can_manage_expenses = serializers.SerializerMethodField()
+    # superuser / superadmin / admin / staff (accounts.staff.access_level) -- the sidebar's role label
+    access_level = serializers.SerializerMethodField()
+    # every role / shop assigned (role and stock_point are the primary ones)
+    roles = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    role_labels = serializers.SerializerMethodField()
+    stock_points = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    stock_point_names = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
             "id", "username", "first_name", "last_name", "email", "phone",
-            "role", "role_label", "role_slug", "permissions", "is_superuser", "is_active",
+            "role", "role_label", "role_slug", "permissions", "is_superuser", "is_active", "access_level",
+            "roles", "role_labels", "stock_points", "stock_point_names",
             "stock_point", "stock_point_name", "stock_point_kind", "sees_all_stores", "can_manage_store_status",
             "can_view_staff_logs", "can_view_own_activity", "can_view_activity", "can_view_profit_loss",
             "can_manage_expenses", "staff_kind", "company",
@@ -133,6 +141,15 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_sees_all_stores(self, obj):
         return sees_all_stores(obj)
+
+    def get_access_level(self, obj):
+        return access_level(obj)
+
+    def get_role_labels(self, obj):
+        return [r.label for r in obj.roles.all()]
+
+    def get_stock_point_names(self, obj):
+        return [s.name for s in obj.stock_points.all()]
 
     def get_can_manage_store_status(self, obj):
         # the backend rule (catalog.status) the Store Locator shows status for
@@ -194,13 +211,17 @@ class StaffWriteSerializer(serializers.ModelSerializer):
     """
     role = serializers.PrimaryKeyRelatedField(queryset=Role.objects.all(), allow_null=True, required=False)
     stock_point = serializers.PrimaryKeyRelatedField(queryset=StockPoint.objects.all(), allow_null=True, required=False)
+    # Multi-role / multi-store: the full set assigned (the primary role /
+    # store is always added). Grants are re-checked in the view.
+    roles = serializers.PrimaryKeyRelatedField(queryset=Role.objects.all(), many=True, required=False)
+    stock_points = serializers.PrimaryKeyRelatedField(queryset=StockPoint.objects.all(), many=True, required=False)
     password = serializers.CharField(write_only=True, required=False, allow_blank=True, trim_whitespace=False, style={"input_type": "password"})
     password_confirm = serializers.CharField(write_only=True, required=False, allow_blank=True, trim_whitespace=False)
 
     class Meta:
         model = User
-        fields = ["username", "first_name", "last_name", "email", "phone", "role", "stock_point", "is_active",
-                  "staff_kind", "company", "password", "password_confirm"]
+        fields = ["username", "first_name", "last_name", "email", "phone", "role", "stock_point", "roles", "stock_points",
+                  "is_active", "staff_kind", "company", "password", "password_confirm"]
         extra_kwargs = {"first_name": {"required": True, "allow_blank": False}}
 
     def validate_username(self, value):
@@ -229,6 +250,15 @@ class StaffWriteSerializer(serializers.ModelSerializer):
         require_active(value, "staff assignments", current=self.instance.stock_point_id if self.instance else None)
         return value
 
+    def validate_stock_points(self, value):
+        current = self.instance.assigned_store_ids() if self.instance else set()
+        for stock_point in value:
+            if stock_point.kind != StockPoint.SHOP:
+                raise serializers.ValidationError(f"{stock_point.name} is an online channel -- staff can only be assigned to a physical shop.")
+            if stock_point.pk not in current:
+                require_active(stock_point, "staff assignments")
+        return value
+
     def validate(self, attrs):
         password = attrs.pop("password", "") or ""
         confirm = attrs.pop("password_confirm", "") or ""
@@ -248,7 +278,8 @@ class StaffWriteSerializer(serializers.ModelSerializer):
             role = attrs["role"] if "role" in attrs else (self.instance.role if self.instance else None)
             if not (role and role.permissions.filter(codename="leads.work").exists()):
                 raise serializers.ValidationError({"role": "Field and outsourced technicians need a role that can do on-site work (leads.work)."})
-            attrs["stock_point"] = None  # free of any store
+            attrs["stock_point"] = None  # free of any store -- primary and additional
+            attrs["stock_points"] = []
         if kind == User.OUTSOURCED:
             company = (attrs["company"] if "company" in attrs else (self.instance.company if self.instance else "")).strip()
             if not company:
@@ -260,6 +291,7 @@ class StaffWriteSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
+        roles, stores = validated_data.pop("roles", None), validated_data.pop("stock_points", None)
         user = User(**validated_data)
         if self._initial_password:
             user.set_password(self._initial_password)
@@ -267,7 +299,22 @@ class StaffWriteSerializer(serializers.ModelSerializer):
             # no password until the person sets one through a setup link
             user.set_unusable_password()
         user.save()
+        self._set_assignments(user, roles, stores)
         return user
+
+    def update(self, instance, validated_data):
+        roles, stores = validated_data.pop("roles", None), validated_data.pop("stock_points", None)
+        user = super().update(instance, validated_data)
+        self._set_assignments(user, roles, stores)
+        return user
+
+    @staticmethod
+    def _set_assignments(user, roles, stores):
+        # the primary role / store always stays assigned
+        if roles is not None:
+            user.roles.set({r.pk for r in roles} | ({user.role_id} if user.role_id else set()))
+        if stores is not None:
+            user.stock_points.set({s.pk for s in stores} | ({user.stock_point_id} if user.stock_point_id else set()))
 
 
 class ChangePasswordSerializer(serializers.Serializer):
