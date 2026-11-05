@@ -45,7 +45,7 @@ def auto_sales_warranty(invoice):
         sns = [s.serial_number for s in i.serials.all()]
         return f"{i.label} (S/N {', '.join(sns)})" if sns else i.label
 
-    names = ", ".join(label(i) for i in invoice.items.all()) or invoice.code
+    names = ", ".join(label(i) for i in invoice.items.all() if i.item_kind != "discount") or invoice.code
     w = Warranty.objects.create(party=invoice.party, section=Warranty.SALES, item_label=names[:160], invoice=invoice,
                                 start_date=start, end_date=start + timedelta(days=days), auto_created=True)
     announce(w)

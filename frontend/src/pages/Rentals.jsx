@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertOctagon, Camera, Check, CircleCheck, CircleX, Clock3, FileText, Hourglass, Copy, History, Laptop, Link2, MessageCircle, MessageSquareDiff, MessageSquarePlus, MessageSquareText, Phone,
+  AlertOctagon, Camera, Check, CircleCheck, CircleX, Clock3, FileText, Hourglass, Copy, History, Laptop, Link2, MessageCircle, MessageSquarePlus, MessageSquareText, Phone,
   Plus, Send, ShieldAlert, ShieldCheck, UserPlus, X,
 } from "lucide-react";
 import { ArrowDown, ArrowUp, CheckCheck, RefreshCw } from "lucide-react";
@@ -8,12 +8,14 @@ import { C, F, fmt, money } from "../lib/theme";
 import { api } from "../lib/api";
 import { PARTY_CHANGED_EVENT } from "../lib/partyEvents";
 import { copyText } from "../lib/copyText";
+import { whatsappSendNote } from "../lib/whatsappDelivery";
 import { useSession } from "../context/SessionContext";
 import { Eyebrow, Pill, PillButton, SearchInput, Spinner, ErrorNote } from "../components/Atoms";
 import PageHeader from "../components/PageHeader";
 import { PartyChatModal } from "../components/PartyThread";
 import RentalAgreementModal from "../components/rentals/RentalAgreementModal";
 import RentInvoices from "../components/rentals/RentInvoices";
+import RentalOnboarding from "../components/rentals/RentalOnboarding";
 import RentPaymentPlan from "../components/rentals/RentPaymentPlan";
 import RentLedger from "../components/rentals/RentLedger";
 import DeviceHandoverModal from "../components/rentals/DeviceHandoverModal";
@@ -141,16 +143,6 @@ function RentalActionModal({ rental, action, onClose, onCompleted }) {
 
 /* The approval link staff just generated -- shown until dismissed so it can
  * be copied or sent. The link wraps instead of overflowing on a phone. */
-/* What send_approval_link_whatsapp reported -- "sent" only when Meta
- * accepted the message and returned its id. */
-function apiSendNote(delivery) {
-  if (!delivery) return null;
-  if (delivery.status === "sent") return { ok: true, text: `Sent through the WhatsApp API${delivery.template ? ` (template ${delivery.template})` : ""} — Meta accepted it. Delivery to the phone is confirmed separately.` };
-  if (delivery.status === "simulated") return { ok: false, text: "WhatsApp API isn't switched on (console mode) — nothing was sent. Use the manual WhatsApp button." };
-  if (delivery.status === "skipped") return { ok: false, text: `Not sent: ${delivery.reason || "no phone number on file"}.` };
-  return { ok: false, text: `Not sent: ${delivery.reason || "the WhatsApp API rejected the message"}. You can retry, or send it manually.` };
-}
-
 function ApprovalLinkPanel({ link, onDismiss }) {
   const [copyState, setCopyState] = useState("");
   const [apiState, setApiState] = useState({ busy: false, delivery: null });
@@ -166,7 +158,7 @@ function ApprovalLinkPanel({ link, onDismiss }) {
       setApiState({ busy: false, delivery: { status: "failed", reason: requestError.body?.detail || requestError.message } });
     }
   };
-  const note = apiSendNote(apiState.delivery);
+  const note = whatsappSendNote(apiState.delivery);
   const copy = async () => {
     try {
       await copyText(link.url);
@@ -214,28 +206,26 @@ function ApprovalLinkPanel({ link, onDismiss }) {
 const chipClass = "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs disabled:opacity-60";
 const chipStyle = (tone = C.ink) => ({ border: `1px solid ${C.rule}`, backgroundColor: C.slip, color: tone, fontFamily: F.body, fontWeight: 600 });
 
-/* Decision filters. Pending and Request Changes can't be read off
- * Rental.status alone (the agreement stays pending_approval in both), so:
- * Pending = the LATEST link is still live and undecided (approval_status is
- * that link's effective status, so an expired or revoked link never counts);
- * Request Changes = open_change_request, set only while the latest link
- * ended in a change request and no newer link or final outcome replaced it.
- * Approved includes agreements that have since gone active on their first
- * paid invoice. */
+/* The status tabs, in the order an agreement moves through them. Each rental
+ * sits in exactly one. Pending verification is everything out with the customer
+ * or staff to approve, including a request for changes. Overdue is taken out of
+ * Active so late payers stand out. */
 // A rental is completed once the agreement is closed, or every month of its
 // tenure has been paid -- those clients get their own list instead of
 // staying mixed in with the live ones.
-const isCompleted = (r) => r.status === "closed" || (["approved", "active"].includes(r.status) && r.tenure_months > 0 && r.months_paid >= r.tenure_months);
+const awaitingCheckout = (r) => r.status === "approved" && !!r.onboarding?.required && !r.onboarding?.checked_out;
+const isCompleted = (r) => r.status === "closed" || (["approved", "active"].includes(r.status) && !awaitingCheckout(r) && r.tenure_months > 0 && r.months_paid >= r.tenure_months);
+const isLive = (r) => ["approved", "active"].includes(r.status) && !isCompleted(r);
 
 const DECISION_FILTERS = [
-  // saved but not yet sent to the customer (handover still being completed)
   { key: "draft", label: "Draft", icon: FileText, color: C.inkSoft, match: (r) => r.status === "draft" && !r.open_change_request },
-  { key: "pending", label: "Pending", icon: Hourglass, color: C.blue, match: (r) => r.status === "pending_approval" && r.approval_status === "pending" },
-  { key: "approved", label: "Approved", icon: CircleCheck, color: C.green, match: (r) => ["approved", "active"].includes(r.status) && !isCompleted(r) },
-  { key: "completed", label: "Completed", icon: CheckCheck, color: C.stamp, match: isCompleted },
+  { key: "pending", label: "Pending verification", icon: Hourglass, color: C.blue, match: (r) => r.status === "pending_approval" || (r.status === "draft" && !!r.open_change_request) },
+  { key: "approved", label: "Approved", icon: CircleCheck, color: C.green, match: (r) => awaitingCheckout(r) || (r.status === "approved" && isLive(r) && !r.next_payment_overdue) },
+  { key: "active", label: "Active", icon: CheckCheck, color: C.stamp, match: (r) => r.status === "active" && isLive(r) && !r.next_payment_overdue },
+  { key: "overdue", label: "Overdue", icon: AlertOctagon, color: C.carbon, match: (r) => isLive(r) && !awaitingCheckout(r) && !!r.next_payment_overdue },
+  { key: "completed", label: "Completed", icon: Check, color: C.green, match: isCompleted },
   // cancelled agreements, and ones the customer turned down
-  { key: "cancelled", label: "Cancelled", icon: CircleX, color: C.carbon, match: (r) => ["cancelled", "rejected"].includes(r.status) },
-  { key: "changes", label: "Request Changes", icon: MessageSquareDiff, color: C.amber, match: (r) => !!r.open_change_request },
+  { key: "cancelled", label: "Cancelled", icon: CircleX, color: C.inkSoft, match: (r) => ["cancelled", "rejected"].includes(r.status) },
 ];
 
 const POLL_MS = 5000;
@@ -405,6 +395,18 @@ export default function Rentals() {
     }
   };
 
+  const revokePortalAccess = async (partyId, partyName) => {
+    if (!window.confirm(`Revoke portal access for ${partyName}? Links already sent will stop working.`)) return;
+    setActionError("");
+    try {
+      await api.post(`/parties/${partyId}/revoke-portal-access/`, {});
+      setFlash(`Portal access revoked for ${partyName}.`);
+      setTimeout(() => setFlash(""), 5000);
+    } catch (requestError) {
+      setActionError(requestError.body?.detail || requestError.message);
+    }
+  };
+
   const [handoverFor, setHandoverFor] = useState(null);
 
   const generateApprovalLink = async (rentalId) => {
@@ -467,20 +469,18 @@ export default function Rentals() {
         </>}
       />
 
-      {/* toolbar: live search fills the left, filter buttons sit on the right
-          in one unbroken row (click the selected one again to go back to
-          every rental). Below ~384px of toolbar the buttons get their own
-          full-width row under the search instead of crushing it. */}
+      {/* status tabs in workflow order (click the selected one again to go
+          back to every rental), with the search on its own row below them */}
       <div className="@container mt-4">
-        <div className="flex flex-wrap items-center gap-2 @sm:flex-nowrap @3xl:gap-3">
+        <div role="group" aria-label="Filter rentals by status" className="flex flex-wrap gap-1.5 @3xl:gap-2">
+          {DECISION_FILTERS.map((f) => (
+            <DecisionFilterButton key={f.key} filter={f} count={decisionCounts[f.key]} selected={decisionFilter === f.key}
+              onClick={() => { setShowLedger(false); setDecisionFilter((current) => (current === f.key ? null : f.key)); }} />
+          ))}
+        </div>
+        <div className="mt-2 flex">
           <SearchInput value={search} onChange={(e) => setSearch(e.target.value)} onClear={() => setSearch("")}
-            placeholder="Search name or agreement code..." className="basis-full @sm:basis-0" />
-          <div role="group" aria-label="Filter rentals by approval status" className="flex w-full shrink-0 flex-nowrap gap-1.5 @sm:w-auto @3xl:gap-2">
-            {DECISION_FILTERS.map((f) => (
-              <DecisionFilterButton key={f.key} filter={f} count={decisionCounts[f.key]} selected={decisionFilter === f.key}
-                onClick={() => { setShowLedger(false); setDecisionFilter((current) => (current === f.key ? null : f.key)); }} />
-            ))}
-          </div>
+            placeholder="Search name or agreement code..." className="w-full" />
         </div>
       </div>
       <div className="mt-2 flex justify-end">
@@ -518,6 +518,8 @@ export default function Rentals() {
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {r.agreement_code && <Pill color={statusOf(RENTAL_STATUS, r.status).color}>{statusOf(RENTAL_STATUS, r.status).label}</Pill>}
+                  {r.onboarding?.waiting_for_handover && <Pill color={C.amber}>Waiting for handover</Pill>}
+                  {r.onboarding?.ready_for_checkout && <Pill color={C.green}>Ready for checkout</Pill>}
                   {r.agreement_code && r.approval_status !== "not_sent" && !["approved", "active", "closed", "cancelled"].includes(r.status) && (
                     <Pill color={statusOf(APPROVAL_STATUS, r.approval_status).color}>{statusOf(APPROVAL_STATUS, r.approval_status).label}</Pill>
                   )}
@@ -552,6 +554,9 @@ export default function Rentals() {
                 <div><p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Late payments</p><p className="text-sm" style={{ fontFamily: F.mono, color: r.late_count ? C.carbon : C.ink }}>{r.late_count}</p></div>
                 <div><p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Last month paid</p><p className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{r.months_paid ? fmt(r.last_payment) : "—"}</p></div>
               </div>
+
+              <RentalOnboarding rental={r} canManage={can("rentals.manage")} active={!!r.onboarding?.required && !r.onboarding.checked_out && ["draft", "pending_approval", "rejected", "approved"].includes(r.status)}
+                onChanged={(updated) => (updated ? setRentals((list) => list.map((x) => (x.id === updated.id ? updated : x))) : refreshRental(r.id))} />
 
               <RentInvoices rental={r} canRaise={can("rentals.manage") && !historyOnly} onChanged={(updated) => setRentals((list) => list.map((x) => (x.id === updated.id ? updated : x)))} />
 
@@ -590,6 +595,11 @@ export default function Rentals() {
                 {can("portal.manage") && (
                   <button type="button" onClick={() => sendPortalLink(r.party, r.party_name)} disabled={sendingLinkFor === r.party} className={chipClass} style={chipStyle()}>
                     <ShieldCheck size={13} style={{ color: C.stamp }} /> {sendingLinkFor === r.party ? "Sending…" : "Send portal link"}
+                  </button>
+                )}
+                {can("parties.manage") && can("portal.manage") && (
+                  <button type="button" onClick={() => revokePortalAccess(r.party, r.party_name)} className={chipClass} style={chipStyle()}>
+                    <ShieldAlert size={13} style={{ color: C.carbon }} /> Revoke portal access
                   </button>
                 )}
                 {can("rentals.manage") && ["approved", "active"].includes(r.status) && <button type="button" onClick={() => setRentalAction({ rental: r, action: "close" })} className={chipClass} style={chipStyle()}>Close agreement</button>}

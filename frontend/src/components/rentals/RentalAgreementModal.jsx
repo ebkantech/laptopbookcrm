@@ -6,7 +6,7 @@ import { C, todayISO } from "../../lib/theme";
 import { ErrorNote, Eyebrow } from "../Atoms";
 import NewRentalCustomer from "./NewRentalCustomer";
 import CustomerIdPanel from "../parties/CustomerIdPanel";
-import { useSession } from "../../context/SessionContext";
+import { kycVerified } from "./onboardingModel";
 import { ASSET_LIMITS, LIMITS, describeServerError, validateAgreement, validateAssetDraft, validateInventoryPick } from "./agreementValidation";
 
 
@@ -20,7 +20,6 @@ const boxStyle = (message) => ({ border: `1px solid ${message ? C.carbon : C.rul
 const emptyAsset = { asset_tag: "", serial_number: "", brand: "", model_name: "" };
 
 export default function RentalAgreementModal({ parties, initialAssets, initialParty = "", renewing = null, canAddCustomer = false, onCustomerCreated, onCreated, onClose }) {
-  const { can } = useSession();
   const [addingCustomer, setAddingCustomer] = useState(false);
   // Renewal: the finished agreement's devices come back to stock when this one is saved, so offer them as available.
   const [assets, setAssets] = useState(() => (renewing
@@ -46,6 +45,10 @@ export default function RentalAgreementModal({ parties, initialAssets, initialPa
   const [error, setError] = useState("");
   const [existing, setExisting] = useState(null); // an already-registered asset matching the draft
   const [draftErrors, setDraftErrors] = useState({}); // per-field messages for the two device sub-forms
+
+  const [idDocuments, setIdDocuments] = useState(null);
+  const selectedParty = parties.find((p) => String(p.id) === String(party));
+  const kycReady = kycVerified(idDocuments, selectedParty?.customer_classification);
 
   const availableAssets = useMemo(() => assets.filter((asset) => asset.status === "available"), [assets]);
 
@@ -239,8 +242,15 @@ export default function RentalAgreementModal({ parties, initialAssets, initialPa
           <NewRentalCustomer parties={parties} onCancel={() => setAddingCustomer(false)}
             onCreated={(created, { existing } = {}) => { if (!existing) onCustomerCreated?.(created); setParty(String(created.id)); setAddingCustomer(false); }} />
         )}
-        {/* the customer's ID on file -- recorded / verified here; a warning only, never blocks the agreement */}
-        {party && <CustomerIdPanel key={party} partyId={party} canManage={can("rentals.manage") || can("parties.manage")} />}
+        {/* KYC comes first: the server refuses an agreement until the customer's IDs are verified */}
+        {party && <CustomerIdPanel key={party} partyId={party} canManage required onDocuments={setIdDocuments} />}
+        {party && (
+          <p role="status" className="mt-2 rounded-lg px-3 py-2 text-xs" style={{ color: kycReady ? C.inkSoft : C.carbon, backgroundColor: C.slip2 }}>
+            {kycReady
+              ? `Saving raises ${renewing ? "one month's advance rent" : "a security deposit and one month's advance rent, each equal to one month's rent"}.`
+              : selectedParty?.customer_classification === "individual" ? "Verify the customer's Aadhaar and PAN to create this agreement." : "Verify the customer's PAN to create this agreement."}
+          </p>
+        )}
         <div className="mt-3 flex flex-wrap items-end gap-x-4 gap-y-2">
           <label className="text-xs" style={{ color: C.inkSoft }}>Recurring payment
             <select value={billingCycle} aria-invalid={!!fieldError("billingCycle", "payment_interval_months")} onChange={(event) => setBillingCycle(event.target.value)} className="mt-1 block bg-transparent p-2 text-sm" style={boxStyle(fieldError("billingCycle", "payment_interval_months"))}>
@@ -296,7 +306,7 @@ export default function RentalAgreementModal({ parties, initialAssets, initialPa
         <button type="button" onClick={() => setLines((current) => [...current, { asset_id: "", monthly_fee: "" }])} className="mt-2 flex items-center gap-1 text-xs" style={{ color: C.orange }}><Plus size={12} /> Add another device</button>
         <label className="mt-4 block text-xs" style={{ color: C.inkSoft }}>Terms (optional)<textarea value={terms} maxLength={LIMITS.termsMax + 200} aria-invalid={!!fieldError("terms", "terms")} onChange={(event) => setTerms(event.target.value)} rows={3} className="mt-1 w-full resize-none bg-transparent p-2 text-sm" style={boxStyle(fieldError("terms", "terms"))} /><span className="mt-0.5 flex justify-between text-xs"><FieldError message={fieldError("terms", "terms")} /><span style={{ marginLeft: "auto", color: terms.length > LIMITS.termsMax ? C.carbon : C.inkSoft }}>{terms.length}/{LIMITS.termsMax}</span></span></label>
         <div ref={errorRef}><ErrorNote message={error} /></div>
-        <button disabled={busy} className="mt-4 w-full py-3 text-sm" style={{ backgroundColor: C.green, color: C.onAccent, opacity: busy ? 0.65 : 1 }}>{busy ? "Saving…" : `Create ${selectedCount >= 2 ? "Bulk" : "Single"} agreement`}</button>
+        <button disabled={busy || !kycReady} className="mt-4 w-full py-3 text-sm disabled:cursor-not-allowed" style={{ backgroundColor: C.green, color: C.onAccent, opacity: busy || !kycReady ? 0.65 : 1 }}>{busy ? "Saving…" : `Create ${selectedCount >= 2 ? "Bulk" : "Single"} agreement`}</button>
       </form>
     </div>
   );

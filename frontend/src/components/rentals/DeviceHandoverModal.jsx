@@ -207,7 +207,7 @@ function DeviceHandover({ lineId, onSaved, allLineIds }) {
           ? <span className="flex items-center gap-1 text-xs" style={{ color: C.green, fontWeight: 600 }}><CheckCircle2 size={14} /> Ready for customer approval</span>
           : <span className="flex items-center gap-1 text-xs" style={{ color: C.amber, fontWeight: 600 }}><AlertTriangle size={14} /> {data.issues.length} item{data.issues.length > 1 ? "s" : ""} missing</span>}
       </div>
-      {!editable && <p className="p-2 text-xs" style={{ backgroundColor: C.slip2, color: C.inkSoft }}>Locked — this is what the customer approved.</p>}
+      {!editable && <p className="p-2 text-xs" style={{ backgroundColor: C.slip2, color: C.inkSoft }}>{data.waiting_reason || "Locked — this is what the customer approved."}</p>}
       {data.issues.length > 0 && (
         <ul className="space-y-0.5 p-2 text-xs" style={{ backgroundColor: `${C.amber}12`, color: C.ink }}>
           {data.issues.map((i) => <li key={i}>• {i}</li>)}

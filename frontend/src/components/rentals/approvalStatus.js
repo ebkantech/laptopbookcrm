@@ -6,7 +6,7 @@ import { C } from "../../lib/theme";
  * approval nor a rejection. */
 export const RENTAL_STATUS = {
   draft: { label: "Draft", color: C.inkSoft },
-  pending_approval: { label: "Awaiting customer", color: C.amber },
+  pending_approval: { label: "Pending verification", color: C.amber },
   approved: { label: "Approved", color: C.green },
   rejected: { label: "Rejected", color: C.carbon },
   active: { label: "Active", color: C.green },

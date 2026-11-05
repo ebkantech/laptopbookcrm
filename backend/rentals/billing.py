@@ -17,8 +17,9 @@ from parties.models import Message
 from .models import Rental, RentalEvent, add_months
 
 
-# Raise the next rent invoice this many days before its period starts (its due date).
-INVOICE_LEAD_DAYS = 3
+# Raise the next rent invoice this many days before its period starts (its due
+# date). 0 sends the invoice and its payment link on the recurring date itself.
+INVOICE_LEAD_DAYS = settings.RENT_INVOICE_LEAD_DAYS
 
 
 class RentBillingError(Exception):
@@ -36,7 +37,7 @@ def _open_rent_invoices(rental):
     from sales.models import Invoice
 
     # cancelled rent invoices free their month to be billed again
-    return rental.invoices.filter(source=Invoice.RENTAL, status__in=Invoice.OUTSTANDING)
+    return rental.invoices.filter(source=Invoice.RENTAL, status__in=Invoice.OUTSTANDING, is_deposit=False)
 
 
 def next_billing_period(rental):
@@ -106,10 +107,13 @@ def default_stock_point(rental):
 def raise_rent_invoice(rental, *, stock_point, sent_by=None):
     """sent_by=None means the scheduler raised it automatically."""
     from sales.models import Invoice
+    from sales.payments import pay_note
     from sales.services import create_invoice
 
     if rental.status not in (Rental.APPROVED, Rental.ACTIVE):
         raise RentBillingError("Rent can only be invoiced on an approved or active agreement.")
+    if rental.requires_onboarding and rental.status == Rental.APPROVED:
+        raise RentBillingError("Check out the device first: rent starts from there.")
     with transaction.atomic():
         # lock the agreement so two clicks can't bill the same month twice
         Rental.objects.select_for_update().get(pk=rental.pk)
@@ -130,6 +134,7 @@ def raise_rent_invoice(rental, *, stock_point, sent_by=None):
         f"Hi {rental.party.name}, your rent invoice {invoice.code} for {label} "
         f"({start:%d %b} – {end:%d %b %Y}{f', {months} months' if months > 1 else ''}) is Rs {invoice.total}, due {start:%d %b %Y}. "
         f"{f'Sent by {sender}, ' if sender else ''}{settings.BUSINESS_NAME}."
+        f"{pay_note(invoice, sent_by)}"
     )
     Message.objects.create(party=rental.party, channel=Message.WHATSAPP, direction=Message.OUT, body=text)
     send_whatsapp(rental.party.phone, text)
@@ -147,9 +152,10 @@ def on_rent_invoice_paid(invoice):
     # so it tracks the billed month rather than the day money arrived.
     if invoice.period_start and invoice.period_start > rental.last_payment:
         rental.last_payment = invoice.period_start
-    if invoice.paid_on and invoice.period_start and invoice.paid_on > invoice.period_start:
+    # an advance is collected ahead of signing, so it can't be late
+    if invoice.paid_on and invoice.period_start and invoice.paid_on > invoice.period_start and not invoice.is_advance:
         rental.late_count += 1
-    if rental.status == Rental.APPROVED:
+    if rental.status == Rental.APPROVED and not rental.requires_onboarding:
         rental.status = Rental.ACTIVE
     rental.save(update_fields=["months_paid", "last_payment", "late_count", "status"])
 
@@ -165,7 +171,7 @@ def send_due_rent_invoices(today=None, lead_days=INVOICE_LEAD_DAYS):
     raised, skipped = [], []
     rentals = Rental.objects.select_related("party").filter(
         status__in=(Rental.APPROVED, Rental.ACTIVE), auto_invoice=True,
-    )
+    ).exclude(status=Rental.APPROVED, requires_onboarding=True)
     for rental in rentals:
         period = next_billing_period(rental)
         if period is None or (period[0] - today).days > lead_days:

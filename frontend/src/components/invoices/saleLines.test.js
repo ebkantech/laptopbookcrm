@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { blankLine, placeVariant, variantForProduct } from "./saleLines.js";
+import { discountOff } from "./saleLines.js";
 
 const product = { id: 1, variants: [{ id: 10 }, { id: 11 }] };
 const line = (variantId, qty = 1) => ({ ...blankLine(), productId: "1", variantId: String(variantId), qty });
@@ -31,4 +32,10 @@ test("picking a product pre-selects a variant not already on the invoice", () =>
   assert.equal(variantForProduct(product, [line(10), blankLine()], 1).id, 11);
   assert.equal(variantForProduct(product, [line(10), line(11), blankLine()], 2).id, 10);
   assert.equal(variantForProduct({ variants: [] }, [], 0), null);
+});
+
+test("discountOff rounds to the nearest rupee", () => {
+  assert.equal(discountOff(2000, "10"), 200);
+  assert.equal(discountOff(999, "7.5"), 75);
+  assert.equal(discountOff(2000, ""), 0);
 });

@@ -10,7 +10,7 @@ export const canRevise = (invoice, can) =>
 
 // The invoice's lines as the sale form's editable rows.
 export const revisionLines = (invoice, products) =>
-  invoice.items.map((item) => ({
+  invoice.items.filter((item) => !item.is_discount).map((item) => ({
     productId: String(products.find((p) => p.variants.some((v) => v.id === item.variant))?.id ?? ""),
     variantId: String(item.variant),
     qty: item.qty,

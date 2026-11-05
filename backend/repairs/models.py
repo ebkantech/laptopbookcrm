@@ -69,8 +69,8 @@ class RepairTicket(models.Model):
     payment = models.CharField(max_length=10, choices=PAYMENT_CHOICES, default=ADVANCE)
     advance_paid = models.PositiveIntegerField(default=0)
     # The repair staff member working this ticket. Set by an Admin (staff of
-    # their own store) or the Super Admin (staff of any store); blank = any
-    # repair staff at the store may pick it up.
+    # their own store) or the Super Admin (staff of any store). Blank = not
+    # given out yet: the job stays at Received until it is.
     assigned_to = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="assigned_repairs",
     )
@@ -79,6 +79,10 @@ class RepairTicket(models.Model):
     assigned_at = models.DateTimeField(null=True, blank=True)
     started_at = models.DateTimeField(null=True, blank=True)
     ready_at = models.DateTimeField(null=True, blank=True)
+    # Set when the final bill is paid: the customer can still open the portal
+    # until then. A job paid in full in advance has no final payment, so this
+    # stays blank and the portal closes the moment it is Delivered.
+    portal_until = models.DateTimeField(null=True, blank=True)
     # The repair staff's report back after looking at the device ("Diagnosis done").
     diagnosed_at = models.DateTimeField(null=True, blank=True)
     diagnosis_note = models.TextField(blank=True)

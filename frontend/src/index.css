@@ -45,6 +45,9 @@
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
+/* The staff app scrolls inside its own panels. The page around it must never
+   move, or the whole app slides up and leaves blank space below it. */
+html:has(.cb-shell.h-screen), body:has(.cb-shell.h-screen) { overflow: clip; }
 body {
   background: var(--cb-paper);
   color: var(--cb-ink);

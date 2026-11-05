@@ -1,4 +1,6 @@
 """What happens on the repair side when repair invoices are raised, paid or refunded."""
+from datetime import timedelta
+
 from django.utils import timezone
 
 from crmbook_backend.notify import send_email, send_whatsapp
@@ -6,6 +8,7 @@ from crmbook_backend.notify import send_email, send_whatsapp
 from .models import Notification, RepairTicket
 
 ADVANCE_SHARE = 0.25
+PORTAL_AFTER_PAYMENT = timedelta(hours=24)
 
 
 def advance_amount(services):
@@ -60,7 +63,8 @@ def on_repair_invoice_paid(invoice):
     if ticket.unpaid_invoice or ticket.status == RepairTicket.DELIVERED:
         return
     ticket.status = RepairTicket.DELIVERED
-    ticket.save(update_fields=["status"])
+    ticket.portal_until = timezone.now() + PORTAL_AFTER_PAYMENT if invoice.total > 0 else None
+    ticket.save(update_fields=["status", "portal_until"])
     text = f"Thank you! Payment received for invoice {invoice.code}. Your {ticket.brand} {ticket.model_name} ({ticket.code}) is ready to collect from {ticket.stock_point.name}."
     _tell(ticket, text, f"Payment received -- {invoice.code}")
 

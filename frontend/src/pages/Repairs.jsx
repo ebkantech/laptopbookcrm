@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  BarChart3, Check, Cpu, IndianRupee, LayoutGrid, List, MapPinned, PackageCheck, Plus,
+  BarChart3, Check, Cpu, IndianRupee, LayoutGrid, List, MapPinned, MessageCircle, PackageCheck, Plus,
   Terminal, Truck, UserCheck, Wrench, X,
 } from "lucide-react";
 import { C, F, money, todayISO } from "../lib/theme";
@@ -11,6 +11,8 @@ import { Locked, Pill, PillButton, Spinner, ErrorNote, Eyebrow, TabBar } from ".
 import PageHeader from "../components/PageHeader";
 import EstimateApprovalPanel from "../components/repairs/EstimateApprovalPanel";
 import ApprovalLinkCard from "../components/repairs/ApprovalLinkCard";
+import PortalLinkButton from "../components/repairs/PortalLinkButton";
+import { PartyChatModal } from "../components/PartyThread";
 import RevisionPanel from "../components/repairs/RevisionPanel";
 import DiagnosisPanel from "../components/repairs/DiagnosisPanel";
 import StaffPerformance from "../components/repairs/StaffPerformance";
@@ -487,7 +489,7 @@ function AssignPanel({ ticket, meId, canAssign, isOwner, onChanged }) {
       <p className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
         {ticket.assigned_to
           ? `${ticket.assigned_to_name}${ticket.assigned_to_store ? ` · ${ticket.assigned_to_store}` : ""} works this job.${canAssign || mine ? "" : " Only they or an Admin can move it forward."}`
-          : "Any repair staff at the store can pick this up until it is assigned."}
+          : "Not given to anyone yet. This job can't move on until it is assigned."}
       </p>
       {canAssign && !delivered && (
         <div className="mt-2">
@@ -516,6 +518,7 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
   const [reopening, setReopening] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
   const [overrideError, setOverrideError] = useState("");
+  const [chatOpen, setChatOpen] = useState(false);
 
   const load = useCallback(() => api.get(`/tickets/${ticketId}/`).then(setTicket), [ticketId]);
   useEffect(() => { load(); api.getAll("/services/").then(setServices); }, [load]);
@@ -524,6 +527,7 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
   // a job given to someone else is theirs to move forward; an Admin / Super Admin can always step in
   const locked = !!ticket.assigned_to && ticket.assigned_to !== me?.id && !can("repairs.assign");
   const canWork = can("repairs.manage") && !locked;
+  const delivered = ticket.status === "Delivered";
   const nextStage = STAGES[STAGES.indexOf(ticket.status) + 1];
   const activeReopen = ticket.reopens.find((r) => !r.invoice);
   const settledReopens = ticket.reopens.filter((r) => r.invoice);
@@ -668,7 +672,12 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
                 {overrideError && <p className="mt-1 text-xs" style={{ color: C.carbon }}>{overrideError}</p>}
               </div>
             )}
-            {canWork && nextStage && nextStage !== "Delivered" && !ticket.pending_invoice && !(nextStage === "In progress" && ticket.awaiting_diagnosis) && (
+            {canWork && !ticket.assigned_to && (
+              <p className="mt-4 p-3 text-xs" style={{ fontFamily: F.body, color: C.ink, border: `1px dashed ${C.amber}`, backgroundColor: `${C.amber}0D` }}>
+                Assign this job to a staff member first. It can't move on until then.
+              </p>
+            )}
+            {canWork && ticket.assigned_to && nextStage && nextStage !== "Delivered" && !ticket.pending_invoice && !(nextStage === "In progress" && ticket.awaiting_diagnosis) && (
               <button onClick={advance} className="mt-4 flex w-full items-center justify-center gap-1.5 py-2.5 text-xs uppercase" style={{ backgroundColor: C.stamp, color: C.onAccent, fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em" }}>
                 <Truck size={13} /> {can("repairs.book") ? `Move to "${nextStage}" & notify customer` : nextStage === "Ready for pickup" ? "Job done — send back to Admin" : `Move to "${nextStage}"`}
               </button>
@@ -680,6 +689,14 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
             )}
           </>
         )}
+
+        {can("portal.manage") && !delivered && <PortalLinkButton partyId={ticket.party} partyName={ticket.party_name} />}
+        {can("parties.view") && (
+          <button type="button" onClick={() => setChatOpen(true)} className="mt-2 flex w-full items-center justify-center gap-1.5 py-2 text-xs" style={{ border: `1px solid ${C.rule}`, color: C.ink }}>
+            <MessageCircle size={13} style={{ color: C.green }} /> Chat on WhatsApp
+          </button>
+        )}
+        {chatOpen && <PartyChatModal partyId={ticket.party} partyName={ticket.party_name} onClose={() => setChatOpen(false)} />}
 
         <p className="mt-6 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.14em", color: C.inkSoft }}>Customer notifications</p>
         <div className="mt-2 space-y-2">

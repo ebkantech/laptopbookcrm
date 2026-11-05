@@ -29,6 +29,17 @@ CLOSED_MESSAGES = {
 }
 
 
+def _valid_until(invite):
+    party = invite.party
+    return "your repair is complete" if access.repair_only(party) and access.repair_job_open(party) else _local(invite.expires_at)
+
+
+def _link_policy(party):
+    if access.repair_only(party) and access.repair_job_open(party):
+        return "repair_job"
+    return "rental_tenure" if party.type == Party.RENTAL else "24_hours"
+
+
 def _local(dt):
     return timezone.localtime(dt).strftime("%d %b %Y, %H:%M %Z")
 
@@ -40,7 +51,7 @@ def _email_body(party, code, invite, *, resent=False):
     return (
         f"Hi {party.name},\n\n"
         f"{intro} is {code}. This code expires in {minutes} minutes and can only be used once.\n\n"
-        f"Your portal link stays valid until {_local(invite.expires_at)}. If the code expires, "
+        f"Your portal link stays valid until {_valid_until(invite)}. If the code expires, "
         "open the same link and request a new code.\n\n"
         f"- {business}"
     )
@@ -50,7 +61,7 @@ def invite_whatsapp_body(invite, link):
     minutes = int(access.OTP_TTL.total_seconds() // 60)
     return (
         f"Access your {settings.BUSINESS_NAME} portal here: {link}\n"
-        f"This link stays valid until {_local(invite.expires_at)}. "
+        f"This link stays valid until {_valid_until(invite)}. "
         f"Each verification code we email you expires {minutes} minutes after it is sent; "
         "you can request a new code from the link."
     )
@@ -69,7 +80,7 @@ def send_invite_whatsapp(party, invite, link):
 
     if party.whatsapp_verified is False:
         return {"status": "skipped", "reason": "this number was flagged as not on WhatsApp", "provider_id": None}
-    template = whatsapp_template("portal_invite", [party.name, link, _local(invite.expires_at)])
+    template = whatsapp_template("portal_invite", [party.name, link, _valid_until(invite)])
     result = send_whatsapp(party.phone, invite_whatsapp_body(invite, link), template=template)
     # A provider_id means the provider accepted the message and may later
     # post a delivery-status webhook against it.
@@ -350,7 +361,7 @@ def invite_policy_data(invite):
     return {
         "party_type": access.account_type(invite.party),
         "invite_expires_at": invite.expires_at,
-        "link_policy": "rental_tenure" if invite.party.type == Party.RENTAL else "24_hours",
+        "link_policy": _link_policy(invite.party),
         "otp_expires_at": invite.otp_expires_at,
         "otp_ttl_minutes": int(access.OTP_TTL.total_seconds() // 60),
     }

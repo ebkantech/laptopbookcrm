@@ -8,8 +8,8 @@ const STATUS_COLOR = { Paid: C.green, "Payment link sent": C.amber, Overdue: C.c
 
 /*
  * Rent billing for one agreement. Invoices are raised as they fall due, never
- * months ahead: with automatic invoicing on, the next one is sent by itself a
- * few days before its due date; the button only appears once that window is
+ * months ahead: with automatic invoicing on, the next one is sent by itself
+ * on its due date; the button only appears once that window is
  * open (and is the only way when automatic invoicing is off). Payment is then
  * taken in Sales & Invoices, which updates months paid / last payment / late count.
  */

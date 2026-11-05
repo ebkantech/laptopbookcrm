@@ -240,7 +240,7 @@ class StockPointViewSet(mixins.CreateModelMixin, mixins.UpdateModelMixin, viewse
             # invoices are ignored, collected = net of refunds on settled ones,
             # pending = full total of the still-outstanding ones.
             live = list(
-                Invoice.objects.filter(stock_point=sp).exclude(status=Invoice.CANCELLED)
+                Invoice.objects.filter(stock_point=sp, is_deposit=False).exclude(status=Invoice.CANCELLED)
                 .prefetch_related("items", "refunds")
             )
             settled = [i for i in live if i.status in Invoice.SETTLED]

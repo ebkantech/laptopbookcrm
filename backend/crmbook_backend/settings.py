@@ -96,6 +96,7 @@ INSTALLED_APPS = [
     'warranty',
     'portal',
     'reports',
+    'copilot',
 ]
 
 AUTH_USER_MODEL = 'accounts.User'
@@ -141,6 +142,11 @@ REST_FRAMEWORK = {
         'otp_resend_invite': os.environ.get('OTP_RESEND_INVITE_THROTTLE_RATE', '5/hour'),
         # customer portal invoice PDF downloads, per customer
         'portal_pdf': os.environ.get('PORTAL_PDF_THROTTLE_RATE', '60/hour'),
+        # customer portal chat messages, per customer
+        'portal_message': os.environ.get('PORTAL_MESSAGE_THROTTLE_RATE', '30/hour'),
+        'portal_issue': os.environ.get('PORTAL_ISSUE_THROTTLE_RATE', '10/hour'),
+        # staff Copilot AI requests, per staff member (each one costs API credit)
+        'copilot': os.environ.get('COPILOT_THROTTLE_RATE', '120/hour'),
     },
 }
 
@@ -213,6 +219,7 @@ if DEBUG:
     CSRF_TRUSTED_ORIGINS = list(dict.fromkeys([*CSRF_TRUSTED_ORIGINS, *local_frontend_origins]))
 
 CORS_ALLOW_CREDENTIALS = True
+RENT_INVOICE_LEAD_DAYS = int(os.environ.get("RENT_INVOICE_LEAD_DAYS", "0"))
 # Lets the portal read throttling waits cross-origin (portal resend/verify 429s).
 CORS_EXPOSE_HEADERS = ["Retry-After"]
 # the active role / store headers (accounts.context) on cross-origin API calls
@@ -429,3 +436,25 @@ if RUNNING_TESTS:
     SECURE_SSL_REDIRECT = False
 
 X_FRAME_OPTIONS = 'DENY'
+
+# Sales discounts: staff can give up to this percentage; Admin and Owner can go higher.
+SALES_DISCOUNT_LIMIT = float(os.environ.get('SALES_DISCOUNT_LIMIT', '10'))
+
+# --- Staff Copilot (copilot app, docs/COPILOT.md) -------------------------
+# No key = Copilot shows "not set up"; the rest of the CRM is unaffected.
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+# anthropic, or a free option for trying it out: gemini, groq, openrouter, ollama
+COPILOT_PROVIDER = os.environ.get('COPILOT_PROVIDER', 'anthropic').strip().lower()
+COPILOT_API_KEY = os.environ.get('COPILOT_API_KEY', '')
+COPILOT_API_BASE = os.environ.get('COPILOT_API_BASE', '')
+COPILOT_MODEL = os.environ.get('COPILOT_MODEL', '')
+# Search by meaning (manage.py copilot_index). Blank values follow the settings
+# above; set these when the chat provider has no embeddings, such as Anthropic.
+COPILOT_EMBED_PROVIDER = os.environ.get('COPILOT_EMBED_PROVIDER', '').strip().lower()
+COPILOT_EMBED_MODEL = os.environ.get('COPILOT_EMBED_MODEL', '')
+COPILOT_EMBED_API_KEY = os.environ.get('COPILOT_EMBED_API_KEY', '')
+COPILOT_EMBED_API_BASE = os.environ.get('COPILOT_EMBED_API_BASE', '')
+COPILOT_LLM_TIMEOUT = int(os.environ.get('COPILOT_LLM_TIMEOUT', '40'))
+# One chat turn may need several model calls; keep this under the web
+# server's worker timeout.
+COPILOT_TURN_SECONDS = int(os.environ.get('COPILOT_TURN_SECONDS', '90'))

@@ -55,6 +55,7 @@ PERMS = {
     "reports.profit_loss": "View store Profit & Loss (Admins only; limited to their stores)",
     "expenses.manage": "Record and manage expenses (Admins and Accounts only; limited to their stores)",
     "parties.view": "View the customer directory and details",
+    "copilot.use": "Use the staff Copilot assistant",
     "parties.manage": "Create customer records, message customers, and manage portal access",
     "parties.edit": "Edit existing customer records",
     "orders.manage": "View and respond to inbound WhatsApp orders",
@@ -65,7 +66,7 @@ ROLES = {
     "accountant": ("Accounts", [
         "cashbook.view", "cashbook.edit", "bankbook.view", "bankbook.edit",
         "bankbook.reconcile", "invoices.view", "invoices.settle", "invoices.refund", "reports.export",
-        "parties.view", "payments.send_link", "expenses.manage",
+        "parties.view", "payments.send_link", "expenses.manage", "copilot.use",
     ]),
     "manager": ("Admin", [
         "dashboard.view", "storelocator.view", "reports.view",
@@ -75,25 +76,25 @@ ROLES = {
         "repairs.view", "repairs.manage", "repairs.book", "repairs.approve", "repairs.assign",
         "leads.view", "leads.create", "leads.assign", "leads.work", "leads.quote", "leads.approve", "leads.collect", "leads.manage", "leads.outsource", "leads.parts",
         "broadcast.send", "warranty.manage", "portal.manage", "roles.manage", "reports.export",
-        "reports.profit_loss", "expenses.manage", "parties.view", "parties.manage", "parties.edit", "orders.manage",
+        "reports.profit_loss", "expenses.manage", "parties.view", "parties.manage", "parties.edit", "orders.manage", "copilot.use",
     ]),
     "sales": ("Sales Staff", [
         "dashboard.view", "storelocator.view",
         "invoices.view", "invoices.create", "invoices.settle", "payments.send_link",
         "rentals.view", "rentals.manage",
         "parties.view", "parties.manage",
-        "orders.manage",
+        "orders.manage", "copilot.use",
     ]),
     "repair_staff": ("Repair Staff", [
-        "repairs.view", "repairs.manage", "warranty.manage", "parties.view",
+        "repairs.view", "repairs.manage", "warranty.manage", "parties.view", "copilot.use",
     ]),
     "field_tech": ("Field Technician", [
-        "leads.view", "leads.work", "leads.quote", "leads.collect", "parties.view",
+        "leads.view", "leads.work", "leads.quote", "leads.collect", "parties.view", "copilot.use",
     ]),
     "auditor": ("Auditor \u2014 read only", [
         "dashboard.view", "storelocator.view", "reports.view",
         "cashbook.view", "bankbook.view", "invoices.view",
-        "rentals.view", "repairs.view", "leads.view", "reports.export", "parties.view",
+        "rentals.view", "repairs.view", "leads.view", "reports.export", "parties.view", "copilot.use",
     ]),
 }
 

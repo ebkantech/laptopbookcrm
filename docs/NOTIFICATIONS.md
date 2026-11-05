@@ -75,6 +75,7 @@ opt-in per message kind and are named in the environment, never guessed:
 | Kind | Env var | Template body parameters (in order) |
 |---|---|---|
 | Rental approval link | `WHATSAPP_TEMPLATE_RENTAL_APPROVAL` | {{1}} customer name, {{2}} agreement code, {{3}} approval link |
+| Repair approval link | `WHATSAPP_TEMPLATE_REPAIR_APPROVAL` | {{1}} customer name, {{2}} job or order code, {{3}} approval link |
 | Portal invite / reset link | `WHATSAPP_TEMPLATE_PORTAL_INVITE` | {{1}} customer name, {{2}} portal link, {{3}} link expiry |
 
 Language: `WHATSAPP_TEMPLATE_<KIND>_LANGUAGE`, else
@@ -121,13 +122,13 @@ standard `send_mail()`, which respects whatever `EMAIL_BACKEND` is set.
 | Trigger | Channel(s) | Gated by | Where |
 |---|---|---|---|
 | Portal invite / reset link | WhatsApp + Email | `portal.manage` | `portal/views.py: PortalInviteViewSet`, `parties/views.py: _issue_portal_invite` |
-| Ad-hoc customer message (Parties chat, Rentals "Chat on WhatsApp") | WhatsApp: sent via `send_whatsapp`, outcome stored on the Message; Email: CRM record only | `parties.manage` | `parties/views.py: PartyViewSet.send_message` |
+| Ad-hoc customer message (Rentals "Chat on WhatsApp") | WhatsApp: sent via `send_whatsapp`, outcome stored on the Message; Email: CRM record only | `parties.manage` | `parties/views.py: PartyViewSet.send_message` |
 | Repair ticket created / order created | WhatsApp + Email | side-effect of `repairs.manage` | `repairs/views.py: RepairTicketViewSet.perform_create`, `RepairOrderViewSet.create` |
 | Repair stage advances (`advance`, `set-stage`) | WhatsApp + Email | side-effect of `repairs.manage` | `repairs/views.py` |
 | Repair settled (invoice generated) | WhatsApp + Email | side-effect of `repairs.manage` | `repairs/views.py: RepairTicketViewSet.settle` |
 | Repair reopened for a follow-up visit | WhatsApp + Email | side-effect of `repairs.manage` | `repairs/views.py: RepairTicketViewSet.reopen` |
 | Warranty registered | Email | side-effect of `warranty.manage` | `warranty/views.py` |
-| Repair approval link | WhatsApp — real `wa.me` click-to-chat link, staff clicks to send | `repairs.manage` | `repairs/services.py: issue_approval_link` — already fully working today, real WhatsApp, no `notify.py` involved |
+| Repair approval link | WhatsApp API at booking and from the link card, or a `wa.me` click-to-chat link staff send themselves | `repairs.manage` | `repairs/services.py: issue_approval_link` — already fully working today, real WhatsApp, no `notify.py` involved |
 | Rental approval link | none yet — staff must manually share the raw URL | `rentals.manage` | `rentals/services.py: issue_approval_link` — **not wired to any channel**, only returns the bare approval URL |
 | Marketing campaigns | simulated only | `broadcast.send` | `broadcast/views.py: CampaignViewSet` — **deliberately not wired**, see below |
 

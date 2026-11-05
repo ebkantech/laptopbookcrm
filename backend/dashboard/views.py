@@ -11,7 +11,7 @@ from catalog.models import Product, StockPoint
 from rentals.models import Rental
 from rentals.scope import rental_queryset_for
 from repairs.models import RepairTicket
-from sales.models import Invoice
+from sales.models import Invoice, InvoiceItem
 from sales.services import mark_overdue
 
 from .layouts import effective_layout, visible_sections
@@ -131,7 +131,7 @@ class DashboardView(APIView):
         if can_sales:
             # -- invoices: date range + channel both apply here --
             mark_overdue()
-            all_invoices = Invoice.objects.exclude(status=Invoice.CANCELLED).select_related("stock_point").prefetch_related("items", "refunds")
+            all_invoices = Invoice.objects.exclude(status=Invoice.CANCELLED).filter(is_deposit=False).select_related("stock_point").prefetch_related("items", "refunds")
             if date_from:
                 all_invoices = all_invoices.filter(date__gte=date_from)
             if date_to:
@@ -166,7 +166,7 @@ class DashboardView(APIView):
                     "invoice_count": len(sp_invoices),
                     "revenue_paid": sum(i.net_total for i in sp_paid),
                     "pending": sum(i.total for i in sp_pending),
-                    "units_sold": sum(item.qty for i in sp_invoices for item in i.items.all()),
+                    "units_sold": sum(item.qty for i in sp_invoices for item in i.items.all() if item.item_kind != InvoiceItem.DISCOUNT),
                 })
             channel_sales.sort(key=lambda c: c["revenue_paid"], reverse=True)
 
@@ -187,7 +187,7 @@ class DashboardView(APIView):
             months = _last_n_months(6)
             range_start = date(months[0][0], months[0][1], 1)
             by_month = {source: defaultdict(int) for source, _ in Invoice.SOURCE_CHOICES}
-            trend = scope.filter(Invoice.objects.filter(status__in=Invoice.SETTLED, date__gte=range_start), "stock_point")
+            trend = scope.filter(Invoice.objects.filter(status__in=Invoice.SETTLED, date__gte=range_start, is_deposit=False), "stock_point")
             for inv in trend.prefetch_related("items", "refunds"):
                 by_month[inv.source][(inv.date.year, inv.date.month)] += inv.net_total
             response["monthly_revenue"] = [

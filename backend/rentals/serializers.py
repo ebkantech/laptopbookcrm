@@ -60,10 +60,26 @@ class RentalSerializer(serializers.ModelSerializer):
             "open_change_request", "next_payment_date", "next_payment_overdue",
             "churn_score", "churn_band", "issues", "open_issue_count",
             "rent_invoices", "next_billing_period", "payment_interval_months", "auto_invoice", "party_kyc_status",
+            "onboarding", "signed_agreement_info",
         ]
         # Payment counters only move when a rent invoice is paid in Sales &
         # Invoices (rentals.billing.on_rent_invoice_paid) -- never by hand.
         read_only_fields = ["agreement_code", "status", "months_paid", "late_count", "last_payment"]
+
+    onboarding = serializers.SerializerMethodField()
+    signed_agreement_info = serializers.SerializerMethodField()
+
+    def get_onboarding(self, obj):
+        from . import onboarding
+
+        return onboarding.status(obj)
+
+    def get_signed_agreement_info(self, obj):
+        if not obj.signed_agreement:
+            return None
+        by = obj.signed_uploaded_by
+        return {"name": obj.signed_name, "uploaded_at": obj.signed_uploaded_at,
+                "uploaded_by": (by.get_full_name() or by.username) if by else None}
 
     def get_rent_invoices(self, obj):
         return [
@@ -71,7 +87,7 @@ class RentalSerializer(serializers.ModelSerializer):
                 "id": inv.id, "code": inv.code, "date": inv.date, "status": inv.status, "total": inv.total,
                 "period_start": inv.period_start, "period_end": inv.period_end, "paid_on": inv.paid_on,
             }
-            for inv in obj.invoices.all()
+            for inv in obj.invoices.all() if not inv.is_deposit
         ]
 
     def get_next_billing_period(self, obj):

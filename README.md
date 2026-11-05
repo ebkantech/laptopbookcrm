@@ -196,7 +196,32 @@ npm ci
 npm run build
 ```
 
-## 8. Customer self-service portal
+## 8. Staff Copilot
+
+A role-aware assistant inside the CRM: it looks up records, prepares work for
+staff to confirm, and drafts replies to customer messages for staff to send.
+Add `ANTHROPIC_API_KEY` to `backend/.env`, run `python manage.py migrate`, and
+see [docs/COPILOT.md](docs/COPILOT.md).
+
+## 9. New rental steps
+
+1. Register the customer, or pick an existing one.
+2. Verify KYC against the originals: Aadhaar and PAN (PAN only for a business or dealer). An agreement can't be created before this.
+3. Choose devices from what's available and create the agreement. This raises a refundable security deposit and the advance for month 1, each one month's rent (a renewal raises only the advance; the original deposit stays held).
+4. Complete the device details and send the approval link, or an Admin approves on the customer's behalf.
+5. Collect both invoices in Sales & Invoices.
+6. Press Check out device. The device is rented, the agreement goes active and the customer's portal opens. Until then it's "Waiting for handover".
+
+Staff can download the agreement as a PDF and upload the signed copy from the same
+card. The deposit reaches the cash and bank books but never revenue or profit.
+Return it with a normal refund on its invoice when the agreement ends. PAN and
+Aadhaar checks catch typing mistakes only; they don't confirm a card is genuine.
+Older agreements aren't affected. See `backend/rentals/onboarding.py`.
+
+Sale invoices can carry one percentage discount with a reason. Staff can give up
+to `SALES_DISCOUNT_LIMIT` percent (default 10); Admin and Owner can go higher.
+
+## 10. Customer self-service portal
 
 The customer portal is deliberately separate from staff JWT authentication.
 Staff open a Party, generate a one-time setup link, and send it through any

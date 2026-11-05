@@ -19,6 +19,15 @@ def add_months(d: date, months: int) -> date:
     return date(year, month, day)
 
 
+def signed_agreement_path(instance, filename):
+    import uuid
+
+    from django.utils import timezone
+
+    ext = {"image/jpeg": ".jpg", "image/png": ".png", "application/pdf": ".pdf"}[instance.signed_content_type]
+    return f"rental-agreements/{timezone.now():%Y/%m}/{uuid.uuid4().hex}{ext}"
+
+
 class Rental(models.Model):
     DRAFT, PENDING_APPROVAL, APPROVED, REJECTED, ACTIVE, CLOSED, CANCELLED = (
         "draft", "pending_approval", "approved", "rejected", "active", "closed", "cancelled",
@@ -55,6 +64,23 @@ class Rental(models.Model):
     # due -- see rentals.billing.send_due_rent_invoices.
     payment_interval_months = models.PositiveSmallIntegerField(choices=INTERVAL_CHOICES, default=1)
     auto_invoice = models.BooleanField(default=True)
+    # New agreements go through deposit, advance and KYC first (rentals.onboarding).
+    requires_onboarding = models.BooleanField(default=False)
+    # The earlier agreement this one renews: its deposit stays held there.
+    renews = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="renewals")
+    # When the device physically went to the customer (rentals.onboarding.checkout).
+    checked_out_at = models.DateTimeField(null=True, blank=True)
+    checked_out_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+    )
+    # The printed agreement, signed and uploaded back for the record.
+    signed_agreement = models.FileField(upload_to=signed_agreement_path, max_length=255, blank=True)
+    signed_content_type = models.CharField(max_length=40, blank=True)
+    signed_name = models.CharField(max_length=150, blank=True)
+    signed_uploaded_at = models.DateTimeField(null=True, blank=True)
+    signed_uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+    )
 
     class Meta:
         ordering = ["-start"]
@@ -346,6 +372,8 @@ class RentalEvent(models.Model):
     HANDOVER_UPDATED = "handover_updated"
     CHANGES_REQUESTED = "changes_requested"
     PAYMENT_PLAN_CHANGED = "payment_plan_changed"
+    SIGNED_AGREEMENT_UPLOADED = "signed_agreement_uploaded"
+    DEVICE_CHECKED_OUT = "device_checked_out"
     EVENT_CHOICES = [
         (AGREEMENT_CREATED, "Agreement created"),
         (APPROVAL_LINK_CREATED, "Approval link created"),
@@ -356,6 +384,8 @@ class RentalEvent(models.Model):
         (HANDOVER_UPDATED, "Device handover details changed"),
         (CHANGES_REQUESTED, "Customer requested changes"),
         (PAYMENT_PLAN_CHANGED, "Payment plan changed"),
+        (SIGNED_AGREEMENT_UPLOADED, "Signed agreement uploaded"),
+        (DEVICE_CHECKED_OUT, "Device handed to the customer"),
     ]
 
     rental = models.ForeignKey(Rental, on_delete=models.CASCADE, related_name="events")

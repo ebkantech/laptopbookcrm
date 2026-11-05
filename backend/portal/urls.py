@@ -4,8 +4,8 @@ from rest_framework.routers import DefaultRouter
 from .meta_webhook import meta_whatsapp_webhook
 from .views import (
     PortalAccessLogListView, PortalFeedbackView, PortalInviteViewSet, PortalInviteStatusView, PortalInvoiceDetailView,
-    PortalInvoicePdfView, PortalInvoicesView,
-    PortalLocationView, PortalMeView, PortalRentalsView, PortalRepairsView, PortalResendOtpView, PortalVerifyView, PortalWarrantiesView,
+    PortalInvoicePdfView, PortalInvoicesView, PortalIssuesView, PortalSignedAgreementView,
+    PortalLocationView, PortalMeView, PortalMessagesView, PortalRentalsView, PortalRepairsView, PortalResendOtpView, PortalVerifyView, PortalWarrantiesView,
     WhatsAppDeliveryWebhookView,
 )
 
@@ -24,8 +24,11 @@ urlpatterns = router.urls + [
     path("portal/invoices/<int:invoice_id>/download/", PortalInvoicePdfView.as_view(), name="portal-invoice-download"),
     path("portal/repairs/", PortalRepairsView.as_view(), name="portal-repairs"),
     path("portal/rentals/", PortalRentalsView.as_view(), name="portal-rentals"),
+    path("portal/rentals/<int:rental_id>/signed-agreement/", PortalSignedAgreementView.as_view(), name="portal-signed-agreement"),
+    path("portal/issues/", PortalIssuesView.as_view(), name="portal-issues"),
     path("portal/warranties/", PortalWarrantiesView.as_view(), name="portal-warranties"),
     path("portal/feedback/", PortalFeedbackView.as_view(), name="portal-feedback"),
+    path("portal/messages/", PortalMessagesView.as_view(), name="portal-messages"),
     path("portal-access-logs/", PortalAccessLogListView.as_view(), name="portal-access-logs"),
     path("portal/whatsapp-webhook/", WhatsAppDeliveryWebhookView.as_view(), name="portal-whatsapp-webhook"),
     path("whatsapp/meta-webhook/", meta_whatsapp_webhook, name="whatsapp-meta-webhook"),

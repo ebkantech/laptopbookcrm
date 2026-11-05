@@ -54,8 +54,8 @@ class MessageRecordSerializer(serializers.ModelSerializer):
         return value
 
     def validate_channel(self, value):
-        if value not in (Message.WHATSAPP, Message.EMAIL):
-            raise serializers.ValidationError("Choose WhatsApp or email.")
+        if value not in (Message.WHATSAPP, Message.EMAIL, Message.PORTAL):
+            raise serializers.ValidationError("Choose WhatsApp, email or the customer portal.")
         return value
 
     def validate(self, attrs):
@@ -149,7 +149,7 @@ class PartySerializer(serializers.ModelSerializer):
         return value
 
     def get_total_spent(self, obj):
-        return sum(inv.total for inv in obj.invoices.all())
+        return sum(inv.total for inv in obj.invoices.all() if not inv.is_deposit)
 
     def get_invoice_count(self, obj):
         return obj.invoices.count()

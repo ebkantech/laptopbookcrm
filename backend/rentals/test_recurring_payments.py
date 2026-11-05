@@ -4,7 +4,7 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from catalog.models import StockPoint
-from crmbook_backend.testing import client_for, make_user
+from crmbook_backend.testing import client_for, make_user, verify_kyc
 from parties.models import Party
 from rentals import billing
 from rentals.models import Rental, RentalAsset, RentalEvent, RentalLine
@@ -102,12 +102,12 @@ class AutoInvoiceSchedulerTests(TestCase):
 
     def test_raises_within_lead_window_once_only(self):
         r = make_rental(date(2026, 4, 1), interval=3, status=Rental.APPROVED)
-        self.assertEqual(billing.send_due_rent_invoices(today=date(2026, 3, 20))["raised"], [])  # too early
-        out = billing.send_due_rent_invoices(today=date(2026, 3, 29))
+        self.assertEqual(billing.send_due_rent_invoices(today=date(2026, 3, 31))["raised"], [])  # too early
+        out = billing.send_due_rent_invoices(today=date(2026, 4, 1))
         self.assertEqual(len(out["raised"]), 1)
         inv = Invoice.objects.get(code=out["raised"][0])
         self.assertEqual((inv.rental_id, inv.total, inv.period_start), (r.id, 13500, date(2026, 4, 1)))
-        self.assertEqual(billing.send_due_rent_invoices(today=date(2026, 3, 30))["raised"], [])  # idempotent
+        self.assertEqual(billing.send_due_rent_invoices(today=date(2026, 4, 2))["raised"], [])  # idempotent
         self.assertEqual(billing.send_due_rent_invoices(today=date(2026, 4, 5))["raised"], [])   # still unpaid
         self.assertEqual(Invoice.objects.filter(rental=r).count(), 1)
 
@@ -115,7 +115,7 @@ class AutoInvoiceSchedulerTests(TestCase):
         r = make_rental(date(2026, 4, 1), interval=3, status=Rental.APPROVED)
         pay(Invoice.objects.get(code=billing.send_due_rent_invoices(today=date(2026, 4, 1))["raised"][0]), on=date(2026, 4, 1))
         self.assertEqual(billing.send_due_rent_invoices(today=date(2026, 6, 20))["raised"], [])
-        self.assertEqual(len(billing.send_due_rent_invoices(today=date(2026, 6, 29))["raised"]), 1)
+        self.assertEqual(len(billing.send_due_rent_invoices(today=date(2026, 7, 1))["raised"]), 1)
 
     def test_skips_opted_out_inactive_and_finished_agreements(self):
         make_rental(date(2026, 4, 1), status=Rental.APPROVED).__class__.objects.update(auto_invoice=False)
@@ -138,6 +138,7 @@ class PaymentPlanApiTests(TestCase):
         self.rental = make_rental(date(2026, 1, 1), shop=self.shop)
         self.manager = client_for(make_user("mgr", ["rentals.manage", "rentals.view"], stock_point=self.shop))
         self.viewer = client_for(make_user("viewer", ["rentals.view"], stock_point=self.shop))
+        verify_kyc(self.rental.party, make_user("kyc-staff", superuser=True))
 
     def test_change_plan_logs_event_and_validates(self):
         url = f"/api/rentals/{self.rental.id}/payment-plan/"
@@ -226,8 +227,8 @@ class PaymentPlanApiTests(TestCase):
         shown = staff.get(f"/api/rentals/{r.id}/").json()["next_billing_period"]
         self.assertFalse(shown["can_raise_now"])
         self.assertEqual(shown["raise_from"], str(billing.next_billing_period(r)[0] - timedelta(days=billing.INVOICE_LEAD_DAYS)))
-        # inside the 3-day window it opens up
-        soon = make_rental(date.today() + timedelta(days=2), shop=self.shop)
+        # on its date it opens up
+        soon = make_rental(date.today(), shop=self.shop)
         self.assertTrue(staff.get(f"/api/rentals/{soon.id}/").json()["next_billing_period"]["can_raise_now"])
         self.assertEqual(staff.post(f"/api/rentals/{soon.id}/raise-invoice/", {"stock_point": self.shop.id}, format="json").status_code, 201)
         far = make_rental(date.today() + timedelta(days=30), shop=self.shop)
@@ -239,6 +240,7 @@ class PaymentPlanApiTests(TestCase):
         old.months_paid = 6
         old.save()
         RentalAsset.objects.filter(rental_lines__rental=old).update(status=RentalAsset.RENTED)
+        verify_kyc(old.party, make_user("kyc-renew", superuser=True))
         lines = [{"asset_id": l.asset_id, "monthly_fee": l.monthly_fee} for l in old.lines.all()]
         body = {"party": old.party_id, "start": str(date.today()), "tenure_months": 12, "payment_interval_months": 6, "lines": lines}
         # without "renews" the devices are still out on rent
@@ -312,6 +314,7 @@ class PaymentPlanApiTests(TestCase):
     def test_create_agreement_accepts_interval(self):
         asset = RentalAsset.objects.create(asset_tag="NEW1", serial_number="NEWS1", brand="HP", model_name="X", source_stock_point=self.shop)
         party = Party.objects.create(name="New", type=Party.RENTAL, phone="9111111111", joined=date.today())
+        verify_kyc(party, make_user("kyc-new", superuser=True))
         body = {"party": party.id, "start": "2026-05-01", "tenure_months": 12, "payment_interval_months": 3,
                 "lines": [{"asset_id": asset.id, "monthly_fee": 1500}]}
         res = self.manager.post("/api/rentals/create-agreement/", body, format="json")
@@ -328,6 +331,7 @@ class CreateAgreementValidationTests(TestCase):
         self.shop = StockPoint.objects.create(slug="val-shop", name="Val Shop", kind=StockPoint.SHOP)
         self.client = client_for(make_user("mgr2", ["rentals.manage", "rentals.view"], stock_point=self.shop))
         self.party = Party.objects.create(name="Val Co", type=Party.RENTAL, phone="9876500000", joined=date.today())
+        verify_kyc(self.party, make_user("kyc-staff", superuser=True))
         self.asset = RentalAsset.objects.create(asset_tag="V1", serial_number="VS1", brand="HP", model_name="A", source_stock_point=self.shop)
         self.asset2 = RentalAsset.objects.create(asset_tag="V2", serial_number="VS2", brand="HP", model_name="B", source_stock_point=self.shop)
 

@@ -6,7 +6,7 @@ from django.utils import timezone
 
 from accounts.models import ActivityLog, PermissionDeniedLog, User
 from catalog.models import Product, Service, Stock, StockPoint, Variant
-from crmbook_backend.testing import assign_store, client_for, make_user, results
+from crmbook_backend.testing import assign_store, client_for, make_user, results, give_out
 from parties.models import Party
 from repairs.models import RepairTicket, RepairTicketEvent
 
@@ -100,6 +100,7 @@ class ActivityLogTests(TestCase):
         rows = ActivityLog.objects.filter(actor=self.owner_user, record_type="repairs.repairticket")
         self.assertEqual(rows.count(), 1)
         self.assertEqual(rows[0].description, f"Created repair ticket {response.json()['code']}")
+        give_out(RepairTicket.objects.get(pk=response.json()["id"]), self.owner_user)
         stage = self.owner.post(f"/api/tickets/{response.json()['id']}/set-stage/", {"status": RepairTicket.DIAGNOSING}, format="json")
         self.assertEqual(stage.status_code, 200, stage.content)
         self.assertEqual(rows.count(), 2)

@@ -24,6 +24,7 @@ import { C, F, APP_NAME, APP_VERSION } from "./lib/theme";
 import { SessionProvider, useSession } from "./context/SessionContext";
 import { accessLabel } from "./lib/accessLevel";
 import StoreSwitcher from "./components/StoreSwitcher";
+import CopilotPanel from "./components/CopilotPanel";
 import { Spinner } from "./components/Atoms";
 import AnimatedGradientBackground from "./components/AnimatedGradientBackground";
 const Login = lazy(() => import("./pages/Login"));
@@ -536,7 +537,7 @@ function Shell() {
   </Suspense>
 </main>
 
-
+  <CopilotPanel />
     </div>
   );
 }

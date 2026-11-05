@@ -11,7 +11,7 @@ const INTERVALS = [
 /*
  * The agreement's recurring payment plan: how many months each rent
  * invoice covers (1 / 3 / 6 / 12) and whether the invoice is raised and
- * sent to the client automatically a few days before it falls due.
+ * sent to the client automatically on the date it falls due.
  * Changing it only affects invoices not raised yet.
  */
 export default function RentPaymentPlan({ rental, canManage, onChanged }) {

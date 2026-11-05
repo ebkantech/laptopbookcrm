@@ -55,6 +55,24 @@ class OTPResendInviteThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": token}
 
 
+class PortalIssueThrottle(SimpleRateThrottle):
+    """Caps issues raised per signed-in customer."""
+    scope = "portal_issue"
+
+    def get_cache_key(self, request, view):
+        party = getattr(request, "party", None)
+        return self.cache_format % {"scope": self.scope, "ident": party.pk if party else self.get_ident(request)}
+
+
+class PortalMessageThrottle(SimpleRateThrottle):
+    """Caps portal chat messages per signed-in customer."""
+    scope = "portal_message"
+
+    def get_cache_key(self, request, view):
+        party = getattr(request, "party", None)
+        return self.cache_format % {"scope": self.scope, "ident": party.pk} if party else None
+
+
 class PortalPdfThrottle(SimpleRateThrottle):
     """Caps invoice-PDF generation per signed-in portal customer (each one renders a PDF server-side)."""
     scope = "portal_pdf"

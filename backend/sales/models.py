@@ -46,6 +46,10 @@ class Invoice(models.Model):
     # A repair advance: collected up front when the ticket is booked and
     # deducted on the final repair bill (repairs.billing).
     is_advance = models.BooleanField(default=False)
+    # A rental security deposit: refundable, so the customer's money rather
+    # than income. Counted in the cash and bank books, never in revenue or
+    # rent (rentals.onboarding).
+    is_deposit = models.BooleanField(default=False)
     rental = models.ForeignKey(
         "rentals.Rental", on_delete=models.PROTECT, null=True, blank=True, related_name="invoices",
     )
@@ -78,6 +82,13 @@ class Invoice(models.Model):
     )
     settled_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="settled_invoices",
+    )
+    # A discount on a whole sale. The amount itself is a negative line on the
+    # invoice (InvoiceItem.DISCOUNT), so totals, payments and profit all follow it.
+    discount_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    discount_reason = models.CharField(max_length=200, blank=True)
+    discount_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="discounted_invoices",
     )
     recurring_interval = models.CharField(max_length=10, choices=RECURRING_CHOICES, blank=True)
     recurring_next = models.DateField(null=True, blank=True)
@@ -116,7 +127,7 @@ class InvoiceItem(models.Model):
     # What one unit cost the business, locked when the line is created, so a
     # later cost correction never rewrites past profit (reports.profit_loss).
     # None = no cost recorded (labour, visit charge, rent, or not entered).
-    PRODUCT, PART, SERVICE = "product", "part", "service"
+    PRODUCT, PART, SERVICE, DISCOUNT = "product", "part", "service", "discount"
     unit_cost = models.PositiveIntegerField(null=True, blank=True)
     cost_estimated = models.BooleanField(default=False, help_text="unit_cost was the automatic guess, not a purchase price.")
     item_kind = models.CharField(max_length=10, blank=True, help_text="product / part: goods whose cost must be known.")
@@ -151,10 +162,11 @@ class PaymentLink(models.Model):
     SENT, PAID, CANCELLED, FAILED = "sent", "paid", "cancelled", "failed"
     STATUS_CHOICES = [(SENT, "Sent"), (PAID, "Paid"), (CANCELLED, "Cancelled"), (FAILED, "Failed")]
     # How the number's UPI registration was established before sending.
-    UPI_VERIFIED, UPI_STAFF_CONFIRMED = "verified", "staff_confirmed"
+    UPI_VERIFIED, UPI_STAFF_CONFIRMED, UPI_NOT_CHECKED = "verified", "staff_confirmed", "not_checked"
     UPI_CHECK_CHOICES = [
         (UPI_VERIFIED, "Verified by lookup"),
         (UPI_STAFF_CONFIRMED, "Confirmed with customer by staff"),
+        (UPI_NOT_CHECKED, "Sent automatically with the invoice"),
     ]
 
     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name="payment_links")
@@ -165,7 +177,8 @@ class PaymentLink(models.Model):
     provider_link_id = models.CharField(max_length=64, blank=True, db_index=True)
     url = models.URLField(blank=True)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=SENT)
-    sent_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="payment_links_sent")
+    # Blank when the rent scheduler sent it: no person was involved.
+    sent_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="payment_links_sent")
     created_at = models.DateTimeField(auto_now_add=True)
     paid_at = models.DateTimeField(null=True, blank=True)
     provider_payment_id = models.CharField(max_length=64, blank=True)

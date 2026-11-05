@@ -75,6 +75,7 @@ bypass, shown here for reference as if it were role-based too, since
 | `parties.view` | View the customer directory and details | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `parties.manage` | Create/edit customer records, message customers, manage portal access | ✅ | ✅ | ✅ | — | — | — |
 | `orders.manage` | View and respond to inbound WhatsApp orders | ✅ | ✅ | ✅ | — | — | — |
+| `copilot.use` | Use the staff Copilot assistant (see `docs/COPILOT.md`) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ## Where each permission is enforced
 
@@ -97,6 +98,8 @@ bypass, shown here for reference as if it were role-based too, since
 | `parties.view` / `parties.manage` | `PartyViewSet` | `backend/parties/views.py` |
 | `reports.profit_loss` | `ProfitLossView`, `ProfitLossTransactionsView`, `ProfitLossStoresView` via `reports.profit_loss.CanViewProfitLoss` | `backend/reports/views.py`, `backend/reports/profit_loss.py` |
 | `expenses.manage` | `ExpenseViewSet`, `ExpenseCategoryViewSet`, `ExpenseAttachmentFileView` via `accounting.expense_views.CanManageExpenses` | `backend/accounting/expense_views.py`, `backend/accounting/expenses.py` |
+| `copilot.use` | Copilot chat, tasks and action decisions | `backend/copilot/views.py` |
+| `parties.manage` | Copilot customer inbox and reply drafts | `backend/copilot/views.py` |
 | `roles.manage` | *(seeded, not yet enforced anywhere — reserved for the future admin-facing role-assignment screen)* | — |
 | — (open to any staff) | `StockPointViewSet`, `PartViewSet`, `ServiceViewSet`, `DashboardView` | `backend/catalog/views.py`, `backend/dashboard/views.py` |
 | — (read-only for any staff, editing is Django-admin-only) | `PermissionViewSet`, `RoleViewSet`, `UserViewSet` | `backend/accounts/views.py` |

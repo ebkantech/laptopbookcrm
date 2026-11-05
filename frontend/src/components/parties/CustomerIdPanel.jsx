@@ -11,7 +11,7 @@ const KYC_COLOR = { verified: C.green, unverified: C.amber, none: C.carbon };
 /* A customer's identity documents (parties.kyc). Aadhaar is kept masked --
  * last 4 digits only -- and every record needs the customer's consent.
  * "Verify" = a staff member checked the original document. */
-export default function CustomerIdPanel({ partyId, canManage, canDelete = false, onStatus }) {
+export default function CustomerIdPanel({ partyId, canManage, canDelete = false, onStatus, onDocuments, required = false }) {
   const [data, setData] = useState(null);
   const [adding, setAdding] = useState(false);
   const [verifying, setVerifying] = useState(null);
@@ -19,7 +19,7 @@ export default function CustomerIdPanel({ partyId, canManage, canDelete = false,
 
   const load = useCallback(() => {
     if (!partyId) return;
-    api.get(`/party-ids/?party=${partyId}`).then((d) => { setData(d); onStatus?.(d.status); }).catch((e) => setError(e.message));
+    api.get(`/party-ids/?party=${partyId}`).then((d) => { setData(d); onStatus?.(d.status); onDocuments?.(d.documents); }).catch((e) => setError(e.message));
   }, [partyId]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setData(null); load(); }, [load]);
 
@@ -44,7 +44,7 @@ export default function CustomerIdPanel({ partyId, canManage, canDelete = false,
       {status && status !== "verified" && (
         <p className="mt-1 flex items-start gap-1 text-[11px]" style={{ color: C.amber }}>
           <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-          {status === "none" ? "No ID recorded for this customer yet." : "ID recorded but not checked against the original yet."} The agreement can still go ahead.
+          {status === "none" ? "No ID recorded for this customer yet." : "ID recorded but not checked against the original yet."}{required ? "" : " The agreement can still go ahead."}
         </p>
       )}
       <ErrorNote message={error} />

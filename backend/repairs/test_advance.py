@@ -7,7 +7,7 @@ from unittest import mock
 from django.test import TestCase
 
 from catalog.models import Service, StockPoint
-from crmbook_backend.testing import client_for, make_user
+from crmbook_backend.testing import client_for, make_user, give_out
 from parties.models import Party
 from repairs.models import RepairTicket
 from repairs.services import approve_on_behalf, finalize_estimate
@@ -75,6 +75,7 @@ class RepairAdvanceTests(TestCase):
     def test_work_waits_for_the_advance_then_final_bill_deducts_it(self):
         ticket = self.book()
         self.approve(ticket)
+        give_out(ticket, self.owner)
         blocked = self.client_.post(f"/api/tickets/{ticket.id}/advance/")
         self.assertEqual(blocked.status_code, 400)
         self.assertIn("Advance invoice", blocked.json()["detail"])

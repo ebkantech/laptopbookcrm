@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Check, CheckCheck, Clock, Copy, KeyRound, Link2, Mail, MessageCircle, Pencil, Send, X } from "lucide-react";
+import { AlertCircle, Check, CheckCheck, Clock, Copy, Globe, KeyRound, Link2, Mail, MessageCircle, Pencil, Send, X } from "lucide-react";
 import { C, F } from "../lib/theme";
 import { api } from "../lib/api";
 import { useSession } from "../context/SessionContext";
@@ -63,7 +63,8 @@ export function PartyThread({ partyId, messages, onChanged, onHidden, defaultCha
   const messagesRef = useRef(null);
   const submitLock = useRef(false);
   const [retryingId, setRetryingId] = useState(null);
-  const meta = { whatsapp: { color: C.green, icon: MessageCircle }, email: { color: C.blue, icon: Mail } };
+  const meta = { whatsapp: { color: C.green, icon: MessageCircle }, email: { color: C.blue, icon: Mail }, portal: { color: C.stamp, icon: Globe } };
+  const channelName = { whatsapp: "WhatsApp", email: "Email", portal: "Portal" }[channel];
   const sendColor = channel === "whatsapp" ? "#25D366" : "#2563EB";
   const shown = messages.filter((message) => message.channel === channel);
   const otpEntry = (message) => (message.channel === "email" && message.body.includes(OTP_MASK) && otpByMessage[message.id]) || null;
@@ -196,7 +197,7 @@ export function PartyThread({ partyId, messages, onChanged, onHidden, defaultCha
 
   return <div data-panel style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip2 }}>
     <div className="flex" style={{ borderBottom: `1px solid ${C.rule}` }}>
-      {["whatsapp", "email"].map((key) => { const item = meta[key]; const active = channel === key; return <button key={key} type="button" onClick={() => { setChannel(key); setError(""); }} className="flex flex-1 items-center justify-center gap-1.5 py-2 text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: active ? item.color : C.inkSoft, backgroundColor: active ? `${item.color}17` : "transparent", borderBottom: `2px solid ${active ? item.color : "transparent"}` }}><item.icon size={13} />{key === "whatsapp" ? "WhatsApp" : "Email"}</button>; })}
+      {["whatsapp", "email", "portal"].map((key) => { const item = meta[key]; const active = channel === key; return <button key={key} type="button" onClick={() => { setChannel(key); setError(""); }} className="flex flex-1 items-center justify-center gap-1.5 py-2 text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: active ? item.color : C.inkSoft, backgroundColor: active ? `${item.color}17` : "transparent", borderBottom: `2px solid ${active ? item.color : "transparent"}` }}><item.icon size={13} />{{ whatsapp: "WhatsApp", email: "Email", portal: "Portal" }[key]}</button>; })}
     </div>
     <div ref={messagesRef} className="space-y-2 px-3 py-3" style={{ maxHeight: 260, overflowY: "auto", overscrollBehavior: "contain" }}>
       {shown.map((message) => <div key={message.id} className={`group min-w-0 ${message.direction === "in" ? "pr-1 sm:pr-8" : "pl-1 text-right sm:pl-8"}`}>
@@ -205,7 +206,7 @@ export function PartyThread({ partyId, messages, onChanged, onHidden, defaultCha
           <div className="mt-2 flex justify-end gap-2"><button type="button" disabled={editSaving} onClick={() => { setEditingId(null); setEditText(""); setError(""); }} className="rounded-lg px-3 py-2 text-xs disabled:opacity-50" style={{ color: C.inkSoft }}>Cancel</button><button type="button" disabled={editSaving || !editText.trim()} onClick={() => saveEdit(message)} className="rounded-lg px-3 py-2 text-xs font-semibold text-white disabled:opacity-50" style={{ background: C.stamp }}>{editSaving ? "Saving…" : "Save"}</button></div>
         </div> : <div className={`flex items-start gap-1 ${message.direction === "out" ? "justify-end" : "justify-start"}`}>
           <p className="inline-block max-w-[calc(100%-2.5rem)] whitespace-pre-wrap break-words rounded-xl px-3 py-2 text-left text-xs" style={{ fontFamily: F.body, color: message.is_deleted ? C.inkSoft : message.direction === "out" ? C.onAccent : C.ink, backgroundColor: message.is_deleted ? C.slip : message.direction === "out" ? meta[channel].color : C.slip, border: `1px solid ${message.direction === "in" || message.is_deleted ? C.rule : "transparent"}` }}>{bodyOf(message)}</p>
-          {!message.is_deleted && <span className="shrink-0 md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100"><LinkActionsMenu label={`${channel === "email" ? "Email" : "WhatsApp"} message actions`} items={channel === "email" ? [
+          {!message.is_deleted && <span className="shrink-0 md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100"><LinkActionsMenu label={`${channelName} message actions`} items={channel !== "whatsapp" ? [
             { label: "Copy message", icon: Copy, onSelect: () => copy(message) },
             ...(otpFor(message) ? [{ label: "Copy OTP only", icon: KeyRound, onSelect: () => copyOtp(message, otpFor(message)) }] : []),
           ] : [
@@ -232,19 +233,19 @@ export function PartyThread({ partyId, messages, onChanged, onHidden, defaultCha
           {notice[message.id] && <span role="status" style={{ color: notice[message.id] === "Copied" ? C.green : C.carbon }}>· {notice[message.id]}</span>}
         </div>
       </div>)}
-      {!shown.length && <p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>No saved {channel === "whatsapp" ? "WhatsApp" : "email"} messages yet.</p>}
+      {!shown.length && <p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>No saved {channelName} messages yet.</p>}
     </div>
     {deleteId && channel === "whatsapp" && <div role="alertdialog" aria-modal="false" className="mx-3 mb-3 rounded-xl p-3" style={{ background: C.slip, border: `1px solid ${C.rule}` }}>
       <p className="text-xs font-semibold" style={{ color: C.ink }}>Delete this saved message?</p><p className="mt-1 text-[11px]" style={{ color: C.inkSoft }}>This only changes the CRM record view. It cannot recall a delivered WhatsApp.</p>
       <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2"><button type="button" disabled={deleteBusy} onClick={() => hideForMe(shown.find((message) => message.id === deleteId))} className="rounded-lg px-2 py-2 text-xs font-semibold disabled:opacity-50" style={{ border: `1px solid ${C.rule}`, color: C.ink }}>{deleteBusy ? "Working…" : "Delete for me"}</button><button type="button" disabled={deleteBusy || !canManage} title={!canManage ? "Requires Parties management permission" : undefined} onClick={() => deleteForEveryone(shown.find((message) => message.id === deleteId))} className="rounded-lg px-2 py-2 text-xs font-semibold text-white disabled:opacity-50" style={{ background: C.carbon }}>{!canManage ? "Delete for everyone (no permission)" : deleteBusy ? "Working…" : "Delete for everyone"}</button><button type="button" disabled={deleteBusy} onClick={() => setDeleteId(null)} className="rounded-lg px-2 py-2 text-xs disabled:opacity-50 sm:col-span-2" style={{ color: C.inkSoft }}>Cancel</button></div>
     </div>}
     <div className="px-3 pb-3">
-      <label className="sr-only" htmlFor={`message-draft-${partyId}`}>{channel === "whatsapp" ? "New WhatsApp message to the customer" : "New email CRM message"}</label>
+      <label className="sr-only" htmlFor={`message-draft-${partyId}`}>{channel === "whatsapp" ? "New WhatsApp message to the customer" : channel === "portal" ? "New customer portal message" : "New email CRM message"}</label>
       <div className="flex min-w-0 items-end gap-2 rounded-full px-2 py-1.5 transition-shadow focus-within:ring-2" style={{ border: `1px solid ${C.rule}`, background: C.slip, "--tw-ring-color": `${sendColor}55` }}>
-        <textarea ref={draftRef} id={`message-draft-${partyId}`} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleComposerKeyDown} rows={1} disabled={!canManage} placeholder={channel === "whatsapp" ? "Type a message..." : "Type an email message..."} aria-describedby={!canManage ? `message-permission-${partyId}` : undefined} className="max-h-[132px] min-h-[34px] min-w-0 flex-1 resize-none appearance-none border-0 bg-transparent px-2 py-2 text-xs leading-5 outline-none shadow-none disabled:cursor-not-allowed disabled:opacity-60" style={{ fontFamily: F.body, color: C.ink, border: "none", boxShadow: "none", outline: "none", background: "transparent" }} />
+        <textarea ref={draftRef} id={`message-draft-${partyId}`} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleComposerKeyDown} rows={1} disabled={!canManage} placeholder={channel === "email" ? "Type an email message..." : "Type a message..."} aria-describedby={!canManage ? `message-permission-${partyId}` : undefined} className="max-h-[132px] min-h-[34px] min-w-0 flex-1 resize-none appearance-none border-0 bg-transparent px-2 py-2 text-xs leading-5 outline-none shadow-none disabled:cursor-not-allowed disabled:opacity-60" style={{ fontFamily: F.body, color: C.ink, border: "none", boxShadow: "none", outline: "none", background: "transparent" }} />
         <button type="button" onClick={saveDraft} disabled={!canManage || !draft.trim() || saving} aria-label={saving ? "Sending message" : "Send message"} title="Send message" className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white transition duration-150 hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40" style={{ background: sendColor }}><Send size={15} className={saving ? "animate-pulse" : ""} /></button>
       </div>
-      <div className="mt-1 flex min-h-4 flex-wrap items-center justify-between gap-x-2 gap-y-1 px-1"><span id={`message-permission-${partyId}`} className="text-[10px]" style={{ color: C.inkSoft }}>{!canManage ? "Parties management permission required" : channel === "whatsapp" ? (saving ? "Sending to WhatsApp…" : "Enter to send on WhatsApp · Shift+Enter for a new line") : saving ? "Saving to CRM…" : "Enter to send · Shift+Enter for a new line · CRM only"}</span>{error && <span role="alert" className="text-right text-[10px]" style={{ color: C.carbon }}>{error}</span>}</div>
+      <div className="mt-1 flex min-h-4 flex-wrap items-center justify-between gap-x-2 gap-y-1 px-1"><span id={`message-permission-${partyId}`} className="text-[10px]" style={{ color: C.inkSoft }}>{!canManage ? "Parties management permission required" : channel === "whatsapp" ? (saving ? "Sending to WhatsApp…" : "Enter to send on WhatsApp · Shift+Enter for a new line") : saving ? "Saving to CRM…" : channel === "portal" ? "Enter to send · Shows in the customer's portal" : "Enter to send · Shift+Enter for a new line · CRM only"}</span>{error && <span role="alert" className="text-right text-[10px]" style={{ color: C.carbon }}>{error}</span>}</div>
     </div>
   </div>;
 }
@@ -255,7 +256,7 @@ export function PartyChatModal({ partyId, partyName, onClose }) {
   const [messages, setMessages] = useState(null);
   const [otpByMessage, setOtpByMessage] = useState({});
   useEffect(() => { api.get(`/parties/${partyId}/`).then((party) => setMessages(party.messages)); }, [partyId]);
-  // same permission-checked source as the Parties page: code emails show their digits only for portal.manage
+  // permission-checked: code emails show their digits only for portal.manage
   useEffect(() => {
     if (!canSeeOtp) return undefined;
     let alive = true;

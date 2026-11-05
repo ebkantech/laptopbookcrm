@@ -74,9 +74,9 @@ class AssignmentTests(TestCase):
         self.assertEqual(move(self.sa).status_code, 200)                 # Super Admin can always act
         self.assertEqual(client_for(self.admin_a).post(f"/api/tickets/{self.ticket.id}/set-stage/", {"status": "Received"}, format="json").status_code, 200)
 
-    def test_unassigned_jobs_work_as_before_and_unassign_works(self):
+    def test_unassigned_jobs_wait_and_unassign_works(self):
         r = client_for(self.admin_a).post(f"/api/tickets/{self.ticket.id}/set-stage/", {"status": "Diagnosing"}, format="json")
-        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.status_code, 400)
         # repair staff don't see a job nobody has given them
         self.assertEqual(client_for(self.staff_a2).post(f"/api/tickets/{self.ticket.id}/set-stage/", {"status": "In progress"}, format="json").status_code, 404)
         self.assign(self.admin_a, self.staff_a1)

@@ -318,7 +318,7 @@ class DiagnosisGate(Base):
         ev = self.t.events.filter(event_type=RepairTicketEvent.STAGE_CHANGED).order_by("-id")
         self.assertTrue(any(e.metadata.get("override") for e in ev))
 
-    def test_unassigned_ticket_is_not_gated(self):
+    def test_unassigned_ticket_cannot_start(self):
         t = RepairTicket.objects.get(pk=self.book(self.admin).data["id"])
         self.approve_current(t)
-        self.assertEqual(client_for(self.admin).post(f"/api/tickets/{t.pk}/set-stage/", {"status": "In progress"}, format="json").status_code, 200)
+        self.assertEqual(client_for(self.admin).post(f"/api/tickets/{t.pk}/set-stage/", {"status": "In progress"}, format="json").status_code, 400)

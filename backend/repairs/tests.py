@@ -6,6 +6,7 @@ from rest_framework.test import APIClient
 
 from catalog.models import Service, StockPoint
 from parties.models import Party
+from crmbook_backend.testing import give_out
 from repairs.models import RepairApproval, RepairOrder, RepairOrderApproval, RepairTicket, RepairTicketEvent
 from repairs.services import customer_decide, finalize_estimate, issue_approval_link
 
@@ -49,6 +50,7 @@ class RepairApprovalWorkflowTests(TestCase):
         estimate.refresh_from_db()
         self.assertTrue(estimate.is_approved)
 
+        give_out(self.ticket, self.user)
         advanced = self.client.post(f"/api/tickets/{self.ticket.id}/advance/", format="json")
         self.assertEqual(advanced.status_code, 200)
         self.assertEqual(advanced.data["status"], RepairTicket.IN_PROGRESS)

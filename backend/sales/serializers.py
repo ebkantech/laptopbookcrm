@@ -1,14 +1,17 @@
 from collections import Counter
+from decimal import Decimal
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import F, Q
 from rest_framework import serializers
 
+from accounts.staff import is_staff_admin
 from catalog import serials as serial_tracking
 from catalog.models import Stock, StockSerial
 from catalog.status import require_active
 from .models import Invoice, InvoiceItem, PaymentLink, Refund
-from .services import create_invoice
+from .services import create_invoice, discount_amount
 
 
 class InvoiceItemSerializer(serializers.ModelSerializer):
@@ -21,11 +24,12 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
     serials = serializers.ListField(child=serializers.CharField(max_length=80), required=False, write_only=True)
     serial_numbers = serializers.SerializerMethodField()
     sold_serials = serializers.SerializerMethodField()
+    is_discount = serializers.SerializerMethodField()
 
     class Meta:
         model = InvoiceItem
         fields = ["id", "variant", "variant_code", "product_name", "description", "qty", "price", "returned_qty",
-                  "serials", "serial_numbers", "sold_serials"]
+                  "serials", "serial_numbers", "sold_serials", "is_discount"]
         read_only_fields = ["description"]
 
     def get_serial_numbers(self, obj):
@@ -37,6 +41,9 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
 
     def get_returned_qty(self, obj):
         return sum(r.qty for r in obj.refund_items.all()) if obj.pk else 0
+
+    def get_is_discount(self, obj):
+        return obj.item_kind == InvoiceItem.DISCOUNT
 
     def get_variant_code(self, obj):
         return obj.variant.code if obj.variant_id else None
@@ -58,6 +65,8 @@ class PaymentLinkSerializer(serializers.ModelSerializer):
         return f"******{obj.phone[-4:]}"
 
     def get_sent_by_name(self, obj):
+        if not obj.sent_by_id:
+            return "Automatic"
         return obj.sent_by.get_full_name() or obj.sent_by.username
 
 
@@ -96,14 +105,15 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "date", "status", "pay_method", "paid_on", "payment_reference", "settled_by_name",
             "recurring_interval", "recurring_next", "repair_ticket", "rental", "lead", "period_start", "period_end",
             "due_date", "cancel_reason", "cancelled_at", "cancelled_by_name",
-            "items", "total", "payment_links", "is_advance", "refunds", "refunded_total", "net_total",
+            "items", "total", "payment_links", "is_advance", "is_deposit", "refunds", "refunded_total", "net_total",
+            "discount_percent", "discount_reason", "discount_by_name", "subtotal", "discount_amount",
         ]
         # Payment details are only ever written by the settle action, so
         # every settlement goes through its validation and audit fields;
         # repair/rental links are only ever set by those modules.
         read_only_fields = [
             "code", "source", "paid_on", "payment_reference", "repair_ticket", "rental", "lead", "period_start", "period_end",
-            "cancel_reason", "cancelled_at", "status", "is_advance",
+            "cancel_reason", "cancelled_at", "status", "is_advance", "is_deposit",
         ]
 
     def get_reference(self, obj):
@@ -115,6 +125,10 @@ class InvoiceSerializer(serializers.ModelSerializer):
             return f"Repair {obj.repair_ticket.code}" + (" (follow-up visit)" if obj.repair_reopen_id else "")
         if obj.source == Invoice.RENTAL and obj.rental_id:
             label = obj.rental.agreement_code or f"Rental #{obj.rental_id}"
+            if obj.is_deposit:
+                return f"Security deposit · {label}"
+            if obj.is_advance:
+                return f"Advance rent · {label}"
             if obj.period_start and obj.period_end:
                 return f"{label} · {obj.period_start:%d %b %Y} – {obj.period_end:%d %b %Y}"
             return label
@@ -124,6 +138,53 @@ class InvoiceSerializer(serializers.ModelSerializer):
         return None
 
     cancelled_by_name = serializers.SerializerMethodField()
+    discount_percent = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, min_value=0, max_value=100)
+    discount_reason = serializers.CharField(required=False, allow_blank=True, max_length=200)
+    discount_by_name = serializers.SerializerMethodField()
+    subtotal = serializers.SerializerMethodField()
+    discount_amount = serializers.SerializerMethodField()
+
+    def get_discount_by_name(self, obj):
+        return (obj.discount_by.get_full_name() or obj.discount_by.username) if obj.discount_by else None
+
+    def get_subtotal(self, obj):
+        return sum(item.qty * item.price for item in obj.items.all() if item.item_kind != InvoiceItem.DISCOUNT)
+
+    def get_discount_amount(self, obj):
+        return -sum(item.qty * item.price for item in obj.items.all() if item.item_kind == InvoiceItem.DISCOUNT)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        percent = attrs.get("discount_percent")
+        if percent is None:
+            return attrs
+        unchanged = self.instance is not None and percent == self.instance.discount_percent
+        if self.instance is not None and self.instance.source != Invoice.SALE:
+            if percent:
+                raise serializers.ValidationError({"discount_percent": ["Discounts are only for sale invoices."]})
+            return attrs
+        reason = (attrs.get("discount_reason", self.instance.discount_reason if self.instance else "") or "").strip()
+        if percent and not reason:
+            raise serializers.ValidationError({"discount_reason": ["Give a reason for the discount."]})
+        attrs["discount_reason"] = reason if percent else ""
+        user = getattr(self.context.get("request"), "user", None)
+        limit = Decimal(str(settings.SALES_DISCOUNT_LIMIT))
+        if percent > limit and not unchanged and not (user and (user.is_superuser or is_staff_admin(user))):
+            raise serializers.ValidationError({"discount_percent": [f"Discounts above {limit.normalize():f}% need an Admin."]})
+        return attrs
+
+    @staticmethod
+    def _apply_discount(invoice, percent, reason, user):
+        """Replace the invoice's discount line. Returns nothing; the total now includes it."""
+        invoice.items.filter(item_kind=InvoiceItem.DISCOUNT).delete()
+        subtotal = sum(item.qty * item.price for item in invoice.items.all())
+        amount = discount_amount(subtotal, percent) if percent else 0
+        if amount:
+            InvoiceItem.objects.create(invoice=invoice, description=f"Discount ({Decimal(percent).normalize():f}%)", qty=1,
+                                       price=-amount, item_kind=InvoiceItem.DISCOUNT)
+        invoice.discount_percent, invoice.discount_reason = percent or 0, reason if percent else ""
+        invoice.discount_by = user if amount else None
+        invoice.save(update_fields=["discount_percent", "discount_reason", "discount_by"])
 
     def get_cancelled_by_name(self, obj):
         return (obj.cancelled_by.get_full_name() or obj.cancelled_by.username) if obj.cancelled_by else None
@@ -205,6 +266,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def create(self, validated_data):
         items = validated_data.pop("items")
+        percent = validated_data.pop("discount_percent", 0)
+        reason = validated_data.pop("discount_reason", "")
         validated_data["status"] = Invoice.LINK_SENT
         # take the units off the shared stock pool of the shop/channel sold
         # through -- a sale on any channel moves the same pool
@@ -215,6 +278,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
         lines = [{k: v for k, v in item.items() if k != "serials"} for item in items]
         invoice = create_invoice(source=Invoice.SALE, lines=lines, **validated_data)
         serial_tracking.mark_sold(invoice, picked, getattr(self.context.get("request"), "user", None))
+        if percent:
+            self._apply_discount(invoice, percent, reason, getattr(self.context.get("request"), "user", None))
         return invoice
 
     @transaction.atomic
@@ -227,7 +292,11 @@ class InvoiceSerializer(serializers.ModelSerializer):
         refund, a cancelled one already put its units back.
         """
         items = validated_data.pop("items", None)
+        percent = validated_data.pop("discount_percent", None)
+        reason = validated_data.pop("discount_reason", None)
         invoice = Invoice.objects.select_for_update().get(pk=instance.pk)
+        if percent is not None and invoice.status not in Invoice.OUTSTANDING and percent != invoice.discount_percent:
+            raise serializers.ValidationError({"discount_percent": ["Only an unpaid invoice's discount can be changed."]})
         old_point = invoice.stock_point
         new_point = validated_data.get("stock_point", old_point)
         if items is not None and invoice.source != Invoice.SALE:
@@ -238,7 +307,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
                     "Only an unpaid sale's items or shop can be changed. "
                     + ("Refund the returned items instead." if invoice.status in Invoice.SETTLED else "This invoice was cancelled.")
                 )})
-            old_lines = list(invoice.items.select_related("variant__product"))
+            old_lines = list(invoice.items.exclude(item_kind=InvoiceItem.DISCOUNT).select_related("variant__product"))
             user = getattr(self.context.get("request"), "user", None)
             if items is None and new_point.pk != old_point.pk and StockSerial.objects.filter(invoice_item__invoice=invoice).exists():
                 raise serializers.ValidationError({"stock_point": [
@@ -267,15 +336,27 @@ class InvoiceSerializer(serializers.ModelSerializer):
                     if old_point.pk == new_point.pk:
                         available[vid] += sum(line_.qty for line_ in old_lines if line_.variant_id == vid)
                 picked = serial_tracking.check_sale_lines(items, new_point, available)
-                old_total = invoice.total
+                old_total = sum(line.qty * line.price for line in invoice.items.all())
                 invoice.items.all().delete()
                 for line in items:
                     InvoiceItem.objects.create(invoice=invoice, **{k: v for k, v in line.items() if k != "serials"})
                 serial_tracking.mark_sold(invoice, picked, user)
-                new_total = sum(line["qty"] * line["price"] for line in items)
+                self._apply_discount(invoice, invoice.discount_percent if percent is None else percent,
+                                     invoice.discount_reason if reason is None else reason, user)
+                invoice = Invoice.objects.get(pk=invoice.pk)
+                new_total = invoice.total
                 if new_total != old_total:
                     self._cancel_open_links(invoice)
                 self._note_revision(invoice, old_lines, items, old_total, new_total)
+                percent = None
+        if percent is not None and invoice.source == Invoice.SALE:
+            old_total = invoice.total
+            self._apply_discount(invoice, percent, invoice.discount_reason if reason is None else reason,
+                                 getattr(self.context.get("request"), "user", None))
+            invoice = Invoice.objects.get(pk=invoice.pk)
+            if invoice.total != old_total:
+                self._cancel_open_links(invoice)
+                self._note_revision(invoice, [], [], old_total, invoice.total)
         return super().update(invoice, validated_data)
 
     @staticmethod

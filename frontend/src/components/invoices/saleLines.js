@@ -26,3 +26,6 @@ export function placeVariant(lines, i, patch) {
   const next = lines.map((l, j) => (j === other ? { ...l, qty } : l)).filter((_, j) => j !== i);
   return { lines: next, merged: { index: other > i ? other - 1 : other, qty } };
 }
+
+// The discount as the server works it out: to the nearest rupee.
+export const discountOff = (subtotal, percent) => Math.round(subtotal * ((Number(percent) || 0) / 100));

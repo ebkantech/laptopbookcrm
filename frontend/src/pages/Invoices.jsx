@@ -12,7 +12,7 @@ import PrintableInvoice from "../components/invoices/PrintableInvoice";
 import UpiPaymentLink from "../components/invoices/UpiPaymentLink";
 import PartyPicker from "../components/invoices/PartyPicker";
 import SerialPicker from "../components/serials/SerialPicker";
-import { blankLine, placeVariant, variantForProduct } from "../components/invoices/saleLines";
+import { blankLine, discountOff, placeVariant, variantForProduct } from "../components/invoices/saleLines";
 import { canRevise, revisionLines, unitsOnInvoice } from "../components/invoices/invoiceRevision";
 
 const STATUS_COLOR = { Paid: "#36D399", "Payment link sent": "#F5A623", Overdue: "#FB5B5B", Cancelled: "#8A8F98", Refunded: "#7C6FD8" };
@@ -43,11 +43,13 @@ function NewInvoiceModal({ products, stockPoints, revising, defaultStockPoint, o
     ?? stockPoints.find((s) => s.id === defaultStockPoint)?.id ?? stockPoints.find((s) => s.kind === "shop")?.id);
   // a revision starts from the invoice's lines, keeping the serial numbers already on them
   const [lines, setLines] = useState(() => (revising
-    ? revisionLines(revising, products).map((l, i) => ({ ...blankLine(), ...l, serials: revising.items[i]?.serial_numbers || [] }))
+    ? revisionLines(revising, products).map((l, i) => ({ ...blankLine(), ...l, serials: revising.items.filter((item) => !item.is_discount)[i]?.serial_numbers || [] }))
     : [blankLine()]));
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [discount, setDiscount] = useState(() => (Number(revising?.discount_percent) ? String(Number(revising.discount_percent)) : ""));
+  const [discountReason, setDiscountReason] = useState(revising?.discount_reason || "");
 
   // a revised invoice's own stock point may since have been made inactive
   const pointOptions = revising && !stockPoints.some((s) => s.id === revising.stock_point)
@@ -80,10 +82,14 @@ function NewInvoiceModal({ products, stockPoints, revising, defaultStockPoint, o
     const v = products.find((p) => p.id === +lines[i].productId)?.variants.find((x) => x.id === +variantId);
     place(i, { variantId, price: v ? String(v.sell_price) : "" });
   };
-  const total = lines.reduce((sum, l) => sum + (+l.price || 0) * (+l.qty || 0), 0);
+  const subtotal = lines.reduce((sum, l) => sum + (+l.price || 0) * (+l.qty || 0), 0);
+  const discountValue = discountOff(subtotal, discount);
+  const total = subtotal - discountValue;
 
   const submit = async () => {
     setError("");
+    if (+discount > 100) return setError("A discount can't be more than 100%.");
+    if (+discount > 0 && !discountReason.trim()) return setError("Give a reason for the discount.");
     if (!party) return setError("Pick or add the customer.");
     const filled = lines.filter((l) => l.variantId);
     if (!filled.length) return setError("Add at least one product.");
@@ -101,10 +107,11 @@ function NewInvoiceModal({ products, stockPoints, revising, defaultStockPoint, o
     try {
       const items = filled.map((l) => ({ variant: +l.variantId, qty: +l.qty, price: +l.price, ...(l.serials.length ? { serials: l.serials } : {}) }));
       // a revision keeps its invoice date; only the customer, shop and lines change
-      await onCreate(revising ? { party, stock_point: stockPoint, items } : { party, stock_point: stockPoint, date: todayISO(), items });
+      const offer = { discount_percent: +discount || 0, discount_reason: +discount > 0 ? discountReason.trim() : "" };
+      await onCreate(revising ? { party, stock_point: stockPoint, items, ...offer } : { party, stock_point: stockPoint, date: todayISO(), items, ...offer });
     } catch (e) {
       const body = e.body || {};
-      setError([].concat(body.items || body.detail || e.message).join(" · "));
+      setError([].concat(body.items || body.discount_percent || body.discount_reason || body.detail || e.message).join(" · "));
     } finally {
       setBusy(false);
     }
@@ -165,8 +172,26 @@ function NewInvoiceModal({ products, stockPoints, revising, defaultStockPoint, o
             </div>
             {note && <p role="status" className="mt-2 text-[11px]" style={{ fontFamily: F.body, color: C.stamp, fontWeight: 600 }}>{note}</p>}
             <button type="button" onClick={() => { setNote(""); setLines((ls) => [...ls, blankLine()]); }} className="mt-2 flex items-center gap-1 text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: C.stamp }}><Plus size={12} /> Add another item</button>
-            <p className="mt-1 text-[11px]" style={{ fontFamily: F.body, color: C.inkSoft }}>The unit price starts at the list price — change it to give a discount.</p>
+            <p className="mt-1 text-[11px]" style={{ fontFamily: F.body, color: C.inkSoft }}>The unit price starts at the list price.</p>
           </div>
+
+          <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-2">
+            <label className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Discount %
+              <input value={discount} inputMode="decimal" onChange={(e) => setDiscount(e.target.value.replace(/[^\d.]/g, ""))} placeholder="0"
+                className="mt-1 w-full px-3 py-2 text-sm outline-none" style={{ ...field, fontFamily: F.mono }} />
+            </label>
+            <label className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Reason{+discount > 0 ? "" : " (if discounted)"}
+              <input value={discountReason} maxLength={200} disabled={!(+discount > 0)} onChange={(e) => setDiscountReason(e.target.value)} placeholder="e.g. Regular customer"
+                className="mt-1 w-full px-3 py-2 text-sm outline-none disabled:opacity-60" style={field} />
+            </label>
+          </div>
+
+          {discountValue > 0 && (
+            <div className="space-y-1 px-3 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>
+              <div className="flex justify-between"><span style={{ fontFamily: F.body }}>Subtotal</span><span>{money(subtotal)}</span></div>
+              <div className="flex justify-between" style={{ color: C.green }}><span style={{ fontFamily: F.body }}>Discount ({Number(discount)}%)</span><span>-{money(discountValue)}</span></div>
+            </div>
+          )}
 
           <div className="flex items-center justify-between px-3 py-2 rounded-xl" style={{ backgroundColor: C.slip2 }}>
             <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Total</span>
@@ -360,8 +385,10 @@ function RefundInvoice({ invoice, onChanged }) {
       </button>
     );
   }
-  const returnable = invoice.items.filter((it) => it.qty - (it.returned_qty || 0) > 0);
-  const value = isSale ? invoice.items.reduce((sum, it) => sum + (Number(qty[it.id]) || 0) * it.price, 0) : Number(amount) || 0;
+  const returnable = invoice.items.filter((it) => !it.is_discount && it.qty - (it.returned_qty || 0) > 0);
+  const returnedValue = invoice.items.reduce((sum, it) => sum + (Number(qty[it.id]) || 0) * it.price, 0);
+  // a return gives back what was paid: the price less the invoice's discount
+  const value = isSale ? Math.min(left, returnedValue - discountOff(returnedValue, invoice.discount_percent)) : Number(amount) || 0;
   const field = { fontFamily: F.body, color: C.ink, background: C.slip, border: `1px solid ${C.rule}` };
 
   const submit = async () => {
@@ -398,7 +425,7 @@ function RefundInvoice({ invoice, onChanged }) {
             return (
               <div key={it.id} className="text-xs" style={{ fontFamily: F.body, color: C.ink }}>
                 <div className="flex items-center justify-between gap-2">
-                  <span>{it.product_name} <span style={{ fontFamily: F.mono, color: C.inkSoft }}>· {money(it.price)} each · {max} returnable</span></span>
+                  <span>{it.product_name} <span style={{ fontFamily: F.mono, color: C.inkSoft }}>· {money(it.price)} each{Number(invoice.discount_percent) > 0 ? ` less ${Number(invoice.discount_percent)}%` : ""} · {max} returnable</span></span>
                   <input type="number" min={0} max={max} value={qty[it.id] ?? ""} placeholder="0" title="Quantity returned"
                     onChange={(e) => setQty({ ...qty, [it.id]: Math.max(0, Math.min(max, Number(e.target.value.replace(/\D/g, "")) || 0)) })}
                     className="w-16 px-2 py-1 text-right text-sm outline-none" style={{ ...field, fontFamily: F.mono }} />
@@ -519,6 +546,11 @@ function InvoiceDetail({ invoice, onClose, onSettle, onChanged, onRevise }) {
           <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Total</span>
           <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{money(invoice.total)}</span>
         </div>
+        {invoice.discount_amount > 0 && (
+          <p className="mt-1 px-3 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
+            {Number(invoice.discount_percent)}% discount ({money(invoice.discount_amount)}) by {invoice.discount_by_name || "staff"}: {invoice.discount_reason}
+          </p>
+        )}
         {invoice.refunded_total > 0 && (
           <div className="mt-1 flex items-center justify-between px-3 py-1 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>
             <span style={{ fontFamily: F.body }}>Refunded {money(invoice.refunded_total)} · kept</span>

@@ -6,7 +6,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import BasePermission
 
 from parties.models import Party
-from .access import rental_access_ends_at
+from .access import rental_access_ends_at, repair_access_live, repair_portal_closed
 
 SALT = "crmbook.portal.session"
 MAX_AGE_SECONDS = 60 * 60 * 24 * 7  # a portal session is good for 7 days after verifying OTP
@@ -21,6 +21,7 @@ def issue_portal_token(party: Party) -> str:
 
 
 RENTAL_ACCESS_ENDED = "rental_access_ended"
+REPAIR_ACCESS_ENDED = "repair_access_ended"
 
 
 def resolve_portal_token(token: str) -> Party | None:
@@ -48,7 +49,9 @@ def resolve_portal_session(token: str):
     # stops working the moment the tenure ends (or the agreement is
     # closed/cancelled). Dealer/Retail sessions simply run their 7 days:
     # the 24-hour invitation-link expiry does not cut an issued session.
-    if party.type == Party.RENTAL and rental_access_ends_at(party) is None:
+    if repair_portal_closed(party):
+        return None, REPAIR_ACCESS_ENDED
+    if party.type == Party.RENTAL and rental_access_ends_at(party) is None and not repair_access_live(party):
         return None, RENTAL_ACCESS_ENDED
     return party, None
 
@@ -71,6 +74,11 @@ class PortalTokenAuthentication(BaseAuthentication):
             return None
         token = header[len(self.keyword) + 1:]
         party, reason = resolve_portal_session(token)
+        if reason == REPAIR_ACCESS_ENDED:
+            raise AuthenticationFailed({
+                "detail": "Your repair is complete, so this portal link has closed.",
+                "code": REPAIR_ACCESS_ENDED,
+            })
         if reason == RENTAL_ACCESS_ENDED:
             # 403 (no WWW-Authenticate scheme) with a stable code, so the
             # portal can say "your rental access has ended" instead of

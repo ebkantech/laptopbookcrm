@@ -17,6 +17,7 @@ from accounts.permissions import HasPerm
 from accounts.store_scope import StoreScope
 
 from .models import Rental, RentalLine, RentalLinePhoto
+from .onboarding import handover_locked_message
 from .scope import rental_queryset_for
 from .services import HANDOVER_EDITABLE, get_public_approval, handover_changed
 
@@ -58,6 +59,7 @@ class HandoverSerializer(serializers.ModelSerializer):
     photos = PhotoSerializer(many=True, read_only=True)
     issues = serializers.SerializerMethodField()
     editable = serializers.SerializerMethodField()
+    waiting_reason = serializers.SerializerMethodField()
     tenure_months = serializers.IntegerField(source="rental.tenure_months", read_only=True)
     handover_by_name = serializers.SerializerMethodField()
 
@@ -67,7 +69,7 @@ class HandoverSerializer(serializers.ModelSerializer):
             "id", "asset_tag", "serial_number", "description", "monthly_fee", "tenure_months",
             "checks", "working_confirmed", "condition_notes", "accessories",
             "warranty_included", "warranty_months", "warranty_terms",
-            "photos", "issues", "editable", "handover_by_name", "handover_updated_at",
+            "photos", "issues", "editable", "waiting_reason", "handover_by_name", "handover_updated_at",
         ]
         read_only_fields = ["monthly_fee", "handover_updated_at"]
 
@@ -75,7 +77,10 @@ class HandoverSerializer(serializers.ModelSerializer):
         return obj.handover_issues()
 
     def get_editable(self, obj):
-        return obj.rental.status in HANDOVER_EDITABLE
+        return obj.rental.status in HANDOVER_EDITABLE and not handover_locked_message(obj.rental)
+
+    def get_waiting_reason(self, obj):
+        return handover_locked_message(obj.rental) if obj.rental.status in HANDOVER_EDITABLE else None
 
     def get_handover_by_name(self, obj):
         return (obj.handover_by.get_full_name() or obj.handover_by.username) if obj.handover_by else None
@@ -127,6 +132,9 @@ def _locked(line):
             {"detail": "Handover details are locked once the agreement is approved -- they're part of what the customer approved."},
             status=400,
         )
+    waiting = handover_locked_message(line.rental)
+    if waiting:
+        return Response({"detail": waiting}, status=400)
     return None
 
 

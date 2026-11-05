@@ -203,6 +203,62 @@ def create_upi_link(invoice, phone10, sent_by_name, description):
     return {"provider_link_id": f"sandbox_{token}", "url": f"https://sandbox.invalid/upi/{token}", "sms_sent_by_provider": False}
 
 
+def send_invoice_link(invoice, sent_by=None):
+    """
+    The payment link that goes out with a rental or repair invoice. Returns
+    its URL, or "" when none could be made. It never raises: a provider
+    failure must not stop the invoice, and staff can still send a link from
+    Sales & Invoices. The UPI lookup is skipped because nobody is there to
+    answer it; the link records that as UPI_NOT_CHECKED.
+    """
+    from django.conf import settings
+
+    from parties.models import Message
+
+    from .models import Invoice, PaymentLink
+
+    if invoice.status not in Invoice.OUTSTANDING or invoice.total <= 0:
+        return ""
+    open_link = invoice.payment_links.filter(status=PaymentLink.SENT).first()
+    if open_link:
+        return open_link.url
+    phone = normalize_mobile(invoice.party.phone)
+    if not phone:
+        return ""
+    sender = (sent_by.get_full_name() or sent_by.username) if sent_by else settings.BUSINESS_NAME
+    description = f"Hi {invoice.party.name}, here is your UPI payment link for invoice {invoice.code} of Rs {invoice.total} from {settings.BUSINESS_NAME}."
+    try:
+        created = create_upi_link(invoice, phone, sender, description)
+    except PaymentProviderError:
+        logger.exception("Couldn't create a payment link for invoice %s", invoice.code)
+        return ""
+    PaymentLink.objects.create(
+        invoice=invoice, phone=phone, upi_check=PaymentLink.UPI_NOT_CHECKED, amount=invoice.total,
+        provider=payment_provider(), provider_link_id=created["provider_link_id"], url=created["url"], sent_by=sent_by,
+    )
+    Message.objects.create(
+        party=invoice.party, channel=Message.SMS, direction=Message.OUT,
+        body=f"{description} Pay here: {created['url']} (sent to {mask(phone)})",
+    )
+    return created["url"]
+
+
+def pay_note(invoice, sent_by=None):
+    """The sentence added to the invoice message, or "" when there's no link."""
+    url = send_invoice_link(invoice, sent_by)
+    return f" Pay here: {url}" if url else ""
+
+
+def replace_invoice_link(invoice, sent_by=None):
+    """The amount changed: the old link would collect the wrong sum."""
+    from .models import PaymentLink
+
+    for link in invoice.payment_links.filter(status=PaymentLink.SENT):
+        cancel_provider_link(link)
+    invoice.payment_links.filter(status=PaymentLink.SENT).update(status=PaymentLink.CANCELLED)
+    return send_invoice_link(invoice, sent_by)
+
+
 def fetch_link_payment(link):
     """
     Ask the provider whether the link has been paid. Returns

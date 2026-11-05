@@ -17,7 +17,7 @@ from portal.models import Feedback, PortalAccessLog
 from rentals.models import Rental, RentalAsset
 from rentals.scope import rental_queryset_for
 from repairs.models import RepairTicket
-from sales.models import Invoice
+from sales.models import Invoice, InvoiceItem
 from sales.services import mark_overdue
 from . import profit_loss
 from .utils import last_n_months, month_label
@@ -56,7 +56,7 @@ class FinancialSummaryReportView(APIView):
         range_start = date(months[0][0], months[0][1], 1)
 
         scope = StoreScope(request.user)
-        invoices = scope.filter(Invoice.objects.all(), "stock_point")
+        invoices = scope.filter(Invoice.objects.filter(is_deposit=False), "stock_point")
         revenue_by_month = {ym: 0 for ym in months}
         for inv in invoices.filter(status__in=Invoice.SETTLED, date__gte=range_start).prefetch_related("items", "refunds"):
             key = (inv.date.year, inv.date.month)
@@ -120,7 +120,7 @@ class SalesSummaryReportView(APIView):
                 "invoice_count": len(sp_invoices),
                 "revenue_paid": sum(i.net_total for i in sp_paid),
                 "pending": sum(i.total for i in sp_pending),
-                "units_sold": sum(item.qty for i in sp_invoices for item in i.items.all()),
+                "units_sold": sum(item.qty for i in sp_invoices for item in i.items.all() if item.item_kind != InvoiceItem.DISCOUNT),
             })
         by_stock_point.sort(key=lambda c: c["revenue_paid"], reverse=True)
 
@@ -269,7 +269,7 @@ class PartyReportView(APIView):
         rows = []
         for p in parties:
             # what they actually paid: settled invoices less refunds
-            invoices = [i for i in p.invoices.all() if i.status in Invoice.SETTLED]
+            invoices = [i for i in p.invoices.all() if i.status in Invoice.SETTLED and not i.is_deposit]
             if not invoices:
                 continue
             rows.append({

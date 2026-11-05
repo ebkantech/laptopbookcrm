@@ -11,7 +11,7 @@ from catalog.models import StockPoint
 from parties.models import Party
 from rentals.models import Rental, RentalApproval, RentalAsset, RentalEvent, RentalLine
 from rentals.services import RentalApprovalLinkGone, customer_decide, issue_approval_link
-from crmbook_backend.testing import complete_handover
+from crmbook_backend.testing import complete_handover, verify_kyc
 
 TEST_MEDIA = tempfile.mkdtemp(prefix="crmbook-test-media-")
 
@@ -31,6 +31,7 @@ class RentalApprovalWorkflowTests(TestCase):
             name="Bulk Rental Customer", type=Party.RENTAL, phone="9876543210", joined=date.today(),
             customer_classification=Party.BUSINESS,
         )
+        verify_kyc(self.party, self.user)
         self.rental = Rental.objects.create(
             party=self.party,
             agreement_code="RNT-TEST-1",

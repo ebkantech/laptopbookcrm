@@ -160,7 +160,7 @@ class UnifiedLedgerTests(TestCase):
         self.assertEqual((inv1.period_start, inv1.period_end), (start, date(2026, 2, 14)))
         self.assertEqual(inv1.total, 4500)
         self.assertEqual([i.description for i in inv1.items.all()], ["Rent: Dell Model 1 (S/N SN-1)", "Rent: Dell Model 2 (S/N SN-2)"])
-        msg = Message.objects.get(party=self.party)
+        msg = Message.objects.get(party=self.party, channel=Message.WHATSAPP)
         self.assertIn(inv1.code, msg.body)
 
         # each send is its own invoice number for the following month

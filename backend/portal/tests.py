@@ -19,7 +19,7 @@ from .access import rental_end_at
 from .models import PortalAccessLog, PortalInvite
 from .services import create_portal_invite
 
-ROOMY_RATES = {"otp_verify": "1000/min", "otp_resend": "1000/hour", "otp_resend_invite": "1000/hour", "portal_pdf": "1000/hour"}
+ROOMY_RATES = {"portal_issue": "1000/hour", "otp_verify": "1000/min", "otp_resend": "1000/hour", "otp_resend_invite": "1000/hour", "portal_pdf": "1000/hour"}
 FIXED_NOW = datetime(2026, 10, 11, 9, 30, tzinfo=dt_timezone.utc)
 TEST_OTP_KEY = "5FHcEUaf1NnMvbwl0jlOd_2aEUMaX0p9R6fmaXZ1Ni4="  # test-only Fernet key
 

@@ -18,8 +18,9 @@ from accounts.permissions import HasPerm
 from accounts.store_scope import StoreScope, StoreScopedMixin
 from catalog.models import Service
 from catalog.views import part_stock_prefetch
-from crmbook_backend.notify import notify_staff, send_email, send_whatsapp
+from crmbook_backend.notify import notify_staff, send_email, send_whatsapp, whatsapp_provider
 from sales.models import Invoice
+from sales.payments import pay_note
 from sales.services import cancel_invoice, create_invoice
 
 from .billing import advance_amount, raise_advance_invoice, reconcile_delivery
@@ -39,6 +40,7 @@ from .serializers import (
 )
 from .services import (
     accept_revision,
+    build_whatsapp_url,
     approve_on_behalf,
     approve_order_on_behalf,
     customer_decide,
@@ -49,8 +51,12 @@ from .services import (
     get_public_order_approval,
     issue_approval_link,
     issue_order_approval_link,
+    log_whatsapp,
+    order_link_message,
     propose_revision,
     report_diagnosis,
+    send_approval_link_whatsapp,
+    send_order_approval_link_whatsapp,
     stamp_stage,
 )
 
@@ -84,7 +90,15 @@ def _notify_party(party, subject, text):
 def _issue_link_payload(ticket, user):
     approval, url, whatsapp_url = issue_approval_link(ticket, user)
     estimate = ticket.current_estimate
-    return {"url": url, "whatsapp_url": whatsapp_url, "expires_at": approval.expires_at, "total": estimate.total_amount if estimate else None}
+    return {"url": url, "whatsapp_url": whatsapp_url, "expires_at": approval.expires_at,
+            "total": estimate.total_amount if estimate else None, "whatsapp_provider": whatsapp_provider(),
+            "send_path": f"/tickets/{ticket.pk}/approval-link/send-whatsapp/"}
+
+
+def _order_link_payload(order, approval, url):
+    return {"url": url, "whatsapp_url": build_whatsapp_url(order.party.phone, order_link_message(order, url)),
+            "expires_at": approval.expires_at, "whatsapp_provider": whatsapp_provider(),
+            "send_path": f"/repair-orders/{order.pk}/approval-link/send-whatsapp/"}
 
 
 def _booking_lines(services, lines):
@@ -131,6 +145,19 @@ def _start_gate(ticket, target, request):
     return None
 
 
+def _order_gate(ticket, target):
+    """A job goes in order: given to staff first, and only finished once work
+    has been In progress. Applies to everyone, the Super Admin included."""
+    if RepairTicket.STAGES.index(target) <= RepairTicket.STAGES.index(ticket.status):
+        return None
+    if not ticket.assigned_to_id:
+        return Response({"detail": "Assign this job to a staff member first.", "code": "needs_assignment"}, status=400)
+    if target == RepairTicket.READY and ticket.status != RepairTicket.IN_PROGRESS:
+        return Response({"detail": "Move the job to In progress first. It can only be finished after work has started.",
+                         "code": "work_not_started"}, status=400)
+    return None
+
+
 def _move(ticket, new_status, actor):
     """Change stage, stamping the work timeline and logging who did it."""
     old = ticket.status
@@ -164,6 +191,7 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         "advance": "repairs.manage", "settle": "repairs.book",
         "set_stage": "repairs.manage", "reopen": "repairs.book",
         "finalize_estimate": "repairs.approve", "approval_link": "repairs.approve",
+        "approval_link_send_whatsapp": "repairs.approve",
         "revise": "repairs.manage", "diagnose": "repairs.manage", "decide_revision": "repairs.approve",
         "approve_on_behalf": "repairs.approve",
         "assign": "repairs.assign", "staff": "repairs.view",
@@ -207,7 +235,7 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
 
     def get_object(self):
         ticket = super().get_object()
-        if self.action in ("advance", "set_stage", "settle", "reopen", "finalize_estimate", "approval_link", "revise", "diagnose", "update", "partial_update"):
+        if self.action in ("advance", "set_stage", "settle", "reopen", "finalize_estimate", "approval_link", "approval_link_send_whatsapp", "revise", "diagnose", "update", "partial_update"):
             self._require_can_work(ticket)
         return ticket
 
@@ -308,18 +336,21 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         ticket.save(update_fields=["code"])
         device = f"{ticket.brand} {ticket.model_name}"
         wa_text = f"Ticket {ticket.code} created for your {device}. We'll keep you posted."
+        pay = ""
         if ticket.payment == RepairTicket.ADVANCE:
             advance_invoice = raise_advance_invoice(ticket, _booking_advance(ticket.payment, typed_advance, services))
             if advance_invoice:
-                wa_text += f" Advance invoice {advance_invoice.code} for Rs {advance_invoice.total} has been raised."
+                pay = pay_note(advance_invoice, self.request.user)
+                wa_text += f" Advance invoice {advance_invoice.code} for Rs {advance_invoice.total} has been raised.{pay}"
         self._approval = _auto_estimate(ticket, self.request.user, services, lines)
-        if self._approval:
-            wa_text += f" Please review and approve the estimate (INR {self._approval['total']}): {self._approval['url']}"
-        email_text = f"Repair ticket {ticket.code} acknowledged -- {device}, drop-off at {ticket.stock_point.name}."
+        email_text = f"Repair ticket {ticket.code} acknowledged -- {device}, drop-off at {ticket.stock_point.name}.{pay}"
         Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=wa_text)
         Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=email_text)
+        log_whatsapp(ticket.party, wa_text)
         send_whatsapp(ticket.party.phone, wa_text)
         send_email(ticket.party.email, f"Repair ticket {ticket.code} acknowledged", email_text)
+        if self._approval:
+            self._approval["whatsapp_delivery"] = send_approval_link_whatsapp(ticket, self._approval["url"], self.request.user)
         # Task 2: internal staff alert, separate from the customer sends
         # above -- who actually gets pinged is configured on Settings >
         # Staff alerts, not hardcoded here.
@@ -360,7 +391,16 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
             "approval_url": approval_url,
             "whatsapp_url": whatsapp_url,
             "expires_at": approval.expires_at,
+            "whatsapp_provider": whatsapp_provider(),
+            "send_path": f"/tickets/{ticket.pk}/approval-link/send-whatsapp/",
         })
+
+    @action(detail=True, methods=["post"], url_path="approval-link/send-whatsapp")
+    def approval_link_send_whatsapp(self, request, pk=None):
+        """Send the link staff just generated through the WhatsApp provider.
+        The response says what happened: "sent" only when Meta accepted it."""
+        delivery = send_approval_link_whatsapp(self.get_object(), request.data.get("approval_url"), request.user)
+        return Response({"whatsapp_delivery": delivery})
 
     @action(detail=True, methods=["post"], url_path="approve-on-behalf")
     def approve_on_behalf(self, request, pk=None):
@@ -430,6 +470,9 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
             return Response({"detail": "Raise the invoice instead -- the ticket is marked Delivered automatically once it's paid."}, status=400)
         if ticket.unpaid_invoice:
             return Response({"detail": f"Invoice {ticket.unpaid_invoice.code} is awaiting payment -- collect it in Sales & Invoices first."}, status=400)
+        out_of_order = _order_gate(ticket, stage)
+        if out_of_order:
+            return out_of_order
         if stage == RepairTicket.IN_PROGRESS and ticket.unpaid_advance:
             adv = ticket.unpaid_advance
             return Response({"detail": f"Advance invoice {adv.code} (Rs {adv.total}) is awaiting payment -- collect it in Sales & Invoices, or cancel it there to start without an advance."}, status=400)
@@ -478,6 +521,9 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         if target == ticket.status:
             return Response(RepairTicketSerializer(self._fresh(ticket)).data)
 
+        out_of_order = _order_gate(ticket, target)
+        if out_of_order:
+            return out_of_order
         if target == RepairTicket.IN_PROGRESS and ticket.unpaid_advance:
             adv = ticket.unpaid_advance
             return Response({"detail": f"Advance invoice {adv.code} (Rs {adv.total}) is awaiting payment -- collect it in Sales & Invoices, or cancel it there to start without an advance."}, status=400)
@@ -575,13 +621,15 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
                 ticket.status = RepairTicket.DELIVERED
                 ticket.save(update_fields=["status"])
 
+        pay = pay_note(invoice, request.user) if amount > 0 else ""
         if amount <= 0:
             wa_text = f"Thank you! Your {what} is complete -- invoice {invoice.code}, nothing to pay."
         else:
-            wa_text = f"Your {what} is ready. Invoice {invoice.code} for Rs {amount} has been raised -- please pay to collect your device."
-        email_text = f"Invoice {invoice.code} raised at {ticket.stock_point.name} for {what}: Rs {max(amount, 0)}."
+            wa_text = f"Your {what} is ready. Invoice {invoice.code} for Rs {amount} has been raised -- please pay to collect your device.{pay}"
+        email_text = f"Invoice {invoice.code} raised at {ticket.stock_point.name} for {what}: Rs {max(amount, 0)}.{pay}"
         Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=wa_text)
         Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=email_text)
+        log_whatsapp(ticket.party, wa_text)
         send_whatsapp(ticket.party.phone, wa_text)
         send_email(ticket.party.email, f"Invoice {invoice.code}", email_text)
         return Response(RepairTicketSerializer(self._fresh(ticket)).data)
@@ -699,6 +747,7 @@ class RepairOrderViewSet(viewsets.ReadOnlyModelViewSet):
         "retrieve": "repairs.view",
         "create": "repairs.book",
         "approval_link": "repairs.approve",
+        "approval_link_send_whatsapp": "repairs.approve",
         "approve_on_behalf": "repairs.approve",
     }
 
@@ -761,13 +810,16 @@ class RepairOrderViewSet(viewsets.ReadOnlyModelViewSet):
                 raise ValidationError({"advance_amount": f"The advance for {ticket.brand} {ticket.model_name} can't be more than its estimate."})
             device_label = f"{ticket.brand} {ticket.model_name}"
             wa_text = f"Ticket {ticket.code} created for your {device_label} under order {order.code}."
+            pay = ""
             if ticket.payment == RepairTicket.ADVANCE:
                 advance_invoice = raise_advance_invoice(ticket, _booking_advance(ticket.payment, typed_advance, services))
                 if advance_invoice:
-                    wa_text += f" Advance invoice {advance_invoice.code} for Rs {advance_invoice.total} has been raised."
-            email_text = f"Repair ticket {ticket.code} acknowledged under {order.code} -- {device_label}."
+                    pay = pay_note(advance_invoice, request.user)
+                    wa_text += f" Advance invoice {advance_invoice.code} for Rs {advance_invoice.total} has been raised.{pay}"
+            email_text = f"Repair ticket {ticket.code} acknowledged under {order.code} -- {device_label}.{pay}"
             Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=wa_text)
             Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=email_text)
+            log_whatsapp(ticket.party, wa_text)
             send_whatsapp(ticket.party.phone, wa_text)
             send_email(ticket.party.email, f"Repair ticket {ticket.code} acknowledged", email_text)
             if built and request.user.has_perm_code("repairs.approve"):
@@ -778,7 +830,7 @@ class RepairOrderViewSet(viewsets.ReadOnlyModelViewSet):
         if auto and len(auto) == order.tickets.count():
             if len(auto) >= 2:
                 approval, url = issue_order_approval_link(order, request.user)
-                link = {"url": url, "expires_at": approval.expires_at}
+                link = _order_link_payload(order, approval, url)
             else:
                 link = _issue_link_payload(auto[0], request.user)
             body = {**RepairOrderSerializer(self.get_queryset().get(pk=order.pk)).data, "approval": link}
@@ -786,12 +838,22 @@ class RepairOrderViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="approval-link")
     def approval_link(self, request, pk=None):
-        approval, approval_url = issue_order_approval_link(self.get_object(), request.user)
+        order = self.get_object()
+        approval, approval_url = issue_order_approval_link(order, request.user)
+        link = _order_link_payload(order, approval, approval_url)
         return Response({
             "order": RepairOrderSerializer(self.get_queryset().get(pk=approval.order_id)).data,
             "approval_url": approval_url,
+            "whatsapp_url": link["whatsapp_url"],
             "expires_at": approval.expires_at,
+            "whatsapp_provider": link["whatsapp_provider"],
+            "send_path": link["send_path"],
         })
+
+    @action(detail=True, methods=["post"], url_path="approval-link/send-whatsapp")
+    def approval_link_send_whatsapp(self, request, pk=None):
+        delivery = send_order_approval_link_whatsapp(self.get_object(), request.data.get("approval_url"), request.user)
+        return Response({"whatsapp_delivery": delivery})
 
     @action(detail=True, methods=["post"], url_path="approve-on-behalf")
     def approve_on_behalf(self, request, pk=None):

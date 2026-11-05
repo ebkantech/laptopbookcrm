@@ -139,11 +139,14 @@ def _snapshot(rental):
 
 @transaction.atomic
 def issue_approval_link(rental, user):
+    from . import onboarding
+
     rental = Rental.objects.select_for_update().select_related("party").get(pk=rental.pk)
     if rental.status in (Rental.REJECTED, Rental.CANCELLED, Rental.CLOSED):
         raise ValidationError({"detail": "Approval links cannot be created for a rejected, cancelled, or closed agreement."})
     if rental.approvals.filter(status=RentalApproval.APPROVED).exists():
         raise ValidationError({"detail": "This agreement already has a final approval."})
+    onboarding.require_ready(rental)
     now = timezone.now()
     _expire_pending_links(rental, now)
     rental.approvals.filter(status=RentalApproval.PENDING).update(status=RentalApproval.REVOKED)
@@ -374,7 +377,9 @@ def customer_decide(raw_token, decision, consent=False, reason="", ip_address=No
             approval.refresh_from_db()
             approval.rental.status = Rental.APPROVED if desired_status == RentalApproval.APPROVED else Rental.REJECTED
             approval.rental.save(update_fields=["status"])
-            asset_status = RentalAsset.RENTED if desired_status == RentalApproval.APPROVED else RentalAsset.AVAILABLE
+            # a new agreement's devices stay reserved until they're checked out
+            on_approval = RentalAsset.RESERVED if approval.rental.requires_onboarding else RentalAsset.RENTED
+            asset_status = on_approval if desired_status == RentalApproval.APPROVED else RentalAsset.AVAILABLE
             RentalAsset.objects.filter(rental_lines__rental=approval.rental).update(status=asset_status)
             _record_event(approval.rental, RentalEvent.APPROVAL_DECIDED, approval=approval, metadata={"decision": desired_status, "source": RentalApproval.CUSTOMER})
             if desired_status == RentalApproval.APPROVED:
@@ -403,6 +408,9 @@ def approve_on_behalf(rental, user, reason):
                 raise ValidationError({"detail": "A cancelled or closed agreement cannot be approved."})
             if rental.approvals.filter(status=RentalApproval.APPROVED).exists():
                 raise RentalApprovalConflict()
+            from . import onboarding
+
+            onboarding.require_ready(rental)
             now = timezone.now()
             _expire_pending_links(rental, now)
             rental.approvals.filter(status=RentalApproval.PENDING).update(status=RentalApproval.REVOKED)
@@ -412,7 +420,8 @@ def approve_on_behalf(rental, user, reason):
             approval = RentalApproval.objects.create(rental=rental, version=version, snapshot=snapshot, status=RentalApproval.APPROVED, source=source, requested_by=user, decided_by=user, reason=reason, decided_at=now)
             rental.status = Rental.APPROVED
             rental.save(update_fields=["status"])
-            RentalAsset.objects.filter(rental_lines__rental=rental).update(status=RentalAsset.RENTED)
+            on_approval = RentalAsset.RESERVED if rental.requires_onboarding else RentalAsset.RENTED
+            RentalAsset.objects.filter(rental_lines__rental=rental).update(status=on_approval)
             _record_event(rental, RentalEvent.APPROVAL_DECIDED, actor=user, approval=approval, metadata={"decision": "approved", "source": source, "reason": reason})
             return approval
     except IntegrityError as exc:
@@ -435,6 +444,9 @@ def cancel_agreement(rental, user, reason):
     ).update(status=RentalAsset.AVAILABLE)
     rental.status = Rental.CANCELLED
     rental.save(update_fields=["status"])
+    from . import onboarding
+
+    onboarding.cancel_unpaid(rental, user, reason)
     _record_event(
         rental,
         RentalEvent.AGREEMENT_CANCELLED,
@@ -455,10 +467,14 @@ def close_agreement(rental, user, reason):
         raise ValidationError({"detail": "Only an approved or active agreement can be closed."})
     RentalAsset.objects.filter(
         rental_lines__rental=rental,
-        status=RentalAsset.RENTED,
+        status__in=(RentalAsset.RENTED, RentalAsset.RESERVED),
     ).update(status=RentalAsset.AVAILABLE)
     rental.status = Rental.CLOSED
     rental.save(update_fields=["status"])
+    from . import onboarding
+
+    if rental.requires_onboarding and not rental.checked_out_at:
+        onboarding.cancel_unpaid(rental, user, reason)  # it never went out, so nothing stays payable
     _record_event(
         rental,
         RentalEvent.AGREEMENT_CLOSED,

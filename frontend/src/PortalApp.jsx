@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
-  ShieldCheck, LogOut, Wrench, FileText, Star, Repeat2, Clock3, MapPin,
+  ShieldCheck, LogOut, Wrench, FileText, Star, Repeat2, Clock3, MapPin, MessageCircle, Send,
 } from "lucide-react";
 import { C, F, fmt, money, APP_NAME, APP_VERSION } from "./lib/theme";
 import { portalApi } from "./lib/portalApi";
@@ -171,6 +171,56 @@ function FeedbackForm({ onSubmitted }) {
   );
 }
 
+const CHAT_REFRESH_MS = 30000;
+
+/* The customer's chat with the team: staff read it in the CRM and answer here. */
+function PortalChat() {
+  const [messages, setMessages] = useState(null);
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const load = useCallback(() => portalApi.get("/portal/messages/").then(setMessages).catch(() => setMessages((rows) => rows || [])), []);
+  useEffect(() => {
+    load();
+    const timer = setInterval(load, CHAT_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [load]);
+  const send = async () => {
+    if (!body.trim() || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await portalApi.post("/portal/messages/", { body });
+      setBody("");
+      await load();
+    } catch (reason) {
+      setError(reason.message || "Couldn't send your message. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div>
+      <div className="max-h-72 space-y-2 overflow-y-auto">
+        {messages === null && <p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Loading{"\u2026"}</p>}
+        {messages?.length === 0 && <p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Ask us anything about your orders, repairs or rental. Our team will reply here.</p>}
+        {messages?.map((m) => (
+          <div key={m.id} className={`flex ${m.direction === "in" ? "justify-end" : "justify-start"}`}>
+            <p className="m-0 max-w-[85%] whitespace-pre-wrap break-words rounded-xl px-3 py-2 text-sm" style={m.direction === "in" ? { fontFamily: F.body, color: C.onAccent, backgroundColor: C.stamp } : { fontFamily: F.body, color: C.ink, backgroundColor: C.slip2 }}>{m.body}</p>
+          </div>
+        ))}
+      </div>
+      <label className="sr-only" htmlFor="portal-chat">Your message</label>
+      <textarea id="portal-chat" value={body} maxLength={2000} onChange={(e) => setBody(e.target.value)} rows={2} placeholder="Type your message"
+        className="mt-2 w-full resize-none bg-transparent px-3 py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }} />
+      {error && <p role="alert" className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.carbon }}>{error}</p>}
+      <button type="button" onClick={send} disabled={busy || !body.trim()} className="mt-2 flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase disabled:opacity-60" style={{ backgroundColor: C.stamp, color: C.onAccent, fontFamily: F.body, fontWeight: 600 }}>
+        <Send size={12} /> {busy ? "Sending\u2026" : "Send"}
+      </button>
+    </div>
+  );
+}
+
 function PortalDashboard({ party, accessLogId, onLogout }) {
   const [rentals, setRentals] = useState(null);
   const [invoices, setInvoices] = useState(null);
@@ -233,6 +283,10 @@ function PortalDashboard({ party, accessLogId, onLogout }) {
               <p className="text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{fmt(w.start_date)} \u2192 {fmt(w.end_date)} \u00b7 {w.status}</p>
             </div>
           )) : <p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>No warranty on file.</p>}
+        </Section>
+
+        <Section title="Message us" icon={MessageCircle}>
+          <PortalChat />
         </Section>
 
         <Section title="Leave feedback" icon={Star}>

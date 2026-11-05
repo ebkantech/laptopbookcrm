@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
-import { CheckCircle2, Copy, ExternalLink, FileCheck2, Plus, Send, ShieldCheck, Trash2 } from "lucide-react";
+import { CheckCircle2, FileCheck2, Plus, Send, ShieldCheck, Trash2 } from "lucide-react";
 
 import { ErrorNote, Eyebrow, Pill } from "../Atoms";
 import { api } from "../../lib/api";
+import ApprovalLinkCard from "./ApprovalLinkCard";
 import { LINE_GRID, LineHeader } from "./ManualLines";
 import { badCost, costField } from "./bookingModel";
 import { C, F, money } from "../../lib/theme";
@@ -88,10 +89,6 @@ export default function EstimateApprovalPanel({ ticket, services, canManage, can
     finally { setBusy(""); }
   };
 
-  const copy = async (value) => {
-    try { await navigator.clipboard.writeText(value); } catch { setError("Copy the link manually from the box below."); }
-  };
-
   return (
     <section className="mt-5 p-3" data-panel style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip2 }}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -141,7 +138,7 @@ export default function EstimateApprovalPanel({ ticket, services, canManage, can
 
       {estimate && !approved && canApprove && canManage && !editing && <button onClick={generateLink} disabled={busy === "link" || !combinedReady} className="mt-3 flex w-full items-center justify-center gap-1.5 py-2 text-xs uppercase" style={{ backgroundColor: C.green, color: C.onAccent, fontFamily: F.body, fontWeight: 600, opacity: busy === "link" || !combinedReady ? 0.55 : 1, cursor: !combinedReady ? "not-allowed" : "pointer" }}><Send size={13} /> {busy === "link" ? "Generating…" : isBulk ? "Generate combined 24-hour link" : "Generate 24-hour approval link"}</button>}
 
-      {links && <div className="mt-3 space-y-2"><input readOnly value={links.approval_url} className="w-full px-2 py-1.5 text-xs" style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip }} /><div className={`grid gap-2 ${links.whatsapp_url ? "grid-cols-2" : "grid-cols-1"}`}><button onClick={() => copy(links.approval_url)} className="flex items-center justify-center gap-1 py-2 text-xs" style={{ border: `1px solid ${C.rule}` }}><Copy size={13} /> Copy direct link</button>{links.whatsapp_url && <a href={links.whatsapp_url} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-1 py-2 text-xs" style={{ backgroundColor: C.green, color: C.onAccent }}><ExternalLink size={13} /> Open WhatsApp</a>}</div></div>}
+      {links && <ApprovalLinkCard key={links.approval_url} approval={{ url: links.approval_url, whatsapp_url: links.whatsapp_url, whatsapp_provider: links.whatsapp_provider, send_path: links.send_path, expires_at: links.expires_at, total: estimate?.total_amount }} onClose={() => setLinks(null)} />}
 
       {estimate && !approved && canApprove && !editing && <div className="mt-3 border-t pt-3" style={{ borderColor: C.rule }}><label className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Admin/Super Admin approval reason</label><textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={2} maxLength={500} className="mt-1 w-full px-2 py-1.5 text-xs" style={{ border: `1px solid ${C.rule}` }} /><button onClick={approveOnBehalf} disabled={busy === "approve" || !combinedReady} className="mt-2 flex w-full items-center justify-center gap-1.5 py-2 text-xs uppercase" style={{ backgroundColor: C.blue, color: C.onAccent, fontFamily: F.body, fontWeight: 600, opacity: busy === "approve" || !combinedReady ? 0.55 : 1, cursor: !combinedReady ? "not-allowed" : "pointer" }}><ShieldCheck size={13} /> {busy === "approve" ? "Recording…" : "Approve on behalf"}</button></div>}
       {approved && <p className="mt-3 flex items-center gap-1.5 text-xs" style={{ fontFamily: F.body, color: C.green }}><CheckCircle2 size={14} /> Approved estimate snapshot is locked for this workflow.</p>}

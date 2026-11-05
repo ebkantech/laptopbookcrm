@@ -6,6 +6,7 @@ on_invoice_paid(), which tells the originating module.
 """
 import re
 from datetime import timedelta
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -16,6 +17,15 @@ INVOICE_PREFIX = "INV-"
 _CODE_RE = re.compile(r"^INV-(\d+)$")
 # Continue on from the numbering the business already used.
 FIRST_INVOICE_NUMBER = 3321
+
+
+def discount_amount(subtotal, percent):
+    """Rupees off a subtotal, to the nearest rupee."""
+    return int((Decimal(subtotal) * Decimal(percent) / 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def discounted(subtotal, percent):
+    return subtotal - discount_amount(subtotal, percent)
 
 
 def next_invoice_code():
@@ -53,6 +63,16 @@ def create_invoice(*, lines, **fields):
     raise RuntimeError("unreachable")
 
 
+def _close_open_links(invoice):
+    """Paid in cash or by any other route: the link still out must not take the money twice."""
+    from .models import PaymentLink
+    from .payments import cancel_provider_link
+
+    for link in invoice.payment_links.filter(status=PaymentLink.SENT):
+        cancel_provider_link(link)
+    invoice.payment_links.filter(status=PaymentLink.SENT).update(status=PaymentLink.CANCELLED)
+
+
 def on_invoice_paid(invoice):
     """Called once an invoice has just been marked paid, by any route."""
     from accounting.posting import post_invoice_payment
@@ -60,6 +80,7 @@ def on_invoice_paid(invoice):
     from .models import Invoice
 
     post_invoice_payment(invoice)
+    _close_open_links(invoice)
 
     if invoice.source == Invoice.SALE:
         from warranty import services as warranty_services
@@ -69,7 +90,7 @@ def on_invoice_paid(invoice):
         from repairs.billing import on_repair_invoice_paid
 
         on_repair_invoice_paid(invoice)
-    if invoice.source == Invoice.RENTAL and invoice.rental_id:
+    if invoice.source == Invoice.RENTAL and invoice.rental_id and not invoice.is_deposit:
         from rentals.billing import on_rent_invoice_paid
 
         on_rent_invoice_paid(invoice)
@@ -192,7 +213,7 @@ def refund_invoice(invoice, user, *, method, reference="", reason="", refunded_o
 
     returned = []
     if invoice.source == Invoice.SALE:
-        lines = {item.id: item for item in invoice.items.all()}
+        lines = {item.id: item for item in invoice.items.all() if item.item_kind != item.DISCOUNT}
         wanted, serial_picks = {}, {}
         for row in items or []:
             try:
@@ -224,7 +245,7 @@ def refund_invoice(invoice, user, *, method, reference="", reason="", refunded_o
             except DRFValidationError as e:
                 detail = e.detail.get("detail") if isinstance(e.detail, dict) else e.detail
                 raise RefundError(str(detail[0] if isinstance(detail, list) else detail))
-        amount = sum(item.price * qty for item, qty in returned)
+        amount = discounted(sum(item.price * qty for item, qty in returned), invoice.discount_percent)
     else:
         try:
             amount = int(amount)
@@ -233,6 +254,8 @@ def refund_invoice(invoice, user, *, method, reference="", reason="", refunded_o
     if amount <= 0:
         raise RefundError("The refund amount must be more than zero.")
     left = invoice.total - invoice.refunded_total
+    if returned and invoice.discount_percent:
+        amount = min(amount, left)  # rounding must never ask for a rupee more than was paid
     if amount > left:
         raise RefundError(f"Only ₹{left} is left to refund on this invoice.")
 

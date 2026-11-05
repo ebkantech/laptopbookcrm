@@ -1,9 +1,10 @@
 from rest_framework import serializers
 
 from parties.models import Party
-from rentals.models import Rental
+from rentals import onboarding
+from rentals.models import Rental, RentalIssue
 from repairs.models import RepairTicket
-from sales.models import Invoice
+from sales.models import Invoice, PaymentLink
 from sales.documents import CURRENCY, pdf_available
 from sales.serializers import InvoiceSerializer
 from warranty.models import Warranty
@@ -20,10 +21,14 @@ class PortalPartySerializer(serializers.ModelSerializer):
     """
     type = serializers.SerializerMethodField()
     portal_access_ends_at = serializers.SerializerMethodField()
+    repair_only = serializers.SerializerMethodField()
 
     class Meta:
         model = Party
-        fields = ["id", "name", "phone", "email", "city", "joined", "type", "portal_access_ends_at"]
+        fields = ["id", "name", "phone", "email", "city", "joined", "type", "portal_access_ends_at", "repair_only"]
+
+    def get_repair_only(self, obj):
+        return access.repair_only(obj)
 
     def get_type(self, obj):
         return access.account_type(obj)
@@ -36,21 +41,36 @@ class PortalPartySerializer(serializers.ModelSerializer):
         return serializers.DateTimeField().to_representation(ends_at) if ends_at else None
 
 
+def payment_url(invoice):
+    """The link staff sent for a bill that is still owed. Paid or cancelled bills never carry one."""
+    if invoice.status not in Invoice.OUTSTANDING:
+        return None
+    for link in invoice.payment_links.all():  # newest first
+        if link.status == PaymentLink.SENT and link.url.startswith("https://"):
+            return link.url
+    return None
+
+
 class PortalInvoiceSerializer(serializers.ModelSerializer):
-    """Customer-safe invoice fields only: no staff names, cancel reasons, payment links or refunds detail."""
+    """Customer-safe invoice fields only: no staff names, cancel reasons or refunds detail. The one
+    payment field is the customer's own link to pay a bill still owed, never the link records."""
     stock_point_name = serializers.CharField(source="stock_point.name", read_only=True)
     total = serializers.IntegerField(read_only=True)
     currency = serializers.SerializerMethodField()
     reference = serializers.SerializerMethodField()
     pdf_available = serializers.SerializerMethodField()
     items = serializers.SerializerMethodField()
+    payment_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Invoice
         fields = [
             "id", "code", "source", "reference", "date", "due_date", "paid_on", "status", "stock_point_name",
-            "period_start", "period_end", "total", "currency", "pdf_available", "items",
+            "period_start", "period_end", "total", "currency", "pdf_available", "items", "payment_url",
         ]
+
+    def get_payment_url(self, obj):
+        return payment_url(obj)
 
     def get_currency(self, obj):
         return CURRENCY
@@ -79,18 +99,29 @@ class PortalInvoiceDetailSerializer(PortalInvoiceSerializer):
 class PortalRepairInvoiceSerializer(serializers.ModelSerializer):
     ticket_code = serializers.CharField(source="repair_ticket.code", read_only=True)
     amount = serializers.IntegerField(source="total", read_only=True)
+    payment_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Invoice
-        fields = ["id", "code", "ticket_code", "amount", "status", "date"]
+        fields = ["id", "code", "ticket_code", "amount", "status", "date", "payment_url"]
+
+    def get_payment_url(self, obj):
+        return payment_url(obj)
 
 
 class PortalRepairTicketSerializer(serializers.ModelSerializer):
     services = serializers.SerializerMethodField()
+    store_name = serializers.CharField(source="stock_point.name", read_only=True)
+    stages = serializers.SerializerMethodField()
 
     class Meta:
         model = RepairTicket
-        fields = ["id", "code", "brand", "model_name", "issue", "status", "received", "expected", "services"]
+        fields = ["id", "code", "brand", "model_name", "issue", "status", "received", "expected", "services",
+                  "store_name", "stages"]
+
+    def get_stages(self, obj):
+        """The steps a job passes through, in order, for the progress display."""
+        return RepairTicket.STAGES
 
     def get_services(self, obj):
         return [s.label for s in obj.services.all()]
@@ -102,6 +133,12 @@ class PortalRentalSerializer(serializers.ModelSerializer):
     end_date = serializers.SerializerMethodField()
     total_monthly_fee = serializers.IntegerField(read_only=True)
     devices = serializers.SerializerMethodField()
+    laptop_status = serializers.SerializerMethodField()
+    security_deposit = serializers.SerializerMethodField()
+    advance = serializers.SerializerMethodField()
+    payments_due = serializers.SerializerMethodField()
+    payment_history = serializers.SerializerMethodField()
+    signed_agreement_uploaded_at = serializers.SerializerMethodField()
 
     class Meta:
         # deliberately NOT exposing churn_score/churn_band/late_count/tickets --
@@ -110,6 +147,8 @@ class PortalRentalSerializer(serializers.ModelSerializer):
         fields = [
             "id", "agreement_code", "status", "product_label", "monthly_fee", "total_monthly_fee", "start",
             "tenure_months", "end_date", "months_paid", "next_payment_date", "next_payment_overdue", "devices",
+            "laptop_status", "security_deposit", "advance", "payments_due", "payment_history",
+            "signed_agreement_uploaded_at",
         ]
 
     def get_end_date(self, obj):
@@ -121,6 +160,68 @@ class PortalRentalSerializer(serializers.ModelSerializer):
             {"description": line.description, "serial_number": line.asset.serial_number, "monthly_fee": line.monthly_fee}
             for line in obj.lines.all()
         ]
+
+    def get_laptop_status(self, obj):
+        return onboarding.laptop_status(obj)
+
+    @staticmethod
+    def _held(invoice):
+        """A deposit or advance as the customer sees it. Part refunds keep the invoice Paid."""
+        if invoice is None:
+            return None
+        return {
+            "code": invoice.code, "amount": invoice.total, "status": invoice.status, "paid_on": invoice.paid_on,
+            "refunded": invoice.refunded_total, "payment_url": payment_url(invoice),
+        }
+
+    def get_security_deposit(self, obj):
+        return self._held(onboarding.deposit_invoice(obj))
+
+    def get_advance(self, obj):
+        return self._held(onboarding.advance_invoice(obj))
+
+    def get_signed_agreement_uploaded_at(self, obj):
+        """When the signed copy went on file; null means the portal has nothing to offer."""
+        if not obj.signed_agreement:
+            return None
+        return serializers.DateTimeField().to_representation(obj.signed_uploaded_at) if obj.signed_uploaded_at else None
+
+    @staticmethod
+    def _payment_label(invoice):
+        if invoice.is_deposit:
+            return "Security deposit"
+        if invoice.is_advance:
+            return "Advance rent"
+        if invoice.period_start and invoice.period_end:
+            return f"Rent {invoice.period_start:%d %b %Y} to {invoice.period_end:%d %b %Y}"
+        return "Rent"
+
+    def get_payment_history(self, obj):
+        paid = obj.invoices.filter(status__in=Invoice.SETTLED).order_by("-paid_on", "-id")
+        return [
+            {"id": invoice.id, "code": invoice.code, "label": self._payment_label(invoice), "amount": invoice.total,
+             "paid_on": invoice.paid_on, "pay_method": invoice.pay_method, "status": invoice.status,
+             "refunded": invoice.refunded_total}
+            for invoice in paid.prefetch_related("items", "refunds")
+        ]
+
+    def get_payments_due(self, obj):
+        due = obj.invoices.filter(status__in=Invoice.OUTSTANDING).order_by("due_date", "id")
+        return [
+            {"id": invoice.id, "code": invoice.code, "amount": invoice.total, "due_date": invoice.due_date,
+             "status": invoice.status, "payment_url": payment_url(invoice)}
+            for invoice in due.prefetch_related("items", "payment_links")
+        ]
+
+
+class PortalIssueSerializer(serializers.ModelSerializer):
+    """An issue as its customer sees it: never who it is assigned to."""
+    agreement_code = serializers.CharField(source="rental.agreement_code", read_only=True)
+
+    class Meta:
+        model = RentalIssue
+        fields = ["id", "rental", "agreement_code", "title", "description", "status", "raised_at", "resolved_at"]
+        read_only_fields = fields
 
 
 class PortalWarrantySerializer(serializers.ModelSerializer):

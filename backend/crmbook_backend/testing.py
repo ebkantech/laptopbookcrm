@@ -39,6 +39,17 @@ def assign_store(stock_point, *users):
         user.save(update_fields=["stock_point"])
 
 
+def verify_kyc(party, user):
+    """Mark the IDs a rental customer needs as checked against the originals."""
+    from django.utils import timezone
+
+    from parties.models import PartyIdDocument
+
+    for id_type in (PartyIdDocument.AADHAAR, PartyIdDocument.PAN):
+        PartyIdDocument.objects.create(party=party, id_type=id_type, number="TEST", status=PartyIdDocument.VERIFIED,
+                                       consent_at=timezone.now(), consent_by=user)
+
+
 def client_for(user):
     client = APIClient()
     client.force_authenticate(user)
@@ -75,3 +86,11 @@ def complete_handover(line, user=None, accessories=None):
             image=SimpleUploadedFile(f"{kind}.jpg", FAKE_JPEG, content_type="image/jpeg"),
         )
     return line
+
+
+def give_out(ticket, user):
+    """A repair job given to staff who have already reported on it, ready to be worked."""
+    from django.utils import timezone
+
+    type(ticket).objects.filter(pk=ticket.pk).update(assigned_to=user, diagnosed_at=timezone.now())
+    ticket.refresh_from_db()

@@ -10,7 +10,8 @@ from django.db.models import Max
 from django.utils import timezone
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 
-from crmbook_backend.notify import notify_staff
+from crmbook_backend.notify import notify_staff, send_whatsapp, whatsapp_provider, whatsapp_template
+from parties.models import Message
 from .models import (
     DEFAULT_APPROVAL_TERMS,
     Notification,
@@ -134,6 +135,106 @@ def finalize_estimate(ticket, user, lines, terms="", revision=False):
 
 
 @transaction.atomic
+def approval_link_message(estimate, ticket, approval_url):
+    """The customer text for a link: the manual wa.me button and the API send say the same."""
+    return (
+        f"Hello {estimate.customer_name}, please review the final repair estimate for {ticket.code} "
+        f"(INR {estimate.total_amount}). This secure link is valid for 24 hours: {approval_url}"
+    )
+
+
+def order_link_message(order, approval_url):
+    return (
+        f"Hello {order.party.name}, please review the repair estimate for order {order.code}. "
+        f"This secure link is valid for 24 hours: {approval_url}"
+    )
+
+
+def log_whatsapp(party, text):
+    """Keep what was meant for the customer on their WhatsApp thread, so staff
+    can copy it from Chat on WhatsApp even when nothing could be sent."""
+    Message.objects.create(party=party, channel=Message.WHATSAPP, direction=Message.OUT, body=text)
+
+
+def _raw_token(approval_url):
+    token = (approval_url or "").rstrip("/").rsplit("/", 1)[-1]
+    if not token or len(token) > 200:
+        raise ValidationError({"detail": "That isn't an approval link for this job."})
+    return token
+
+
+def _deliver_link(party, reference, approval_url, message, event, user):
+    """Send a link staff already hold, once. The outcome is kept on the link's
+    "approval link created" event, so a double click can't message the
+    customer twice. Uses the WHATSAPP_TEMPLATE_REPAIR_APPROVAL template when
+    configured (body {{1}} customer name, {{2}} job or order code, {{3}} link);
+    otherwise free text, which Meta only accepts inside the 24-hour window."""
+    previous = (event.metadata or {}).get("whatsapp_api") if event else None
+    if previous and previous.get("status") == "sent":
+        raise ApprovalConflict("This link was already sent through WhatsApp.")
+    template = whatsapp_template("repair_approval", [party.name, reference, approval_url])
+    result = send_whatsapp(party.phone, message, template=template)
+    delivery = {
+        "status": result.get("status"), "provider": whatsapp_provider(), "provider_id": result.get("provider_id"),
+        "template": template["name"] if template else None, "reason": result.get("reason"),
+        "error_code": result.get("error_code"),
+    }
+    if event:
+        record = {**delivery, "at": timezone.now().isoformat(), "by": user.pk if user else None}
+        event.metadata = {**(event.metadata or {}), "whatsapp_api": record}
+        event.save(update_fields=["metadata"])
+    if result.get("provider_id"):
+        from portal.models import WhatsAppDeliveryLog
+
+        WhatsAppDeliveryLog.objects.create(party=party, provider_message_id=result["provider_id"], status=WhatsAppDeliveryLog.SENT)
+    return delivery
+
+
+@transaction.atomic
+def send_approval_link_whatsapp(ticket, approval_url, user):
+    """Send the link staff got from issue_approval_link. Only its hash is
+    stored, so the link is passed back and checked against this job's current
+    pending approval: staff can't use this to send anything else."""
+    raw_token = _raw_token(approval_url)
+    approval = (
+        RepairApproval.objects.select_for_update(of=("self",)).select_related("estimate__ticket__party")
+        .filter(estimate__ticket=ticket, token_hash=approval_token_hash(raw_token)).first()
+    )
+    if not approval:
+        raise ValidationError({"detail": "That isn't an approval link for this job."})
+    if approval.effective_status != RepairApproval.PENDING:
+        raise ValidationError({"detail": "This approval link is no longer active. Generate a new one."})
+    estimate, ticket = approval.estimate, approval.estimate.ticket
+    url = build_approval_url(raw_token)
+    event = (
+        RepairTicketEvent.objects.select_for_update()
+        .filter(ticket=ticket, estimate=estimate, event_type=RepairTicketEvent.APPROVAL_LINK_CREATED)
+        .order_by("-id").first()
+    )
+    return _deliver_link(ticket.party, ticket.code, url, approval_link_message(estimate, ticket, url), event, user)
+
+
+@transaction.atomic
+def send_order_approval_link_whatsapp(order, approval_url, user):
+    """The same for a bulk order's combined link."""
+    raw_token = _raw_token(approval_url)
+    approval = (
+        RepairOrderApproval.objects.select_for_update(of=("self",)).select_related("order__party")
+        .filter(order=order, token_hash=approval_token_hash(raw_token)).first()
+    )
+    if not approval:
+        raise ValidationError({"detail": "That isn't an approval link for this order."})
+    if approval.effective_status != RepairOrderApproval.PENDING:
+        raise ValidationError({"detail": "This approval link is no longer active. Generate a new one."})
+    url = build_order_approval_url(raw_token)
+    event = (
+        RepairTicketEvent.objects.select_for_update()
+        .filter(ticket__order=order, event_type=RepairTicketEvent.APPROVAL_LINK_CREATED, metadata__version=approval.version)
+        .order_by("id").first()
+    )
+    return _deliver_link(order.party, order.code, url, order_link_message(order, url), event, user)
+
+
 def issue_approval_link(ticket, user):
     ticket = RepairTicket.objects.select_for_update().select_related("party").get(pk=ticket.pk)
     estimate = _current_estimate(ticket)
@@ -151,7 +252,8 @@ def issue_approval_link(ticket, user):
         sent_to_phone=estimate.customer_phone, requested_by=user, created_at=now, expires_at=now + APPROVAL_LINK_TTL,
     )
     approval_url = build_approval_url(raw_token)
-    message = f"Hello {estimate.customer_name}, please review the final repair estimate for {ticket.code} (INR {estimate.total_amount}). This secure link is valid for 24 hours: {approval_url}"
+    message = approval_link_message(estimate, ticket, approval_url)
+    log_whatsapp(ticket.party, message)
     Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=f"Secure approval link generated for {ticket.code}; valid for 24 hours.")
     _record_event(ticket, RepairTicketEvent.APPROVAL_LINK_CREATED, actor=user, estimate=estimate, metadata={"expires_at": approval.expires_at.isoformat(), "channel": "whatsapp"})
     return approval, approval_url, build_whatsapp_url(estimate.customer_phone, message)
@@ -375,7 +477,9 @@ def issue_order_approval_link(order, user):
                 "expires_at": approval.expires_at.isoformat(),
             },
         )
-    return approval, build_order_approval_url(raw_token)
+    url = build_order_approval_url(raw_token)
+    log_whatsapp(order.party, order_link_message(order, url))
+    return approval, url
 
 
 def get_public_order_approval(raw_token, for_update=False):

@@ -6,6 +6,7 @@ from datetime import timedelta
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
 from django.db.models import F, Q
+from django.http import FileResponse, HttpResponse
 from django.utils import timezone
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
@@ -18,9 +19,12 @@ from accounts.models import User
 from accounts.permissions import HasPerm
 from accounts.store_scope import StoreScope, StoreScopedMixin
 from crmbook_backend.notify import whatsapp_provider
+from parties.kyc import check_file
 from catalog.models import Stock, StockPoint
 from catalog.status import require_active
 
+from . import onboarding
+from .documents import render_agreement_pdf
 from .billing import RentBillingError, period_months, raise_rent_invoice, send_due_rent_invoices, set_payment_plan, too_early_to_raise
 from .models import Rental, RentalApproval, RentalAsset, RentalEvent, RentalIssue, RentalLine
 from .scope import rental_queryset_for
@@ -78,6 +82,8 @@ class RentalViewSet(viewsets.ModelViewSet):
         "close": "rentals.manage", "raise_invoice": "rentals.manage",
         "approval_history": "rentals.view",
         "payment_plan": "rentals.manage", "payment_ledger": "rentals.view",
+        "raise_onboarding": "rentals.manage", "checkout": "rentals.manage", "agreement_pdf": "rentals.view",
+        "upload_signed_agreement": "rentals.manage", "signed_agreement_file": "rentals.view",
     }
 
     def get_queryset(self):
@@ -152,6 +158,7 @@ class RentalViewSet(viewsets.ModelViewSet):
         renewed = data.get("renews")
         if renewed and not rental_queryset_for(scope, Rental.objects.filter(pk=renewed.pk)).exists():
             raise ValidationError({"renews": "That agreement isn't at your store."})
+        onboarding.require_kyc(data["party"])
         with transaction.atomic():
             old = data.pop("renews", None)
             if old:
@@ -184,6 +191,8 @@ class RentalViewSet(viewsets.ModelViewSet):
                 terms=data.get("terms", ""),
                 payment_interval_months=data["payment_interval_months"],
                 auto_invoice=data["auto_invoice"],
+                requires_onboarding=True,
+                renews=old,
             )
             rental.agreement_code = f"RNT-{rental.pk:06d}"
             rental.save(update_fields=["agreement_code"])
@@ -199,10 +208,70 @@ class RentalViewSet(viewsets.ModelViewSet):
                 metadata={"rental_type": "bulk" if len(lines) >= 2 else "single", "line_count": len(lines),
                           **({"renews": old.agreement_code} if old else {})},
             )
+            raised = onboarding.ensure_invoices(rental)
+        onboarding.send_invoices(rental, raised, request.user)
         return Response(RentalSerializer(self._fresh(rental)).data, status=201)
 
     def _fresh(self, rental):
         return self.get_queryset().get(pk=rental.pk)
+
+    @action(detail=True, methods=["post"], url_path="raise-onboarding")
+    def raise_onboarding(self, request, pk=None):
+        """Raise the deposit or advance invoice again after one was cancelled."""
+        rental = self.get_object()
+        if rental.status not in onboarding.BEFORE_CHECKOUT or rental.checked_out_at:
+            raise ValidationError({"detail": "This agreement is past that step."})
+        with transaction.atomic():
+            raised = onboarding.ensure_invoices(rental)
+        onboarding.send_invoices(rental, raised, request.user)
+        return Response(RentalSerializer(self._fresh(rental)).data)
+
+    @action(detail=True, methods=["post"])
+    def checkout(self, request, pk=None):
+        """Hand the device to the customer once approval and payment are done."""
+        return Response(RentalSerializer(self._fresh(onboarding.checkout(self.get_object(), request.user))).data)
+
+    @action(detail=True, methods=["get"], url_path="agreement-pdf")
+    def agreement_pdf(self, request, pk=None):
+        rental = self.get_object()
+        try:
+            pdf = render_agreement_pdf(rental)
+        except ImportError:
+            return Response({"detail": "PDF generation isn't available on this server."}, status=503)
+        response = HttpResponse(pdf, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{rental.agreement_code or rental.pk}-agreement.pdf"'
+        response["Cache-Control"] = "no-store, private"
+        return response
+
+    @action(detail=True, methods=["post"], url_path="signed-agreement")
+    def upload_signed_agreement(self, request, pk=None):
+        """Keep the signed copy: a PDF or a photo, replacing any earlier upload."""
+        rental = self.get_object()
+        upload = request.FILES.get("file")
+        if not upload:
+            raise ValidationError({"file": "Choose the signed agreement file."})
+        kind, name = check_file(upload)
+        previous = rental.signed_agreement.name if rental.signed_agreement else ""
+        rental.signed_content_type, rental.signed_name = kind, name
+        rental.signed_agreement = upload
+        rental.signed_uploaded_at, rental.signed_uploaded_by = timezone.now(), request.user
+        rental.save(update_fields=["signed_agreement", "signed_content_type", "signed_name", "signed_uploaded_at", "signed_uploaded_by"])
+        RentalEvent.objects.create(rental=rental, event_type=RentalEvent.SIGNED_AGREEMENT_UPLOADED, actor=request.user,
+                                   metadata={"file": name, "replaced_earlier": bool(previous)})
+        if previous:
+            rental.signed_agreement.storage.delete(previous)
+        return Response(RentalSerializer(self._fresh(rental)).data, status=201)
+
+    @action(detail=True, methods=["get"], url_path="signed-agreement/file")
+    def signed_agreement_file(self, request, pk=None):
+        rental = self.get_object()
+        if not rental.signed_agreement:
+            raise NotFound("No signed agreement has been uploaded.")
+        response = FileResponse(rental.signed_agreement.open("rb"), content_type=rental.signed_content_type)
+        response["Content-Disposition"] = f'attachment; filename="{rental.agreement_code or rental.pk}-signed{os.path.splitext(rental.signed_name)[1]}"'
+        response["Cache-Control"] = "no-store, private"
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
 
     @action(detail=True, methods=["post"], url_path="approval-link")
     def approval_link(self, request, pk=None):
@@ -316,7 +385,7 @@ class RentalViewSet(viewsets.ModelViewSet):
         # store staff only see the rentals of their own store (same rule as the Rentals list)
         scope = StoreScope(request.user)
         visible = rental_queryset_for(scope, Rental.objects.all())
-        qs = Invoice.objects.filter(source=Invoice.RENTAL).select_related("party", "rental", "settled_by").prefetch_related("items")
+        qs = Invoice.objects.filter(source=Invoice.RENTAL, is_deposit=False).select_related("party", "rental", "settled_by").prefetch_related("items")
         if not scope.all:
             qs = qs.filter(rental__in=visible)
         for param, lookup in (("party", "party_id"), ("rental", "rental_id"), ("from", "date__gte"), ("to", "date__lte")):

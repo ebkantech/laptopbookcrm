@@ -1,8 +1,11 @@
+import os
 import re
 import uuid
 
 from django.conf import settings
-from django.http import HttpResponse
+from django.db import transaction
+from django.db.models import F
+from django.http import FileResponse, HttpResponse
 from django.core.exceptions import ValidationError
 from rest_framework import permissions, viewsets
 from rest_framework.exceptions import Throttled
@@ -10,10 +13,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import HasPerm
-from accounts.throttling import OTPResendInviteThrottle, OTPResendThrottle, OTPVerifyThrottle, PortalPdfThrottle
+from accounts.throttling import OTPResendInviteThrottle, OTPResendThrottle, OTPVerifyThrottle, PortalIssueThrottle, PortalMessageThrottle, PortalPdfThrottle
 from crmbook_backend.notify import notify_staff
 from parties.models import Message, Party
-from rentals.models import Rental
+from rentals.models import Rental, RentalIssue
 from repairs.models import RepairTicket
 from sales.documents import pdf_available, render_invoice_pdf
 from sales.models import Invoice
@@ -21,6 +24,7 @@ from warranty.models import Warranty
 from .auth import IsPortalCustomer, PortalTokenAuthentication, issue_portal_token
 from .models import Feedback, PortalAccessLog, PortalInvite, WhatsAppDeliveryLog
 from .serializers import (
+    PortalIssueSerializer,
     FeedbackSerializer, PortalAccessLogSerializer, PortalInvoiceDetailSerializer, PortalInvoiceSerializer, PortalInviteSerializer,
     PortalPartySerializer,
     PortalRentalSerializer, PortalRepairInvoiceSerializer, PortalRepairTicketSerializer, PortalWarrantySerializer,
@@ -314,7 +318,7 @@ def _own_invoices(request):
     return (
         Invoice.objects.filter(party=request.party)
         .select_related("stock_point", "party", "repair_ticket", "rental")
-        .prefetch_related("items__variant__product", "refunds")
+        .prefetch_related("items__variant__product", "refunds", "payment_links")
     )
 
 
@@ -376,8 +380,8 @@ class PortalRepairsView(APIView):
     permission_classes = [IsPortalCustomer]
 
     def get(self, request):
-        tickets = RepairTicket.objects.filter(party=request.party).prefetch_related("services")
-        invoices = Invoice.objects.filter(party=request.party, source=Invoice.REPAIR).select_related("repair_ticket").prefetch_related("items")
+        tickets = RepairTicket.objects.filter(party=request.party).select_related("stock_point").prefetch_related("services")
+        invoices = Invoice.objects.filter(party=request.party, source=Invoice.REPAIR).select_related("repair_ticket").prefetch_related("payment_links").prefetch_related("items")
         return Response({
             "tickets": PortalRepairTicketSerializer(tickets, many=True).data,
             "invoices": PortalRepairInvoiceSerializer(invoices, many=True).data,
@@ -392,9 +396,73 @@ class PortalRentalsView(APIView):
         # drafts are staff working copies the customer has never been shown
         qs = (
             Rental.objects.filter(party=request.party).exclude(status=Rental.DRAFT)
-            .prefetch_related("lines__asset")
+            .select_related("party").prefetch_related("lines__asset")
         )
         return Response(PortalRentalSerializer(qs, many=True).data)
+
+
+class PortalSignedAgreementView(APIView):
+    """The signed copy of the customer's own agreement. It is looked up within
+    request.party and streamed from here: no stored-file URL is ever exposed."""
+    authentication_classes = [PortalTokenAuthentication]
+    permission_classes = [IsPortalCustomer]
+    throttle_classes = [PortalPdfThrottle]
+
+    def perform_content_negotiation(self, request, force=False):
+        # the file isn't JSON; errors still go out as JSON
+        return super().perform_content_negotiation(request, force=True)
+
+    def get(self, request, rental_id):
+        rental = Rental.objects.filter(pk=rental_id, party=request.party).exclude(status=Rental.DRAFT).first()
+        if not rental or not rental.signed_agreement:
+            return Response({"detail": "No signed copy of this agreement is on file.", "code": "agreement_not_found"}, status=404)
+        ext = os.path.splitext(rental.signed_agreement.name)[1]
+        label = re.sub(r"[^A-Za-z0-9._-]+", "-", rental.agreement_code or f"Agreement-{rental.pk}").strip("-.")
+        response = FileResponse(rental.signed_agreement.open("rb"), content_type=rental.signed_content_type)
+        response["Content-Disposition"] = f'attachment; filename="{label}-signed{ext}"'
+        response["Cache-Control"] = "no-store, private"
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
+
+
+class PortalIssuesView(APIView):
+    """
+    Issues a customer raises about their rented laptop. They land in the same
+    list staff work from on the rental. The agreement is always looked up
+    within request.party, so one customer can't reach another's.
+    """
+    authentication_classes = [PortalTokenAuthentication]
+    permission_classes = [IsPortalCustomer]
+    MAX_DESCRIPTION = 2000
+
+    def get_throttles(self):
+        return [PortalIssueThrottle()] if self.request.method == "POST" else []
+
+    def get(self, request):
+        issues = RentalIssue.objects.filter(rental__party=request.party).select_related("rental")
+        return Response(PortalIssueSerializer(issues, many=True).data)
+
+    def post(self, request):
+        title = str(request.data.get("title") or "").strip()
+        description = str(request.data.get("description") or "").strip()
+        if not title:
+            return Response({"detail": "Tell us briefly what the problem is."}, status=400)
+        if len(title) > RentalIssue._meta.get_field("title").max_length:
+            return Response({"detail": "Keep the summary short. Add the details below it."}, status=400)
+        if len(description) > self.MAX_DESCRIPTION:
+            return Response({"detail": f"Keep the details under {self.MAX_DESCRIPTION:,} characters."}, status=400)
+        rental_id = request.data.get("rental")
+        rental = None
+        if str(rental_id or "").isdigit():
+            rental = Rental.objects.filter(
+                pk=int(rental_id), party=request.party, status__in=access.QUALIFYING_RENTAL_STATUSES,
+            ).first()
+        if rental is None:
+            return Response({"detail": "Choose one of your running rental agreements."}, status=400)
+        with transaction.atomic():
+            issue = RentalIssue.objects.create(rental=rental, title=title, description=description)
+            Rental.objects.filter(pk=rental.pk).update(tickets=F("tickets") + 1)
+        return Response(PortalIssueSerializer(issue).data, status=201)
 
 
 class PortalWarrantiesView(APIView):
@@ -429,3 +497,33 @@ class PortalFeedbackView(APIView):
                 + (f": “{feedback.comment}”" if feedback.comment else " (no comment left)."),
             )
         return Response(serializer.data, status=201)
+
+
+class PortalMessagesView(APIView):
+    """
+    Customer portal chat. A customer reads and writes only their own party's
+    portal thread (request.party, never a value from the request), and only
+    staff answer: nothing automated replies here. See docs/COPILOT.md.
+    """
+    authentication_classes = [PortalTokenAuthentication]
+    permission_classes = [IsPortalCustomer]
+    MAX_LENGTH = 2000
+
+    def get_throttles(self):
+        return [PortalMessageThrottle()] if self.request.method == "POST" else []
+
+    def _row(self, message):
+        return {"id": message.id, "direction": message.direction, "body": message.body, "at": message.at}
+
+    def get(self, request):
+        rows = Message.objects.filter(party=request.party, channel=Message.PORTAL, deleted_at__isnull=True).order_by("-at", "-id")[:100]
+        return Response([self._row(row) for row in reversed(rows)])
+
+    def post(self, request):
+        body = str(request.data.get("body") or "").strip()
+        if not body:
+            return Response({"detail": "Type a message first."}, status=400)
+        if len(body) > self.MAX_LENGTH:
+            return Response({"detail": f"Keep messages under {self.MAX_LENGTH:,} characters."}, status=400)
+        message = Message.objects.create(party=request.party, channel=Message.PORTAL, direction=Message.IN, body=body)
+        return Response(self._row(message), status=201)

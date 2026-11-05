@@ -185,7 +185,9 @@ def resolve_period(params, today=None):
 def _settled(prefix, store_ids, start, end):
     """Filter kwargs for rows reached through `prefix` (an Invoice path)."""
     p = f"{prefix}__" if prefix else ""
-    return {f"{p}stock_point_id__in": list(store_ids), f"{p}date__range": (start, end), f"{p}status__in": Invoice.SETTLED}
+    # a security deposit is the customer's money, not income
+    return {f"{p}stock_point_id__in": list(store_ids), f"{p}date__range": (start, end), f"{p}status__in": Invoice.SETTLED,
+            f"{p}is_deposit": False}
 
 
 def _empty_store():
@@ -222,7 +224,8 @@ def raw_figures(store_ids, start, end):
         fig["refunds"][row["invoice__source"]] += row["v"] or 0
         fig["refund_count"] += row["n"]
 
-    unlinked = Q(invoice__source=Invoice.SALE) & ~GOODS
+    discount = Q(item_kind=InvoiceItem.DISCOUNT)
+    unlinked = Q(invoice__source=Invoice.SALE) & ~GOODS & ~discount
     lines = InvoiceItem.objects.filter(**_settled("invoice", store_ids, start, end))
     for row in (lines.values("invoice__stock_point_id", "invoice__source").order_by().annotate(
             cost=Sum(LINE_COST, filter=COSTED),
@@ -233,7 +236,7 @@ def raw_figures(store_ids, start, end):
             missing_lines=Count("id", filter=MISSING),
             missing_value=Sum(LINE_VALUE, filter=MISSING),
             unlinked=Sum(LINE_VALUE, filter=unlinked),
-            service=Sum(LINE_VALUE, filter=~GOODS & ~unlinked))):
+            service=Sum(LINE_VALUE, filter=~GOODS & ~unlinked & ~discount))):
         fig, src = out[row["invoice__stock_point_id"]], row["invoice__source"]
         fig["cost"][src] += row["cost"] or 0
         fig["costed_lines"][src] += row["costed"]
@@ -249,7 +252,7 @@ def raw_figures(store_ids, start, end):
                 .values("refund__invoice__stock_point_id", "refund__invoice__source").order_by().annotate(cost=Sum(RETURN_COST))):
         out[row["refund__invoice__stock_point_id"]]["restocked_cost"][row["refund__invoice__source"]] += row["cost"] or 0
 
-    open_or_cancelled = InvoiceItem.objects.filter(invoice__stock_point_id__in=store_ids, invoice__date__range=(start, end))
+    open_or_cancelled = InvoiceItem.objects.filter(invoice__is_deposit=False, invoice__stock_point_id__in=store_ids, invoice__date__range=(start, end))
     for row in (open_or_cancelled.filter(invoice__status__in=Invoice.OUTSTANDING + (Invoice.CANCELLED,))
                 .values("invoice__stock_point_id").order_by().annotate(
                     outstanding=Sum(LINE_VALUE, filter=Q(invoice__status__in=Invoice.OUTSTANDING)),

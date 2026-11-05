@@ -25,6 +25,7 @@ urlpatterns = [
     path('api/', include('warranty.urls')),
     path('api/', include('portal.urls')),
     path('api/', include('reports.urls')),
+    path('api/', include('copilot.urls')),
     path('api/dashboard/', include('dashboard.urls')),
 ]
 if settings.ADMIN_ENABLED:
