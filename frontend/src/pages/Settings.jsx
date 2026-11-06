@@ -1,7 +1,7 @@
+import SubscriptionPanel from "../components/SubscriptionPanel";
 import { Fragment, useEffect, useState } from "react";
 import {
-  BellRing, Check, KeyRound, LogOut, Mail, Minus, Phone, Plus, ShieldCheck, User as UserIcon, Users,
-} from "lucide-react";
+  BellRing, Check, KeyRound, LogOut, Mail, Minus, Phone, Plus, ShieldCheck, User as UserIcon, Users, CreditCard } from "lucide-react";
 import { C, F } from "../lib/theme";
 import { api } from "../lib/api";
 import { useSession } from "../context/SessionContext";
@@ -431,6 +431,7 @@ export default function Settings() {
     ...(staffAdmin ? [{ id: "staff", label: "Staff management", icon: Users }] : []),
     { id: "roles", label: "Roles & access", icon: ShieldCheck },
     { id: "notifications", label: "Staff alerts", icon: BellRing },
+    ...(staffAdmin ? [{ id: "subscription", label: "Subscription", icon: CreditCard }] : []),
   ];
   return (
     <div className="flex-1 overflow-y-auto px-5 py-6 sm:px-8">
@@ -444,6 +445,7 @@ export default function Settings() {
         {tab === "staff" && staffAdmin && <StaffManagement />}
         {tab === "roles" && <RolesAccess onManageStaff={() => setTab("staff")} />}
         {tab === "notifications" && <StaffNotifications />}
+        {tab === "subscription" && staffAdmin && <SubscriptionPanel />}
       </div>
     </div>
   );

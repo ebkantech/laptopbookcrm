@@ -6,6 +6,7 @@ already has.
 """
 import json
 import logging
+import time
 
 import requests
 from django.conf import settings
@@ -21,6 +22,9 @@ COMPATIBLE = {
     "openrouter": {"base": "https://openrouter.ai/api/v1", "model": ""},
     "ollama": {"base": "http://localhost:11434/v1", "model": "llama3.1", "keyless": True},
 }
+# A busy provider usually recovers within seconds, so wait and ask again.
+BUSY_STATUSES = (500, 502, 503, 529)
+BUSY_WAITS = (2, 5)
 # Some models spend part of this budget on thinking before they answer.
 MIN_COMPATIBLE_TOKENS = 2048
 
@@ -54,23 +58,35 @@ def is_configured():
 def _not_configured():
     provider = settings.COPILOT_PROVIDER
     if provider == "anthropic":
-        return "Copilot isn't set up yet: add ANTHROPIC_API_KEY to the backend environment."
+        return "AI-Staff isn't set up yet: add ANTHROPIC_API_KEY to the backend environment."
     if provider not in COMPATIBLE:
         return f"COPILOT_PROVIDER must be anthropic or one of: {', '.join(COMPATIBLE)}."
-    return f"Copilot isn't set up yet: add COPILOT_API_KEY (and COPILOT_MODEL if needed) for {provider} to the backend environment."
+    return f"AI-Staff isn't set up yet: add COPILOT_API_KEY (and COPILOT_MODEL if needed) for {provider} to the backend environment."
 
 
-def _post(url, payload, headers):
+def _send(url, payload, headers):
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=settings.COPILOT_LLM_TIMEOUT)
+        return requests.post(url, json=payload, headers=headers, timeout=settings.COPILOT_LLM_TIMEOUT)
     except requests.Timeout as exc:
         raise LLMError("The AI service took too long to answer. Try again.") from exc
     except requests.RequestException as exc:
         raise LLMError("Couldn't reach the AI service. Try again shortly.") from exc
+
+
+def _post(url, payload, headers):
+    response = _send(url, payload, headers)
+    for wait in BUSY_WAITS:
+        if response.status_code not in BUSY_STATUSES:
+            break
+        time.sleep(wait)
+        response = _send(url, payload, headers)
     if response.status_code in (401, 403):
         raise LLMError("The AI service rejected the API key. Check the key in the backend environment.")
     if response.status_code == 429:
         raise LLMError("The AI service's rate limit was reached. Wait a minute and try again.")
+    if response.status_code in BUSY_STATUSES:
+        logger.warning("AI service is busy (%s)", response.status_code)
+        raise LLMError("The AI service is busy right now. Wait a minute and try again.")
     if response.status_code >= 400:
         logger.warning("AI service returned %s: %s", response.status_code, response.text[:300])
         raise LLMError("The AI service returned an error. Try again shortly.")

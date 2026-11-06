@@ -17,3 +17,6 @@ reportlab>=4.2,<5.0
 cryptography>=50.0.2,<51.0  # 45.x had 13 published advisories (pip-audit, Nov 2026)
 # HTTP client for Meta's WhatsApp Cloud API (crmbook_backend/notify.py).
 requests>=2.31,<3.0
+# Background jobs. Needs a Redis server; see crmbook_backend/celery.py
+celery>=5.4,<6.0
+redis>=5.0,<6.0

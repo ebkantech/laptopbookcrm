@@ -24,6 +24,8 @@ from crmbook_backend.notify import send_email
 
 from .context import context_payload
 from .models import NotificationRule, Permission, Role, StaffNotification, User
+from subscriptions import services as subscription_services
+
 from .permissions import HasPerm, IsStaffAccount
 from .staff import (
     SETUP_LINK_HOURS, STAFF_ADMIN_PERM, check_can_manage, check_outsource, check_role_grant, deletable_with_user,
@@ -510,7 +512,7 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"], url_path="me")
     def me(self, request):
         data = UserSerializer(request.user, context=self.get_serializer_context()).data
-        return Response({**data, **context_payload(request.user)})
+        return Response({**data, **context_payload(request.user), "subscription": subscription_services.summary()})
 
     @action(detail=False, methods=["post"], url_path="me/change-password", throttle_classes=[PasswordChangeThrottle])
     def change_password(self, request):

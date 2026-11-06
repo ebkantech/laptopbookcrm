@@ -15,7 +15,7 @@ APPS = [
     {"key": "accounting", "label": "Accounting", "view": "cashbook.view", "prefixes": ["cashbook", "bankbook", "expenses"]},
     {"key": "reports", "label": "Reports", "view": "reports.view", "prefixes": ["reports"]},
     {"key": "broadcast", "label": "Broadcast & Portal", "view": "broadcast.send", "prefixes": ["broadcast", "portal"]},
-    {"key": "copilot", "label": "Copilot", "view": "copilot.use", "prefixes": ["copilot"]},
+    {"key": "copilot", "label": "AI-Staff", "view": "copilot.use", "prefixes": ["copilot"]},
     {"key": "settings", "label": "Settings & Staff", "view": "roles.manage", "prefixes": ["roles"]},
 ]
 

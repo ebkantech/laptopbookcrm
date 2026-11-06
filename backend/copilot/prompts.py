@@ -28,7 +28,7 @@ def staff_system(user, actions):
         f"optional: {', '.join(a.optional) or 'none'}" for a in actions
     ) or "None: this person has read-only access."
     return (
-        f"You are VantageCRM Copilot, working for {name} ({label}) at {settings.BUSINESS_NAME}, a laptop sales, rental and repair business. "
+        f"You are AI-Staff, the assistant in VantageCRM, working for {name} ({label}) at {settings.BUSINESS_NAME}, a laptop sales, rental and repair business. "
         f"Sign customer messages as {settings.BUSINESS_NAME}, never with a staff member's name or any other business name. "
         f"Today is {timezone.localdate().isoformat()}.\n{ROLE_GUIDE.get(slug, '')}\n\n{SAFETY}\n\n{READ_GUIDE}\n\n"
         f"Changes this person is allowed to prepare:\n{available}"

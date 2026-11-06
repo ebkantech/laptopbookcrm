@@ -97,6 +97,7 @@ INSTALLED_APPS = [
     'portal',
     'reports',
     'copilot',
+    'subscriptions',
 ]
 
 AUTH_USER_MODEL = 'accounts.User'
@@ -219,6 +220,9 @@ if DEBUG:
     CSRF_TRUSTED_ORIGINS = list(dict.fromkeys([*CSRF_TRUSTED_ORIGINS, *local_frontend_origins]))
 
 CORS_ALLOW_CREDENTIALS = True
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://127.0.0.1:6379/0")
+CELERY_TIMEZONE = "Asia/Kolkata"
+CELERY_TASK_IGNORE_RESULT = True
 RENT_INVOICE_LEAD_DAYS = int(os.environ.get("RENT_INVOICE_LEAD_DAYS", "0"))
 # Lets the portal read throttling waits cross-origin (portal resend/verify 429s).
 CORS_EXPOSE_HEADERS = ["Retry-After"]
@@ -278,6 +282,8 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # Refuses modules outside the plan, and all writes once read-only
+    'subscriptions.middleware.SubscriptionMiddleware',
     # Staff Activity Logs: records successful API writes (accounts.activity)
     'accounts.activity.ActivityLogMiddleware',
     # rate-limits the Django admin login form (the API login has its own throttle)

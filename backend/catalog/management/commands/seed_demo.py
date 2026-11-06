@@ -55,7 +55,7 @@ PERMS = {
     "reports.profit_loss": "View store Profit & Loss (Admins only; limited to their stores)",
     "expenses.manage": "Record and manage expenses (Admins and Accounts only; limited to their stores)",
     "parties.view": "View the customer directory and details",
-    "copilot.use": "Use the staff Copilot assistant",
+    "copilot.use": "Use AI-Staff",
     "parties.manage": "Create customer records, message customers, and manage portal access",
     "parties.edit": "Edit existing customer records",
     "orders.manage": "View and respond to inbound WhatsApp orders",

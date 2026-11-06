@@ -80,7 +80,9 @@ export function SessionProvider({ children }) {
     setMe(null);
   };
 
-  const can = (codename) => !!me && (me.is_superuser || (me.permissions || []).includes(codename));
+  // A module outside the subscription is hidden from everyone, the Super Admin included.
+  const inPlan = (codename) => !(me?.subscription?.blocked_prefixes || []).includes(codename.split(".")[0]);
+  const can = (codename) => !!me && inPlan(codename) && (me.is_superuser || (me.permissions || []).includes(codename));
 
   return (
     <SessionContext.Provider value={{ me, loading, login, logout, can, refresh: loadMe, switchStore, switchRole, switching, contextVersion }}>

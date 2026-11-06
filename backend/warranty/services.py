@@ -97,6 +97,10 @@ def remind(w, today=None):
 
 def send_due_reminders(today=None):
     """One reminder at <=30 days and one at <=7 days, each sent once. Safe to run daily or on demand."""
+    from subscriptions import services as subscription_services
+
+    if not subscription_services.can_write("warranty"):
+        return 0
     today = today or timezone.localdate()
     sent = 0
     for w in Warranty.objects.select_related("party").filter(end_date__gte=today, end_date__lte=today + timedelta(days=EXPIRING_DAYS)):

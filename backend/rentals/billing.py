@@ -172,6 +172,10 @@ def send_due_rent_invoices(today=None, lead_days=INVOICE_LEAD_DAYS):
     rentals = Rental.objects.select_related("party").filter(
         status__in=(Rental.APPROVED, Rental.ACTIVE), auto_invoice=True,
     ).exclude(status=Rental.APPROVED, requires_onboarding=True)
+    from subscriptions import services as subscription_services
+
+    if not subscription_services.can_write("rentals"):
+        return {"raised": raised, "skipped": skipped}
     for rental in rentals:
         period = next_billing_period(rental)
         if period is None or (period[0] - today).days > lead_days:

@@ -1,3 +1,4 @@
+import SubscriptionBanner from "./components/SubscriptionBanner";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   LayoutDashboard,
@@ -126,7 +127,8 @@ function visibleNavGroups(me) {
   // Reports that gates several sub-views each needing a different
   // permission (see Reports.jsx, which does its own per-tab check with
   // the same permissions once the user is inside the page).
-  const holds = (code) => me.is_superuser || perms.includes(code);
+  const blocked = me.subscription?.blocked_prefixes || [];
+  const holds = (code) => !blocked.includes(code.split(".")[0]) && (me.is_superuser || perms.includes(code));
   const allowed = (item) => {
     if (!item.perm) return true;
     return Array.isArray(item.perm) ? item.perm.some(holds) : holds(item.perm);
@@ -497,7 +499,8 @@ function Shell() {
       </aside>
 
 
-<main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+<main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+  <SubscriptionBanner />
   {/* Non-owner accounts only reach their own store's records
       (accounts.store_scope); until the Owner assigns one, every
       store-linked list comes back empty -- say why, everywhere. */}

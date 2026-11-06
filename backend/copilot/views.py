@@ -43,7 +43,7 @@ def _record_id(value):
 
 def _needs_token(request):
     if not request.META.get("HTTP_AUTHORIZATION"):
-        return Response({"detail": "Sign in again to use Copilot."}, status=401)
+        return Response({"detail": "Sign in again to use AI-Staff."}, status=401)
     return None
 
 

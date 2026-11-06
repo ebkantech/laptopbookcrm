@@ -4,7 +4,7 @@ from copilot import llm, search
 
 
 class Command(BaseCommand):
-    help = "Build or refresh Copilot's search index. Only new or changed records are processed."
+    help = "Build or refresh AI-Staff's search index. Only new or changed records are processed."
 
     def handle(self, *args, **options):
         try:

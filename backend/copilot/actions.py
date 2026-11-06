@@ -47,10 +47,10 @@ def confirm(request, proposal):
         raise ActionRefused("This isn't your action.")
     if (request.META.get("HTTP_X_ACTIVE_ROLE", "")[:20] != proposal.active_role
             or request.META.get("HTTP_X_ACTIVE_STORE", "")[:20] != proposal.active_store):
-        raise ActionRefused("This was prepared under a different role or store. Switch back, or ask Copilot again.")
+        raise ActionRefused("This was prepared under a different role or store. Switch back, or ask AI-Staff again.")
     if timezone.now() - proposal.created_at > TTL:
         ProposedAction.objects.filter(pk=proposal.pk, status=ProposedAction.PROPOSED).update(status=ProposedAction.EXPIRED)
-        raise ActionRefused("This has expired. Ask Copilot to prepare it again so it uses current data.")
+        raise ActionRefused("This has expired. Ask AI-Staff to prepare it again so it uses current data.")
     claimed = ProposedAction.objects.filter(pk=proposal.pk, status=ProposedAction.PROPOSED).update(
         status=ProposedAction.EXECUTING, decided_at=timezone.now())
     if not claimed:
