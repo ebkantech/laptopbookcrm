@@ -503,11 +503,20 @@ export default function Inventory() {
   // Each search gets a number; only the newest one may update the list, so
   // a slow response for "del" can't overwrite the results for "dell".
   const loadSeq = useRef(0);
+  // Product-type filter: "" = All Products, "laptop", "non-laptop" = Parts & Accessories.
+  // Filtered by the server on Product.category, together with the search and the store in view.
+  const [category, setCategory] = useState("");
+  const categoryRef = useRef("");
+  categoryRef.current = category;
 
   const load = (q) => {
     const seq = ++loadSeq.current;
     setSearching(true);
-    api.getAll(`/products/${q ? `?q=${encodeURIComponent(q)}` : ""}`)
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (categoryRef.current) params.set("category", categoryRef.current);
+    const qs = params.toString();
+    api.getAll(`/products/${qs ? `?${qs}` : ""}`)
       .then((list) => {
         if (seq === loadSeq.current) setProducts(list);
       })
@@ -540,7 +549,7 @@ export default function Inventory() {
   useEffect(() => {
     const t = setTimeout(() => load(query), query ? 300 : 0);
     return () => clearTimeout(t);
-  }, [query]);
+  }, [query, category]);
 
   if (error) return <div className="flex-1 px-8 py-10"><ErrorNote message={error} /></div>;
   if (!products) return <Spinner label="Loading inventory…" />;
@@ -598,6 +607,17 @@ export default function Inventory() {
           placeholder="Search by product, brand, product ID, or variant code"
           className="basis-full sm:basis-0"
         />
+        <select
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          aria-label="Filter by product type"
+          className="basis-full rounded-xl bg-transparent px-3 py-2 text-sm outline-none sm:basis-auto"
+          style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}
+        >
+          <option value="">All Products</option>
+          <option value="laptop">Laptop</option>
+          <option value="non-laptop">Parts &amp; Accessories</option>
+        </select>
         <div className="flex flex-1 items-center gap-2 sm:flex-none">
           <PillButton icon={ScanBarcode} onClick={() => setScanning(true)} className="flex-1 justify-center sm:flex-none">Scan</PillButton>
           <PillButton icon={ScanLine} onClick={() => setTracing("")} className="flex-1 justify-center sm:flex-none">Trace serial</PillButton>

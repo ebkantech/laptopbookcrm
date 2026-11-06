@@ -499,3 +499,23 @@ class Notification(models.Model):
 
     class Meta:
         ordering = ["at"]
+
+
+class RepairPartUse(models.Model):
+    """
+    One serial-numbered unit of inventory fitted to a repair ticket. Created
+    in the same transaction that takes the unit out of stock (repairs.parts),
+    so it is the repair's record of the movement; the unit's own history is
+    its SerialEvent. A unit can be fitted once -- it never goes back to stock
+    by itself.
+    """
+    ticket = models.ForeignKey(RepairTicket, on_delete=models.PROTECT, related_name="part_uses")
+    variant = models.ForeignKey("catalog.Variant", on_delete=models.PROTECT, related_name="repair_uses")
+    serial = models.OneToOneField("catalog.StockSerial", on_delete=models.PROTECT, related_name="repair_use")
+    stock_point = models.ForeignKey(StockPoint, on_delete=models.PROTECT, related_name="+")
+    description = models.CharField(max_length=160)
+    used_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="+")
+    used_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ["used_at", "id"]

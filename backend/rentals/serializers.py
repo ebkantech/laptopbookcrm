@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from catalog.models import Stock
+from catalog.models import Product, Stock
 from parties.models import Party
 
 from .models import Rental, RentalApproval, RentalAsset, RentalEvent, RentalIssue, RentalLine
@@ -413,3 +413,10 @@ class AssetFromInventorySerializer(serializers.Serializer):
     stock = serializers.PrimaryKeyRelatedField(queryset=Stock.objects.select_related("variant__product", "stock_point"))
     serial_number = serializers.CharField(max_length=80, trim_whitespace=True)
     asset_tag = serializers.CharField(max_length=48, required=False, allow_blank=True, trim_whitespace=True)
+
+    def validate_stock(self, stock):
+        # Only products filed under the Laptop category can be rented out;
+        # chargers, SSDs, accessories and uncategorised products cannot.
+        if stock.variant.product.category != Product.LAPTOP:
+            raise serializers.ValidationError("Only laptops can be rented out from Inventory.")
+        return stock

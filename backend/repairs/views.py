@@ -6,6 +6,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
+from django.shortcuts import get_object_or_404
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -16,7 +17,7 @@ from rest_framework.views import APIView
 from accounts.models import User
 from accounts.permissions import HasPerm
 from accounts.store_scope import StoreScope, StoreScopedMixin
-from catalog.models import Service
+from catalog.models import Service, StockPoint, StockSerial, Variant
 from catalog.views import part_stock_prefetch
 from crmbook_backend.notify import notify_staff, send_email, send_whatsapp, whatsapp_provider
 from sales.models import Invoice
@@ -24,6 +25,7 @@ from sales.payments import pay_note
 from sales.services import cancel_invoice, create_invoice
 
 from .billing import advance_amount, raise_advance_invoice, reconcile_delivery
+from .parts import eligible_variants, issue_parts, matching_services, require_service_parts, serial_problem, variant_label
 from .models import Notification, RepairOrder, RepairReopen, RepairReopenItem, RepairRevision, RepairTicket, RepairTicketEvent
 from .serializers import (
     CreateRepairOrderSerializer,
@@ -213,7 +215,7 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
             qs = qs.filter(assigned_to=user)
         elif not scope.all:
             qs = qs.filter(Q(stock_point_id=scope.store_id) | Q(assigned_to=user)) if scope.store_id is not None else qs.filter(assigned_to=user)
-        qs = qs.prefetch_related(part_stock_prefetch(scope, "services__part__stock"))
+        qs = qs.prefetch_related(part_stock_prefetch(scope, "services__part__stock"), "part_uses__serial")
         if self.action in ("list", "retrieve", "settle"):
             # a paid bill that didn't deliver its ticket (see reconcile_delivery)
             stuck = list(qs.filter(status=RepairTicket.READY, invoices__is_advance=False, invoices__status__in=("Paid", "Refunded")).distinct())
@@ -319,6 +321,13 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
             return
         serializer.save()
 
+    def destroy(self, request, *args, **kwargs):
+        # fitted parts have left stock for good and nothing returns them automatically,
+        # so a ticket that carries any is kept (and its history with it)
+        if self.get_object().part_uses.exists():
+            raise ValidationError({"detail": "This ticket has inventory parts fitted to it, so it can't be deleted."})
+        return super().destroy(request, *args, **kwargs)
+
     def create(self, request, *args, **kwargs):
         self._approval = None
         response = super().create(request, *args, **kwargs)
@@ -330,10 +339,13 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
     def perform_create(self, serializer):
         services = serializer.validated_data.get("services", [])
         lines = serializer.validated_data.pop("estimate_lines", [])
+        parts = serializer.validated_data.pop("parts", [])
         typed_advance = serializer.validated_data.pop("advance_amount", None)
         ticket = serializer.save(code=f"TMP-{uuid4().hex[:16]}", status=RepairTicket.RECEIVED)
         ticket.code = f"RPR-{1044 + ticket.pk}"
         ticket.save(update_fields=["code"])
+        require_service_parts(lines, parts)
+        issue_parts(ticket, parts, self.request.user)
         device = f"{ticket.brand} {ticket.model_name}"
         wa_text = f"Ticket {ticket.code} created for your {device}. We'll keep you posted."
         pay = ""
@@ -788,6 +800,7 @@ class RepairOrderViewSet(viewsets.ReadOnlyModelViewSet):
         for device in devices:
             services = device.pop("services", [])
             lines = device.pop("estimate_lines", [])
+            parts = device.pop("parts", [])
             typed_advance = device.pop("advance_amount", None)
             ticket = RepairTicket.objects.create(
                 order=order,
@@ -805,6 +818,8 @@ class RepairOrderViewSet(viewsets.ReadOnlyModelViewSet):
             ticket.code = f"RPR-{1044 + ticket.pk}"
             ticket.save(update_fields=["code"])
             ticket.services.set(services)
+            require_service_parts(lines, parts)
+            issue_parts(ticket, parts, request.user)
             built = _booking_lines(services, lines)
             if typed_advance is not None and built and typed_advance > sum(l["quantity"] * l["unit_price"] for l in built if l["unit_price"] is not None):
                 raise ValidationError({"advance_amount": f"The advance for {ticket.brand} {ticket.model_name} can't be more than its estimate."})
@@ -887,3 +902,48 @@ class RepairOrderApprovalPublicView(APIView):
         )
         return _private_response(PublicRepairOrderApprovalSerializer(approval).data)
 
+
+
+class RepairPartSearchView(APIView):
+    """
+    GET /api/repair-parts/?stock_point=<id>&q=<text> -- the New Repair Ticket's
+    Work/Part search: non-laptop, serial-tracked inventory with units in stock
+    at that shop (a count, never the serial numbers). The shop is checked
+    against the caller's store scope like any other write to it.
+    """
+    permission_classes = [permissions.IsAuthenticated, HasPerm]
+    required_perm = "repairs.book"
+
+    def get(self, request):
+        stock_point = request.query_params.get("stock_point")
+        StoreScope(request.user).require(stock_point, "repair parts")
+        q = request.query_params.get("q")
+        services = [{"kind": "service", "service": r["service"].id, "label": r["service"].label, "charge": r["service"].charge,
+                     "variant": r["service"].variant_id,
+                     "part_label": variant_label(r["service"].variant) if r["service"].variant_id else "",
+                     "available": r["available"]} for r in matching_services(int(stock_point), q)]
+        parts = [{"kind": "part", "variant": r["variant"].id, "label": variant_label(r["variant"]), "code": r["variant"].code,
+                  "available": r["available"]} for r in eligible_variants(int(stock_point), q)]
+        return Response(services + parts)
+
+
+class RepairPartSerialCheckView(APIView):
+    """
+    GET /api/repair-parts/check-serial/?stock_point=&variant=&serial= -- the typed
+    serial number checked against the inventory records: it must be this
+    product's, in stock at that shop. Read-only; booking re-checks under a lock.
+    """
+    permission_classes = [permissions.IsAuthenticated, HasPerm]
+    required_perm = "repairs.book"
+
+    def get(self, request):
+        stock_point = request.query_params.get("stock_point")
+        StoreScope(request.user).require(stock_point, "repair parts")
+        shop = get_object_or_404(StockPoint, pk=stock_point)
+        variant = get_object_or_404(Variant.objects.select_related("product"), pk=request.query_params.get("variant"))
+        typed = (request.query_params.get("serial") or "").strip()
+        if not typed:
+            return Response({"ok": False, "message": "Enter the serial number."})
+        serial = StockSerial.objects.select_related("variant__product").filter(serial_number__iexact=typed).first()
+        problem = serial_problem(serial, variant, typed, shop)
+        return Response({"ok": problem is None, "message": problem or "Serial number found in stock."})

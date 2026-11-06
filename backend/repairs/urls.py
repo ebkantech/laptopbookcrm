@@ -6,6 +6,8 @@ from .views import (
     RepairApprovalPublicView,
     RepairOrderApprovalPublicView,
     RepairOrderViewSet,
+    RepairPartSearchView,
+    RepairPartSerialCheckView,
     RepairTicketViewSet,
 )
 
@@ -14,6 +16,8 @@ router.register("tickets", RepairTicketViewSet, basename="repairticket")
 router.register("repair-orders", RepairOrderViewSet, basename="repairorder")
 
 urlpatterns = [
+    path("repair-parts/", RepairPartSearchView.as_view(), name="repair-parts"),
+    path("repair-parts/check-serial/", RepairPartSerialCheckView.as_view(), name="repair-parts-check-serial"),
     path("repair-staff-report/", RepairStaffReportView.as_view(), name="repair-staff-report"),
     path(
         "public/repair-approvals/<str:token>/",

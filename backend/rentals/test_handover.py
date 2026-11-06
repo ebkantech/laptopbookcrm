@@ -198,7 +198,7 @@ class RentFromInventoryTests(TestCase):
 
         self.shop = StockPoint.objects.create(slug="kb-test", name="Karol Bagh Test", kind=StockPoint.SHOP)
         self.manager = client_for(make_user("fleet-manager", ["rentals.view", "rentals.manage"], stock_point=self.shop))
-        product = Product.objects.create(brand="Apple", model_name="MacBook Air 13", product_code="VC-LAP-0101")
+        product = Product.objects.create(brand="Apple", model_name="MacBook Air 13", product_code="VC-LAP-0101", category=Product.LAPTOP)
         self.variant = Variant.objects.create(product=product, code="VC-SKU-0101", spec="M2 / 8GB / 256GB", mrp=1, sell_price=99900, cost=1)
         self.stock = Stock.objects.create(variant=self.variant, stock_point=self.shop, quantity=2)
         self.url = "/api/rental-assets/from-inventory/"
@@ -224,6 +224,20 @@ class RentFromInventoryTests(TestCase):
         self.stock.refresh_from_db()
         self.assertEqual(self.stock.quantity, 1)
         self.assertEqual(RentalAsset.objects.count(), 1)
+
+    def test_only_laptops_can_be_rented_from_inventory(self):
+        from catalog.models import Product, Stock, Variant
+
+        for n, category in enumerate(["charger", "ssd", "ram", "accessories", "other", ""]):
+            product = Product.objects.create(brand="X", model_name=f"Item {n}", product_code=f"VC-ACC-{n:04d}", category=category)
+            variant = Variant.objects.create(product=product, code=f"VC-SKU-9{n}", spec="s", mrp=1, sell_price=1, cost=1)
+            stock = Stock.objects.create(variant=variant, stock_point=self.shop, quantity=3)
+            response = self.manager.post(self.url, {"stock": stock.id, "serial_number": f"NOPE-{n}"}, format="json")
+            self.assertEqual(response.status_code, 400, category)
+            self.assertIn("Only laptops", response.json()["stock"][0])
+            stock.refresh_from_db()
+            self.assertEqual(stock.quantity, 3)
+        self.assertEqual(RentalAsset.objects.count(), 0)
 
     def test_generic_word_is_not_an_asset_tag(self):
         response = self.manager.post("/api/rental-assets/", {"asset_tag": "laptop", "serial_number": "S9", "brand": "Apple", "model_name": "M2"}, format="json")

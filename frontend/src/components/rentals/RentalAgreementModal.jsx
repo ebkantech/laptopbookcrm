@@ -145,7 +145,7 @@ export default function RentalAgreementModal({ parties, initialAssets, initialPa
     setShowAssetForm(false);
     if (stockRows) return;
     try {
-      const [products, open] = await Promise.all([api.getAll("/products/"), api.getAll("/stock-points/?active=1")]);
+      const [products, open] = await Promise.all([api.getAll("/products/?category=laptop"), api.getAll("/stock-points/?active=1")]);
       // units can't leave an inactive shop's stock for a new rental
       const openSlugs = new Set(open.map((sp) => sp.slug));
       // one row per (variant, shop) that actually has units on the shelf

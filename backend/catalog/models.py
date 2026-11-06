@@ -136,6 +136,20 @@ class Service(models.Model):
     segment = models.CharField(max_length=10, choices=SEGMENT_CHOICES)
     charge = models.PositiveIntegerField()
     part = models.ForeignKey(Part, on_delete=models.SET_NULL, null=True, blank=True, related_name="services")
+    # The inventory part (Parts & Accessories, serial-tracked) this service fits. When set,
+    # booking the service on a repair asks for that part's serial number and takes the unit
+    # out of stock (repairs.parts). Blank = labour only.
+    variant = models.ForeignKey("Variant", on_delete=models.SET_NULL, null=True, blank=True, related_name="services",
+                                help_text="Inventory part fitted by this service (non-laptop, serial-tracked). Leave blank for labour only.")
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.variant_id:
+            product = self.variant.product
+            if product.category == Product.LAPTOP:
+                raise ValidationError({"variant": "A laptop can't be a repair part."})
+            if not product.serial_tracking:
+                raise ValidationError({"variant": "Only serial-tracked products can be fitted in a repair."})
 
     def __str__(self):
         return self.label
@@ -155,9 +169,10 @@ class StockSerial(models.Model):
     received_at = models.DateTimeField(auto_now_add=True)
 
     # Where the unit is in its life. Only IN_STOCK units can be sold, rented or written off.
-    IN_STOCK, SOLD, RENTED, RETURNED, WRITTEN_OFF = "in_stock", "sold", "rented", "returned", "written_off"
+    IN_STOCK, SOLD, RENTED, RETURNED, WRITTEN_OFF, USED = "in_stock", "sold", "rented", "returned", "written_off", "used"
     STATUS_CHOICES = [(IN_STOCK, "In stock"), (SOLD, "Sold"), (RENTED, "On rent"),
-                      (RETURNED, "Returned, not restocked"), (WRITTEN_OFF, "Written off")]
+                      (RETURNED, "Returned, not restocked"), (WRITTEN_OFF, "Written off"),
+                      (USED, "Used in a repair")]
     status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=IN_STOCK, db_index=True)
     # the sale line it went out on (kept after a return, for the history)
     invoice_item = models.ForeignKey("sales.InvoiceItem", on_delete=models.SET_NULL, null=True, blank=True, related_name="serials")
@@ -172,8 +187,8 @@ class StockSerial(models.Model):
 
 class SerialEvent(models.Model):
     """One step in a serial-numbered unit's life -- what the trace shows."""
-    RECEIVED, SOLD, SALE_CANCELLED, RETURNED, RENTED, BACK_FROM_RENT, WRITTEN_OFF = (
-        "received", "sold", "sale_cancelled", "returned", "rented", "back_from_rent", "written_off")
+    RECEIVED, SOLD, SALE_CANCELLED, RETURNED, RENTED, BACK_FROM_RENT, WRITTEN_OFF, USED_IN_REPAIR = (
+        "received", "sold", "sale_cancelled", "returned", "rented", "back_from_rent", "written_off", "used_in_repair")
     serial = models.ForeignKey(StockSerial, on_delete=models.CASCADE, related_name="events")
     event = models.CharField(max_length=20)
     text = models.CharField(max_length=300, blank=True)

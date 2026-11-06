@@ -45,4 +45,11 @@ class PartStockAdmin(admin.ModelAdmin):
 
 @admin.register(Service)
 class ServiceAdmin(admin.ModelAdmin):
-    list_display = ["label", "segment", "charge", "part"]
+    list_display = ["label", "segment", "charge", "part", "variant"]
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        # only inventory parts that can actually be fitted: not laptops, serial-tracked
+        if db_field.name == "variant":
+            kwargs["queryset"] = (Variant.objects.select_related("product")
+                                  .exclude(product__category=Product.LAPTOP).filter(product__serial_tracking=True))
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
