@@ -1,6 +1,7 @@
 import hmac
 import json
 import os
+from contextlib import contextmanager
 from datetime import timedelta
 
 from django.core.serializers.json import DjangoJSONEncoder
@@ -23,6 +24,7 @@ from parties.kyc import check_file
 from catalog.models import Stock, StockPoint
 from catalog.status import require_active
 
+from . import inventory as rent_inventory
 from . import onboarding
 from .documents import render_agreement_pdf
 from .billing import RentBillingError, period_months, raise_rent_invoice, send_due_rent_invoices, set_payment_plan, too_early_to_raise
@@ -57,6 +59,20 @@ def _client_ip(request):
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.META.get("REMOTE_ADDR")
+
+
+@contextmanager
+def _as_line_error(lines, index):
+    """Report an inventory pick's error against its own device line."""
+    try:
+        yield
+    except ValidationError as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {"asset_id": exc.detail}
+        message = " ".join(
+            str(m) for key, value in detail.items() if key != "existing_asset"
+            for m in (value if isinstance(value, list) else [value])
+        )
+        raise ValidationError({"lines": [{"asset_id": [message]} if i == index else {} for i in range(len(lines))]})
 
 
 def _audit_value(value):
@@ -152,13 +168,21 @@ class RentalViewSet(viewsets.ModelViewSet):
         scope.require_assigned()
         # same rule as rental_queryset_for(): the device's source shop
         allowed_assets = scope.filter(RentalAsset.objects.all(), "source_stock_point")
-        outside = [line["asset"].asset_tag for line in data["lines"] if not allowed_assets.filter(pk=line["asset"].pk).exists()]
+        outside = [line["asset"].asset_tag for line in data["lines"] if line.get("asset") and not allowed_assets.filter(pk=line["asset"].pk).exists()]
         if outside:
             raise ValidationError({"lines": f"These devices aren't at your store: {', '.join(outside)}."})
         renewed = data.get("renews")
         if renewed and not rental_queryset_for(scope, Rental.objects.filter(pk=renewed.pk)).exists():
             raise ValidationError({"renews": "That agreement isn't at your store."})
         onboarding.require_kyc(data["party"])
+        # Laptops still on sale stock are checked now but leave stock only
+        # inside the transaction below, together with the agreement itself.
+        plans = {}
+        for index, line in enumerate(data["lines"]):
+            pick = line.get("from_inventory")
+            if pick:
+                with _as_line_error(data["lines"], index):
+                    plans[index] = rent_inventory.check_pick(pick["stock"], pick["serial_number"], pick.get("asset_tag", ""), scope)
         with transaction.atomic():
             old = data.pop("renews", None)
             if old:
@@ -168,6 +192,10 @@ class RentalViewSet(viewsets.ModelViewSet):
                 if old.status in (Rental.APPROVED, Rental.ACTIVE):
                     close_agreement(old, request.user, "Renewed with a new agreement")
             lines = data.pop("lines")
+            for index, plan in plans.items():
+                pick = lines[index]["from_inventory"]
+                with _as_line_error(lines, index):
+                    lines[index]["asset"] = rent_inventory.take(pick["stock"], plan, pick["serial_number"], request.user)
             rates_by_asset_id = {line["asset"].pk: line["monthly_fee"] for line in lines}
             asset_ids = list(rates_by_asset_id)
             locked_assets = list(
@@ -206,7 +234,8 @@ class RentalViewSet(viewsets.ModelViewSet):
                 event_type=RentalEvent.AGREEMENT_CREATED,
                 actor=request.user,
                 metadata={"rental_type": "bulk" if len(lines) >= 2 else "single", "line_count": len(lines),
-                          **({"renews": old.agreement_code} if old else {})},
+                          **({"renews": old.agreement_code} if old else {}),
+                          **({"from_inventory": [lines[i]["asset"].asset_tag for i in plans]} if plans else {})},
             )
             raised = onboarding.ensure_invoices(rental)
         onboarding.send_invoices(rental, raised, request.user)
@@ -479,49 +508,15 @@ class RentalAssetViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         rental asset, identified by its own serial number. Body:
         {"stock": <Stock row id>, "serial_number": "...", "asset_tag": ""}.
         """
+        # The agreement form no longer calls this: it sends the pick with
+        # create-agreement, so stock only moves when an agreement is saved.
         payload = AssetFromInventorySerializer(data=request.data)
         payload.is_valid(raise_exception=True)
-        stock = payload.validated_data["stock"]
-        self.store_scope.require(stock.stock_point_id, "stock")
-        require_active(stock.stock_point, "rentals", field="stock")
-        variant, product = stock.variant, stock.variant.product
-        from catalog import serials as serial_tracking
-
-        typed = payload.validated_data["serial_number"].strip()
-        if serial_tracking.tracked(variant) and serial_tracking.untracked_units(variant, stock.stock_point) == 0 \
-                and not serial_tracking.in_stock_qs(variant, stock.stock_point).filter(serial_number__iexact=typed).exists():
-            sample = ", ".join(serial_tracking.in_stock_qs(variant, stock.stock_point).values_list("serial_number", flat=True)[:5])
-            raise ValidationError({"serial_number": f"Every unit of this product has a serial number -- enter the one on the unit you are renting out (in stock: {sample})."})
-        returned = RentalAsset.objects.filter(
-            serial_number__iexact=payload.validated_data["serial_number"].strip(),
-            status=RentalAsset.RETIRED, returned_to_stock_at__isnull=False,
-        ).first()
-        if returned:
-            # the same unit was put back on sale earlier -- bring its record
-            # (and its rental history) back instead of registering it twice
-            with transaction.atomic():
-                taken = Stock.objects.filter(pk=stock.pk, quantity__gt=0).update(quantity=F("quantity") - 1)
-                if not taken:
-                    raise ValidationError({"stock": f"No {product.display_name} ({variant.spec}) left in stock at {stock.stock_point.name}."})
-                returned.status = RentalAsset.AVAILABLE
-                returned.variant, returned.source_stock_point = variant, stock.stock_point
-                returned.returned_to_stock_at = returned.returned_to = returned.returned_by = None
-                returned.save()
-                serial_tracking.on_rented(variant, stock.stock_point, typed, request.user)
-            return Response(RentalAssetSerializer(returned).data, status=201)
-        asset_data = RentalAssetSerializer(data={
-            "asset_tag": payload.validated_data.get("asset_tag", ""),
-            "serial_number": payload.validated_data["serial_number"],
-            "brand": product.brand if product.brand and product.brand != "\u2014" else product.model_name.split()[0],
-            "model_name": f"{product.model_name} ({variant.spec})"[:80],
-        })
-        asset_data.is_valid(raise_exception=True)
+        pick = payload.validated_data
+        # a unit put back on sale earlier gets its old record (and rental history) back
+        plan = rent_inventory.check_pick(pick["stock"], pick["serial_number"], pick.get("asset_tag", ""), self.store_scope)
         with transaction.atomic():
-            taken = Stock.objects.filter(pk=stock.pk, quantity__gt=0).update(quantity=F("quantity") - 1)
-            if not taken:
-                raise ValidationError({"stock": f"No {product.display_name} ({variant.spec}) left in stock at {stock.stock_point.name}."})
-            asset = asset_data.save(variant=variant, source_stock_point=stock.stock_point)
-            serial_tracking.on_rented(variant, stock.stock_point, typed, request.user)
+            asset = rent_inventory.take(pick["stock"], plan, pick["serial_number"], request.user)
         return Response(RentalAssetSerializer(asset).data, status=201)
 
     @action(detail=True, methods=["post"], url_path="return-to-inventory")

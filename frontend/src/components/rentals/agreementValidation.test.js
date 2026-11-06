@@ -134,8 +134,22 @@ test("inventory form needs an item and a serial number", () => {
   assert.equal(validateInventoryPick({ stockId: "3", serial: "SN1", tag: "" }).summary.length, 0);
   assert.match(validateInventoryPick({ stockId: "3", serial: "S".repeat(81), tag: "" }).errors.serial_number, /at most 80/);
   assert.match(validateInventoryPick({ stockId: "3", serial: "SN1", tag: "T".repeat(49) }).errors.asset_tag, /at most 48/);
+  // a pick must be a real, currently offered Stock row id
+  assert.equal(validateInventoryPick({ stockId: "3", serial: "SN1", tag: "", stockIds: [1, 3] }).summary.length, 0);
+  assert.match(validateInventoryPick({ stockId: "7", serial: "SN1", tag: "", stockIds: [1, 3] }).errors.stock, /no longer in stock/);
+  assert.match(validateInventoryPick({ stockId: "undefined", serial: "SN1", tag: "" }).errors.stock, /Pick the laptop/);
 });
 
 test("server field errors for assets name the field", () => {
   assert.match(describeServerError({ status: 400, body: { serial_number: ["Ensure this field has no more than 80 characters."] } }).message, /Serial number: Ensure/);
+});
+
+test("a laptop picked from inventory counts as a device until saved", () => {
+  const inv = (serial, fee = "1200") => ({ asset_id: "", monthly_fee: fee, inventory: { stock: 5, serial_number: serial, asset_tag: "", label: "Dell — Main" } });
+  assert.equal(check({ lines: [inv("SN1")] }).valid, true);
+  assert.equal(check({ lines: [{ asset_id: "1", monthly_fee: "1500" }, inv("SN1")] }).valid, true);
+  const twice = check({ lines: [inv("SN1"), inv("sn1")] });
+  assert.equal(twice.valid, false);
+  assert.match(twice.errors.lines[1].asset, /already on the agreement/);
+  assert.match(check({ lines: [inv("SN1", "")] }).errors.lines[0].fee, /monthly fee/);
 });

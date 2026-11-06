@@ -64,19 +64,22 @@ export function validateAgreement(form, ctx) {
   const seen = new Map();
   let complete = 0;
   form.lines.forEach((line, i) => {
-    const hasAsset = !!line.asset_id;
+    // a line is either an existing rental device (asset_id) or a laptop
+    // picked from inventory (inventory), which is taken from stock on save
+    const hasAsset = !!line.asset_id || !!line.inventory;
     const feeText = String(line.monthly_fee ?? "").trim();
-    const name = hasAsset ? ctx.assetLabel(line.asset_id) : `Device ${i + 1}`;
+    const name = line.inventory ? `S/N ${line.inventory.serial_number}` : hasAsset ? ctx.assetLabel(line.asset_id) : `Device ${i + 1}`;
+    const key = line.inventory ? `sn:${String(line.inventory.serial_number).toLowerCase()}` : line.asset_id;
     if (!hasAsset && !feeText) return; // an untouched spare row is ignored
     if (!hasAsset) {
       errors.lines[i].asset = "Choose the device this fee is for, or remove the row.";
       errors.summary.push(`${name}: choose the device this fee is for, or remove the row.`);
       return;
     }
-    if (seen.has(line.asset_id)) {
+    if (seen.has(key)) {
       errors.lines[i].asset = "This device is already on the agreement.";
       errors.summary.push(`${name} is added twice — remove one row.`);
-    } else seen.set(line.asset_id, i);
+    } else seen.set(key, i);
     if (!feeText) {
       errors.lines[i].fee = "Enter the monthly fee.";
       errors.summary.push(`${name}: enter the monthly fee.`);
@@ -92,7 +95,7 @@ export function validateAgreement(form, ctx) {
     }
     if (!errors.lines[i].asset && !errors.lines[i].fee) complete += 1;
   });
-  if (!form.lines.some((l) => l.asset_id)) {
+  if (!form.lines.some((l) => l.asset_id || l.inventory)) {
     errors.devices = "Add at least one device.";
     errors.summary.push("Add at least one device with its monthly fee.");
   }
@@ -127,10 +130,16 @@ export function validateAssetDraft(draft) {
   return { errors, summary: Object.values(errors) };
 }
 
-/** The "rent out from inventory" mini-form. */
-export function validateInventoryPick({ stockId, serial, tag }) {
+/**
+ * The "rent out from inventory" mini-form. `stockIds` (optional) are the
+ * Stock row ids currently offered; a pick outside them is refused so a stale
+ * or hidden selection can never take the wrong unit.
+ */
+export function validateInventoryPick({ stockId, serial, tag, stockIds }) {
   const errors = {};
-  if (!stockId) errors.stock = "Pick the laptop from the list.";
+  const id = Number(stockId);
+  if (!stockId || !Number.isInteger(id) || id <= 0) errors.stock = "Pick the laptop from the list.";
+  else if (stockIds && !stockIds.some((s) => Number(s) === id)) errors.stock = "That laptop is no longer in stock — pick it again from the list.";
   if (!String(serial ?? "").trim()) errors.serial_number = "Enter the serial number printed on this unit.";
   else if (String(serial).trim().length > ASSET_LIMITS.serial_number) errors.serial_number = `Serial number can be at most ${ASSET_LIMITS.serial_number} characters.`;
   if (String(tag ?? "").trim().length > ASSET_LIMITS.asset_tag) errors.asset_tag = `Asset tag can be at most ${ASSET_LIMITS.asset_tag} characters.`;
