@@ -15,7 +15,7 @@ class Base(TestCase):
         self.seller_user = make_user("seller", ["invoices.view", "invoices.create", "invoices.settle", "invoices.refund", "inventory.edit"], stock_point=self.shop)
         self.seller = client_for(self.seller_user)
         self.party = Party.objects.create(name="Buyer", type=Party.RETAIL, phone="9876543211", joined=date.today())
-        self.product = Product.objects.create(brand="Dell", model_name="Latitude 5420", product_code="P-1", serial_tracking=True)
+        self.product = Product.objects.create(brand="Dell", model_name="Latitude 5420", product_code="P-1", serial_tracking=True, category=Product.LAPTOP)
         self.v = Variant.objects.create(product=self.product, code="V-A", spec="16GB", mrp=1, sell_price=40000, cost=1)
         self.stock = Stock.objects.create(variant=self.v, stock_point=self.shop, quantity=3)
         self.units = [self.unit(f"LA0000{i}") for i in range(1, 4)]

@@ -320,6 +320,13 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = product_queryset(self.request.user)
+        category = (self.request.query_params.get("category") or "").strip()
+        if category == "non-laptop":
+            # Inventory's "Parts & Accessories": everything that isn't a laptop
+            # (including products recorded before categories existed)
+            qs = qs.exclude(category=Product.LAPTOP)
+        elif category:
+            qs = qs.filter(category=category)
         q = (self.request.query_params.get("q") or "").strip()
         if q:
             # a serial number finds its product only through the account's own store's units

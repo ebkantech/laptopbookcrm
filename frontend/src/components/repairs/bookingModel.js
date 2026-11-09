@@ -8,8 +8,9 @@ export function cleanLines(lines) {
   return (lines || [])
     .filter((l) => String(l.description || "").trim() || String(l.unit_price ?? "") !== "")
     .map((l) => ({
+      ...(l.service_id ? { service_id: l.service_id } : {}),
       description: String(l.description || "").trim(),
-      quantity: Number(l.quantity) || 0,
+      quantity: l.variant ? 1 : Number(l.quantity) || 0,
       unit_price: String(l.unit_price ?? "") === "" ? NaN : Number(l.unit_price),
       ...(String(l.unit_cost ?? "") === "" ? {} : { unit_cost: Number(l.unit_cost) }),
     }));
@@ -23,8 +24,19 @@ export function linesTotal(lines) {
   return cleanLines(lines).reduce((sum, l) => sum + (Number.isFinite(l.unit_price) ? l.quantity * l.unit_price : 0), 0);
 }
 
+// Inventory parts picked on the lines: { variant, serial_number } for each linked line.
+export const partsOf = (lines) => (lines || []).filter((l) => l.variant).map((l) => ({ variant: l.variant, serial_number: String(l.serial_number || "").trim() }));
+
 // Returns an error message, or "" when the device's pricing is fine.
 export function validatePricing({ lines, payment, advance, needLines }) {
+  const picked = (lines || []).filter((l) => l.variant);
+  const missing = picked.find((l) => !String(l.serial_number || "").trim());
+  if (missing) return `Enter the serial number for ${missing.description || "the selected part"}.`;
+  const bad = picked.find((l) => l.serial_check?.state === "bad");
+  if (bad) return bad.serial_check.message;
+  if (picked.some((l) => l.serial_check?.state === "checking")) return "Still checking a serial number -- try again in a moment.";
+  const serials = picked.map((l) => String(l.serial_number).trim().toUpperCase());
+  if (new Set(serials).size !== serials.length) return "The same serial number is picked on more than one line.";
   const clean = cleanLines(lines);
   if (needLines && !clean.length) return "Add at least one work or part line with its price.";
   if (clean.some((l) => !l.description || l.quantity < 1 || !Number.isFinite(l.unit_price) || l.unit_price < 0)) return "Every line needs a description, quantity and a price.";
@@ -41,6 +53,8 @@ export function validatePricing({ lines, payment, advance, needLines }) {
 export function pricingPayload({ lines, payment, advance, canPrice }) {
   const out = {};
   if (canPrice) out.estimate_lines = cleanLines(lines);
+  const parts = partsOf(lines);
+  if (canPrice && parts.length) out.parts = parts;
   if (payment === "advance") out.advance_amount = String(advance ?? "") === "" ? 0 : Number(advance);
   return out;
 }

@@ -24,7 +24,7 @@ class StoreStatusTests(TestCase):
         self.shop = StockPoint.objects.create(slug="kb", name="Karol Bagh", kind=StockPoint.SHOP)
         self.other = StockPoint.objects.create(slug="np", name="Nehru Place", kind=StockPoint.SHOP)
         self.party = Party.objects.create(name="Customer", type=Party.RETAIL, phone="9876500000", joined=date.today())
-        product = Product.objects.create(brand="Dell", model_name="Latitude", product_code="VC-LAP-0001")
+        product = Product.objects.create(brand="Dell", model_name="Latitude", product_code="VC-LAP-0001", category=Product.LAPTOP)
         self.variant = Variant.objects.create(product=product, code="VC-SKU-0001", spec="i5", mrp=50000, sell_price=40000, cost=30000)
         self.stock = Stock.objects.create(variant=self.variant, stock_point=self.shop, quantity=5, location="Rack A")
         Stock.objects.create(variant=self.variant, stock_point=self.other, quantity=5)

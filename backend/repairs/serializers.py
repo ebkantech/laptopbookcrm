@@ -2,7 +2,7 @@ from datetime import date
 
 from rest_framework import serializers
 
-from catalog.models import Service, StockPoint
+from catalog.models import Service, StockPoint, Variant
 from catalog.serializers import ServiceSerializer
 from catalog.status import require_active
 from parties.models import Party
@@ -38,6 +38,12 @@ class EstimateLineInputSerializer(serializers.Serializer):
         if attrs.get("unit_price") is None and not attrs.get("service"):
             raise serializers.ValidationError("Choose a service or enter a unit price.")
         return attrs
+
+
+class PartInputSerializer(serializers.Serializer):
+    """An inventory unit fitted to a new ticket: its product variant and exact serial number."""
+    variant = serializers.PrimaryKeyRelatedField(queryset=Variant.objects.select_related("product"))
+    serial_number = serializers.CharField(max_length=80, trim_whitespace=True)
 
 
 class FinalizeEstimateSerializer(serializers.Serializer):
@@ -102,6 +108,7 @@ class RepairOrderDeviceInputSerializer(serializers.Serializer):
     # Prices are agreed with the customer at the counter, so they're typed in
     # (not mapped from the catalogue), and so is the advance.
     estimate_lines = EstimateLineInputSerializer(many=True, required=False, default=list)
+    parts = PartInputSerializer(many=True, required=False, default=list)
     advance_amount = serializers.IntegerField(min_value=0, required=False, allow_null=True)
 
 
@@ -286,6 +293,9 @@ class RepairTicketSerializer(serializers.ModelSerializer):
     assigned_to_name = serializers.SerializerMethodField()
     assigned_to_store = serializers.SerializerMethodField()
     estimate_lines = EstimateLineInputSerializer(many=True, write_only=True, required=False)
+    # inventory units fitted at booking (create only; see repairs.parts)
+    parts = PartInputSerializer(many=True, write_only=True, required=False)
+    parts_used = serializers.SerializerMethodField()
     advance_amount = serializers.IntegerField(min_value=0, write_only=True, required=False, allow_null=True)
     pending_revision = serializers.SerializerMethodField()
     revisions = RepairRevisionSerializer(many=True, read_only=True)
@@ -305,7 +315,7 @@ class RepairTicketSerializer(serializers.ModelSerializer):
             "approval_status", "events",
             "order_id", "order_code", "repair_type", "order_device_count",
             "order_progress", "combined_approval_ready", "assigned_to", "assigned_to_name", "assigned_to_store",
-            "estimate_lines", "advance_amount", "assigned_at", "started_at", "ready_at", "due_at", "pending_revision", "revisions", "on_hold_reason",
+            "estimate_lines", "parts", "parts_used", "advance_amount", "assigned_at", "started_at", "ready_at", "due_at", "pending_revision", "revisions", "on_hold_reason",
             "diagnosed_at", "diagnosis_note", "diagnosed_by_name", "awaiting_diagnosis",
         ]
         # advance_paid only changes when the advance invoice is paid or refunded;
@@ -334,7 +344,14 @@ class RepairTicketSerializer(serializers.ModelSerializer):
         require_active(value, "repair tickets", current=self.instance.stock_point_id if self.instance else None)
         return value
 
+    def get_parts_used(self, obj):
+        return [{"id": u.id, "description": u.description, "serial_number": u.serial.serial_number, "variant": u.variant_id}
+                for u in obj.part_uses.all()]
+
     def validate(self, attrs):
+        if self.instance is not None and attrs.get("parts"):
+            # fitted parts have left stock and there is no reversal rule, so they are set once, at booking
+            raise serializers.ValidationError({"parts": "Parts are issued when the ticket is created and can't be changed afterwards."})
         lines = attrs.get("estimate_lines") or []
         amount = attrs.get("advance_amount")
         if amount is not None and lines and amount > sum(l["quantity"] * (l.get("unit_price") or 0) for l in lines):

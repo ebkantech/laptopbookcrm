@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from catalog.models import Stock
+from catalog.models import Product, Stock
 from parties.models import Party
 
 from .models import Rental, RentalApproval, RentalAsset, RentalEvent, RentalIssue, RentalLine
@@ -309,10 +309,35 @@ MAX_MONTHLY_FEE = 1_000_000  # rupees, per device
 START_WINDOW_DAYS = 366
 
 
+class AssetFromInventorySerializer(serializers.Serializer):
+    """Take one unit off a shop's sale stock and register it for rent."""
+    stock = serializers.PrimaryKeyRelatedField(queryset=Stock.objects.select_related("variant__product", "stock_point"))
+    serial_number = serializers.CharField(max_length=80, trim_whitespace=True)
+    asset_tag = serializers.CharField(max_length=48, required=False, allow_blank=True, trim_whitespace=True)
+    # optional: blank purchase price = the product's cost price in Inventory
+    purchase_price = serializers.IntegerField(required=False, allow_null=True, min_value=0, max_value=10_000_000)
+    monthly_rent = serializers.IntegerField(required=False, allow_null=True, min_value=1, max_value=1_000_000)
+
+    def validate_stock(self, stock):
+        # Only products filed under the Laptop category can be rented out;
+        # chargers, SSDs, accessories and uncategorised products cannot.
+        if stock.variant.product.category != Product.LAPTOP:
+            raise serializers.ValidationError("Only laptops can be rented out from Inventory.")
+        return stock
+
+
 class CreateRentalLineSerializer(serializers.Serializer):
-    asset_id = serializers.PrimaryKeyRelatedField(source="asset", queryset=RentalAsset.objects.all())
+    # Either an existing rental device, or a laptop still on a shop's sale
+    # stock: that unit leaves stock only when the agreement is saved.
+    asset_id = serializers.PrimaryKeyRelatedField(source="asset", queryset=RentalAsset.objects.all(), required=False)
+    from_inventory = AssetFromInventorySerializer(required=False)
     # a rent invoice for Rs 0 would be sent to the client every cycle, so a fee must be a real amount
     monthly_fee = serializers.IntegerField(min_value=1, max_value=MAX_MONTHLY_FEE)
+
+    def validate(self, attrs):
+        if bool(attrs.get("asset")) == bool(attrs.get("from_inventory")):
+            raise serializers.ValidationError({"asset_id": "Choose a rental device, or a laptop from inventory, for this line."})
+        return attrs
 
 
 class CreateRentalAgreementSerializer(serializers.Serializer):
@@ -352,16 +377,19 @@ class CreateRentalAgreementSerializer(serializers.Serializer):
             releasing = set(old.lines.values_list("asset_id", flat=True))
         unavailable = [
             line["asset"].asset_tag for line in attrs["lines"]
-            if line["asset"].status != RentalAsset.AVAILABLE and line["asset"].id not in releasing
+            if line.get("asset") and line["asset"].status != RentalAsset.AVAILABLE and line["asset"].id not in releasing
         ]
         if unavailable:
             raise serializers.ValidationError({"lines": f"Assets must be Available before renting: {', '.join(unavailable)}."})
         return attrs
 
     def validate_lines(self, lines):
-        asset_ids = [line["asset"].id for line in lines]
+        asset_ids = [line["asset"].id for line in lines if line.get("asset")]
         if len(asset_ids) != len(set(asset_ids)):
             raise serializers.ValidationError("The same asset cannot be added twice to one rental agreement.")
+        serials = [line["from_inventory"]["serial_number"].strip().lower() for line in lines if line.get("from_inventory")]
+        if len(serials) != len(set(serials)):
+            raise serializers.ValidationError("The same serial number cannot be added twice to one rental agreement.")
         return lines
 
 
@@ -408,13 +436,3 @@ class PublicRentalApprovalSerializer(serializers.Serializer):
             "items": snapshot.get("items", []),
             "total_monthly_fee": snapshot.get("total_monthly_fee", 0),
         }
-
-
-class AssetFromInventorySerializer(serializers.Serializer):
-    """Take one unit off a shop's sale stock and register it for rent."""
-    stock = serializers.PrimaryKeyRelatedField(queryset=Stock.objects.select_related("variant__product", "stock_point"))
-    serial_number = serializers.CharField(max_length=80, trim_whitespace=True)
-    asset_tag = serializers.CharField(max_length=48, required=False, allow_blank=True, trim_whitespace=True)
-    # optional: blank purchase price = the product's cost price in Inventory
-    purchase_price = serializers.IntegerField(required=False, allow_null=True, min_value=0, max_value=10_000_000)
-    monthly_rent = serializers.IntegerField(required=False, allow_null=True, min_value=1, max_value=1_000_000)

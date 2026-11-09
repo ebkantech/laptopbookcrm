@@ -14,7 +14,7 @@ class ReturnToInventoryTests(TestCase):
         self.client_ = client_for(make_user("renter", ["rentals.view", "rentals.manage"], owner=True))
         self.shop = StockPoint.objects.create(slug="shop", name="Main Shop", kind=StockPoint.SHOP)
         self.other = StockPoint.objects.create(slug="other", name="Other Shop", kind=StockPoint.SHOP)
-        product = Product.objects.create(model_name="ThinkPad T14", brand="Lenovo", product_code="P-1")
+        product = Product.objects.create(model_name="ThinkPad T14", brand="Lenovo", product_code="P-1", category=Product.LAPTOP)
         self.variant = Variant.objects.create(product=product, code="V-1", spec="16GB", mrp=1, sell_price=1, cost=1)
         self.stock = Stock.objects.create(variant=self.variant, stock_point=self.shop, quantity=1)
 
@@ -58,7 +58,7 @@ class PriceAndRentTests(TestCase):
     def setUp(self):
         self.client_ = client_for(make_user("renter2", ["rentals.view", "rentals.manage"], owner=True))
         self.shop = StockPoint.objects.create(slug="pr-shop", name="Price Shop", kind=StockPoint.SHOP)
-        product = Product.objects.create(model_name="Latitude 7420", brand="Dell", product_code="P-PR")
+        product = Product.objects.create(model_name="Latitude 7420", brand="Dell", product_code="P-PR", category=Product.LAPTOP)
         self.variant = Variant.objects.create(product=product, code="V-PR", spec="16GB", mrp=60000, sell_price=55000, cost=41000)
         self.stock = Stock.objects.create(variant=self.variant, stock_point=self.shop, quantity=3)
 

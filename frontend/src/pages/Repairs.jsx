@@ -177,6 +177,15 @@ function NewTicketModal({ parties, services, stockPoints, onClose, onCreate }) {
   const total = entryType === "bulk" ? bulkDevices.reduce((sum, d) => sum + linesTotal(d.lines), 0) : linesTotal(lines);
   const updateBulkDevice = (index, patch) => setBulkDevices((current) => current.map((device, deviceIndex) => deviceIndex === index ? { ...device, ...patch } : device));
 
+  // picked parts and their serial numbers belong to one shop's stock: a different drop-off shop clears them
+  const unlink = (ls) => ls.map((l) => (l.variant ? { ...l, description: "", service_id: null, variant: null, available: null, serial_number: "", serial_check: null } : l));
+  const changeShop = (id) => {
+    if (id === stockPointId) return;
+    setStockPointId(id);
+    setLines(unlink);
+    setBulkDevices((current) => current.map((d) => ({ ...d, lines: unlink(d.lines) })));
+  };
+
   const submit = async () => {
     if (entryType === "single" && (!model.trim() || !serial.trim() || !issue.trim())) return setError("Model, serial / asset tag and the reported issue are required.");
     if (entryType === "bulk" && bulkDevices.some((device) => !device.model_name.trim() || !device.serial.trim() || !device.issue.trim())) return setError("Every bulk device needs model, serial / asset tag and issue.");
@@ -184,6 +193,10 @@ function NewTicketModal({ parties, services, stockPoints, onClose, onCreate }) {
       ? bulkDevices.map((d) => validatePricing({ lines: d.lines, payment, advance: d.advance, needLines: canPrice })).find(Boolean)
       : validatePricing({ lines, payment, advance: advanceInput, needLines: canPrice });
     if (problems) return setError(problems);
+    if (entryType === "bulk") {
+      const used = bulkDevices.flatMap((d) => d.lines.filter((l) => l.variant).map((l) => String(l.serial_number || "").trim().toUpperCase()));
+      if (new Set(used).size !== used.length) return setError("The same inventory serial number is entered on more than one device.");
+    }
     setBusy(true);
     setError("");
     try {
@@ -231,7 +244,7 @@ function NewTicketModal({ parties, services, stockPoints, onClose, onCreate }) {
             )}
           </label>
           <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Drop-off shop
-            <select value={stockPointId} onChange={(e) => setStockPointId(+e.target.value)} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}>
+            <select value={stockPointId} onChange={(e) => changeShop(+e.target.value)} className="mt-1 w-full bg-transparent py-2 text-sm outline-none" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}` }}>
               {stockPoints.filter((s) => s.kind === "shop").map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </label>
@@ -255,7 +268,7 @@ function NewTicketModal({ parties, services, stockPoints, onClose, onCreate }) {
 
         {canPrice ? <>
           <p className="mt-4 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.1em", color: C.inkSoft }}>Agreed work &amp; price</p>
-          <div className="mt-2"><ManualLines lines={lines} onChange={setLines} /></div>
+          <div className="mt-2"><ManualLines lines={lines} onChange={setLines} showCost={false} stockPointId={stockPointId} /></div>
         </> : <p className="mt-4 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>The Admin sets the price and sends the customer's approval link.</p>}
         </>}
 
@@ -268,7 +281,7 @@ function NewTicketModal({ parties, services, stockPoints, onClose, onCreate }) {
               <input value={device.serial} onChange={(event) => updateBulkDevice(index, { serial: event.target.value })} placeholder="Serial / asset tag · required" className="bg-transparent px-2 py-2 text-sm" style={{ border: `1px solid ${C.rule}` }} />
             </div>
             <textarea value={device.issue} onChange={(event) => updateBulkDevice(index, { issue: event.target.value })} placeholder="Reported issue · required" rows={2} className="mt-2 w-full bg-transparent px-2 py-2 text-sm" style={{ border: `1px solid ${C.rule}` }} />
-            {canPrice && <div className="mt-3"><ManualLines lines={device.lines} onChange={(l) => updateBulkDevice(index, { lines: l })} /></div>}
+            {canPrice && <div className="mt-3"><ManualLines lines={device.lines} onChange={(l) => updateBulkDevice(index, { lines: l })} showCost={false} stockPointId={stockPointId} /></div>}
             {payment === "advance" && <label className="mt-3 block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Advance for this device (₹)
               <input type="number" min="0" value={device.advance} onChange={(e) => updateBulkDevice(index, { advance: e.target.value })} placeholder="0 = none" className="mt-1 w-full bg-transparent px-2 py-1.5 text-sm" style={{ border: `1px solid ${C.rule}` }} />
             </label>}

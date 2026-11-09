@@ -167,6 +167,17 @@ def on_back_from_rent(serial_number, stock_point, actor):
     return r
 
 
+# ------------------------------------------------------------------ repair
+
+def on_used_in_repair(serial, ticket_code, actor):
+    """A unit fitted to a repair leaves stock for good (nothing puts it back
+    automatically). The caller holds the row lock and has checked it is in stock."""
+    serial.status = StockSerial.USED
+    serial.save(update_fields=["status"])
+    log(serial, SerialEvent.USED_IN_REPAIR, f"Used in repair {ticket_code}", actor)
+    return serial
+
+
 # --------------------------------------------------------------- write-off
 
 def write_off(serial, actor, reason, reduce_stock):

@@ -18,6 +18,8 @@ function FieldError({ id, message }) {
 const boxStyle = (message) => ({ border: `1px solid ${message ? C.carbon : C.rule}`, color: C.ink });
 
 const emptyAsset = { asset_tag: "", serial_number: "", brand: "", model_name: "" };
+// "Rent out from inventory" search over one stock row
+const stockRowMatches = (row, query) => !query.trim() || `${row.label} ${row.code} ${row.shop}`.toLowerCase().includes(query.trim().toLowerCase());
 
 export default function RentalAgreementModal({ parties, initialAssets, initialParty = "", renewing = null, canAddCustomer = false, onCustomerCreated, onCreated, onClose }) {
   const [addingCustomer, setAddingCustomer] = useState(false);
@@ -71,8 +73,14 @@ export default function RentalAgreementModal({ parties, initialAssets, initialPa
   useEffect(() => { setDraftErrors({}); }, [assetDraft, invSerial, invTag, stockId]);
   useEffect(() => { if (error) errorRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, [error]);
   // a stray click on the backdrop must not throw away a half-filled agreement
-  const dirty = !!renewing || !!((party && party !== String(initialParty || "")) || terms || lines.some((l) => l.asset_id || l.monthly_fee) || tenureMonths !== "1" || billingCycle !== "1" || start !== todayISO());
-  const selectedCount = lines.filter((line) => line.asset_id).length;
+  const dirty = !!renewing || !!((party && party !== String(initialParty || "")) || terms || lines.some((l) => l.asset_id || l.inventory || l.monthly_fee) || tenureMonths !== "1" || billingCycle !== "1" || start !== todayISO());
+  const selectedCount = lines.filter((line) => line.asset_id || line.inventory).length;
+  // shop stock still on offer: the server's count minus units already picked on this unsaved form
+  const offeredRows = useMemo(
+    () => (stockRows || []).map((r) => ({ ...r, qty: r.qty - lines.filter((l) => l.inventory?.stock === r.id).length })).filter((r) => r.qty > 0),
+    [stockRows, lines],
+  );
+  const submitting = useRef(false); // a second click before React re-renders must not post twice
 
   // the device's usual rent (Rentals -> Devices) fills an empty monthly fee
   const rentOf = (assetId, list = assets) => {
@@ -92,7 +100,7 @@ export default function RentalAgreementModal({ parties, initialAssets, initialPa
     setAssets((current) => (current.some((a) => a.id === asset.id) ? current : [...current, asset]));
     setLines((current) => {
       if (current.some((line) => line.asset_id === String(asset.id))) return current;
-      const emptyIndex = current.findIndex((line) => !line.asset_id);
+      const emptyIndex = current.findIndex((line) => !line.asset_id && !line.inventory);
       const fee = asset.monthly_rent ? String(asset.monthly_rent) : "";
       if (emptyIndex < 0) return [...current, { asset_id: String(asset.id), monthly_fee: fee }];
       return current.map((line, index) => index === emptyIndex ? { ...line, asset_id: String(asset.id), monthly_fee: line.monthly_fee || fee } : line);
@@ -129,7 +137,7 @@ export default function RentalAgreementModal({ parties, initialAssets, initialPa
       const created = await api.post("/rental-assets/", assetDraft);
       setAssets((current) => [...current, created]);
       setLines((current) => {
-        const emptyIndex = current.findIndex((line) => !line.asset_id);
+        const emptyIndex = current.findIndex((line) => !line.asset_id && !line.inventory);
         if (emptyIndex < 0) return [...current, { asset_id: String(created.id), monthly_fee: "" }];
         return current.map((line, index) => index === emptyIndex ? { ...line, asset_id: String(created.id) } : line);
       });
@@ -156,7 +164,7 @@ export default function RentalAgreementModal({ parties, initialAssets, initialPa
     setShowAssetForm(false);
     if (stockRows) return;
     try {
-      const [products, open] = await Promise.all([api.getAll("/products/"), api.getAll("/stock-points/?active=1")]);
+      const [products, open] = await Promise.all([api.getAll("/products/?category=laptop"), api.getAll("/stock-points/?active=1")]);
       // units can't leave an inactive shop's stock for a new rental
       const openSlugs = new Set(open.map((sp) => sp.slug));
       // one row per (variant, shop) that actually has units on the shelf
@@ -168,35 +176,38 @@ export default function RentalAgreementModal({ parties, initialAssets, initialPa
     }
   };
 
-  const takeFromInventory = async () => {
-    const pick = validateInventoryPick({ stockId, serial: invSerial, tag: invTag });
+  // Picking from inventory only adds a pending line to this form: nothing is
+  // taken from stock until the agreement is saved (create-agreement takes the
+  // unit in the same transaction), so cancelling or closing leaves stock as it was.
+  const addFromInventory = () => {
+    const pick = validateInventoryPick({ stockId, serial: invSerial, tag: invTag, stockIds: offeredRows.map((r) => r.id) });
+    const serial = invSerial.trim();
+    if (!pick.errors.serial_number && lines.some((l) => l.inventory && l.inventory.serial_number.toLowerCase() === serial.toLowerCase())) {
+      pick.errors.serial_number = "This serial number is already on the agreement.";
+      pick.summary.push(pick.errors.serial_number);
+    }
     setDraftErrors(pick.errors);
     if (pick.summary.length) {
       setError(pick.summary.join(" "));
       return;
     }
-    setBusy(true);
+    const row = stockRows.find((r) => r.id === Number(stockId));
+    const inventory = { stock: row.id, serial_number: serial, asset_tag: invTag.trim(), label: `${row.label} — ${row.shop}` };
+    setLines((current) => {
+      const emptyIndex = current.findIndex((line) => !line.asset_id && !line.inventory);
+      if (emptyIndex < 0) return [...current, { asset_id: "", monthly_fee: "", inventory }];
+      return current.map((line, index) => index === emptyIndex ? { ...line, asset_id: "", inventory } : line);
+    });
     setError("");
-    try {
-      const asset = await api.post("/rental-assets/from-inventory/", { stock: Number(stockId), serial_number: invSerial.trim(), asset_tag: invTag.trim() });
-      setStockRows((rows) => rows.map((r) => (r.id === Number(stockId) ? { ...r, qty: r.qty - 1 } : r)).filter((r) => r.qty > 0));
-      selectAsset(asset);
-      setShowInventory(false);
-      setStockId("");
-      setInvSerial("");
-      setInvTag("");
-    } catch (requestError) {
-      const { message, fields } = describeServerError({ ...requestError, status: requestError.status, body: Object.fromEntries(Object.entries(requestError.body || {}).filter(([k]) => k !== "existing_asset")) });
-      setDraftErrors(fields);
-      setError(message);
-    } finally {
-      setBusy(false);
-    }
+    setShowInventory(false);
+    setStockId("");
+    setInvSerial("");
+    setInvTag("");
   };
 
   const submit = async (event) => {
     event.preventDefault();
-    if (busy) return;
+    if (busy || submitting.current) return;
     setSubmitted(true);
     if (!check.valid) {
       setError(
@@ -207,7 +218,10 @@ export default function RentalAgreementModal({ parties, initialAssets, initialPa
       );
       return;
     }
-    const selectedLines = lines.filter((line) => line.asset_id);
+    // form row index of each line sent, so the server's per-line errors land on the right row
+    const sentRows = lines.map((line, index) => (line.asset_id || line.inventory ? index : -1)).filter((index) => index >= 0);
+    const selectedLines = sentRows.map((index) => lines[index]);
+    submitting.current = true;
     setBusy(true);
     setError("");
     try {
@@ -218,15 +232,20 @@ export default function RentalAgreementModal({ parties, initialAssets, initialPa
         payment_interval_months: Number(billingCycle),
         auto_invoice: autoInvoice,
         terms: terms.trim(),
-        lines: selectedLines.map((line) => ({ asset_id: Number(line.asset_id), monthly_fee: Number(line.monthly_fee) })),
+        // a laptop picked from inventory leaves stock only now, with the agreement
+        lines: selectedLines.map((line) => (line.inventory
+          ? { from_inventory: { stock: Number(line.inventory.stock), serial_number: line.inventory.serial_number, asset_tag: line.inventory.asset_tag }, monthly_fee: Number(line.monthly_fee) }
+          : { asset_id: Number(line.asset_id), monthly_fee: Number(line.monthly_fee) })),
         ...(renewing ? { renews: renewing.id } : {}),
       });
       onCreated(created);
     } catch (requestError) {
       const { message, fields } = describeServerError(requestError);
+      if (fields.lines) fields.lines = Object.fromEntries(Object.entries(fields.lines).map(([sent, row]) => [sentRows[sent], row]));
       setServerFields(fields);
       setError(message);
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   };
@@ -282,22 +301,32 @@ export default function RentalAgreementModal({ parties, initialAssets, initialPa
         <div className="mt-5 flex items-center justify-between"><Eyebrow>Devices · {selectedCount >= 2 ? "Bulk" : "Single"}</Eyebrow><div className="flex items-center gap-3"><button type="button" onClick={openInventory} className="flex items-center gap-1 text-xs" style={{ color: C.orange, fontWeight: 600 }}><Package size={12} /> Rent out from inventory</button><button type="button" onClick={() => { setShowAssetForm((value) => !value); setShowInventory(false); }} className="flex items-center gap-1 text-xs" style={{ color: C.orange }}><Plus size={12} /> Register device not in inventory</button></div></div>
         {showInventory && (
           <div className="mt-2 space-y-2 p-3 rounded-xl" style={{ backgroundColor: C.slip2 }}>
-            <p className="text-xs" style={{ color: C.inkSoft }}>Pick a laptop that's in stock. One unit leaves that shop's sale stock and joins the rental fleet.</p>
+            <p className="text-xs" style={{ color: C.inkSoft }}>Pick a laptop that's in stock. One unit leaves that shop's sale stock and joins the rental fleet when you create the agreement — not before.</p>
             {!stockRows ? <p className="text-xs" style={{ color: C.inkSoft }}>Loading inventory…</p> : (
               <>
-                <input value={stockQuery} onChange={(e) => setStockQuery(e.target.value)} placeholder="Search product, spec or shop" className="w-full bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} />
-                <select value={stockId} aria-invalid={!!draftErrors.stock} onChange={(e) => setStockId(e.target.value)} size={Math.min(6, Math.max(2, stockRows.length))} className="w-full bg-transparent p-1 text-sm" style={boxStyle(draftErrors.stock)}>
-                  {stockRows
-                    .filter((r) => !stockQuery.trim() || `${r.label} ${r.code} ${r.shop}`.toLowerCase().includes(stockQuery.trim().toLowerCase()))
-                    .map((r) => <option key={r.id} value={r.id}>{r.label} — {r.shop} ({r.qty} in stock{r.location ? `, ${r.location}` : ""})</option>)}
+                <input value={stockQuery} onChange={(e) => {
+                  const q = e.target.value;
+                  setStockQuery(q);
+                  // a pick the search hides must not stay silently selected
+                  const picked = offeredRows.find((r) => String(r.id) === stockId);
+                  if (picked && !stockRowMatches(picked, q)) setStockId("");
+                }} placeholder="Search product, spec or shop" className="w-full bg-transparent p-2 text-sm" style={{ border: `1px solid ${C.rule}`, color: C.ink }} />
+                {/* The "" placeholder is required: with no option matching an empty value, React
+                    highlights the first laptop while stockId stays "", and clicking that
+                    already-highlighted laptop fires no change event. */}
+                <select value={stockId} aria-invalid={!!draftErrors.stock} onChange={(e) => setStockId(e.target.value)} size={Math.min(6, Math.max(2, offeredRows.length + 1))} className="w-full bg-transparent p-1 text-sm" style={boxStyle(draftErrors.stock)}>
+                  <option value="" disabled>— Choose a laptop —</option>
+                  {offeredRows
+                    .filter((r) => stockRowMatches(r, stockQuery))
+                    .map((r) => <option key={r.id} value={String(r.id)}>{r.label} — {r.shop} ({r.qty} in stock{r.location ? `, ${r.location}` : ""})</option>)}
                 </select>
                 <FieldError message={draftErrors.stock} />
-                {!stockRows.length && <p className="text-xs" style={{ color: C.carbon }}>Nothing is in stock in Inventory right now.</p>}
+                {!offeredRows.length && <p className="text-xs" style={{ color: C.carbon }}>Nothing is in stock in Inventory right now.</p>}
                 <div className="grid gap-2 sm:grid-cols-2">
                   <label className="text-xs" style={{ display: "block", color: C.inkSoft }}>Serial number of this unit *<input value={invSerial} maxLength={ASSET_LIMITS.serial_number + 20} aria-invalid={!!draftErrors.serial_number} onChange={(e) => setInvSerial(e.target.value)} placeholder="from the label under the laptop" className="mt-1 w-full bg-transparent p-2 text-sm" style={boxStyle(draftErrors.serial_number)} /><FieldError message={draftErrors.serial_number} /></label>
                   <label className="text-xs" style={{ display: "block", color: C.inkSoft }}>Asset tag (optional)<input value={invTag} maxLength={ASSET_LIMITS.asset_tag + 20} aria-invalid={!!draftErrors.asset_tag} onChange={(e) => setInvTag(e.target.value)} placeholder="blank = generate AST-####" className="mt-1 w-full bg-transparent p-2 text-sm" style={boxStyle(draftErrors.asset_tag)} /><FieldError message={draftErrors.asset_tag} /></label>
                 </div>
-                <button type="button" disabled={busy} onClick={takeFromInventory} className="w-full p-2 text-xs" style={{ backgroundColor: C.carbon, color: C.onAccent }}>{busy ? "Taking from stock…" : "Take 1 from stock and add to this agreement"}</button>
+                <button type="button" disabled={busy} onClick={addFromInventory} className="w-full p-2 text-xs" style={{ backgroundColor: C.carbon, color: C.onAccent }}>Add to this agreement (taken from stock when the agreement is created)</button>
               </>
             )}
           </div>
@@ -313,7 +342,7 @@ export default function RentalAgreementModal({ parties, initialAssets, initialPa
             <button type="button" onClick={() => selectAsset(existing)} className="p-2 text-xs sm:col-span-2" style={{ border: `1px solid ${C.green}`, color: C.green, fontWeight: 600 }}>Use {existing.asset_tag} on this agreement</button>
           )}
         </div>}
-        <div className="mt-2 space-y-2">{lines.map((line, index) => <div key={index}><div className="grid grid-cols-[minmax(0,1fr)_130px_32px] items-start gap-2"><select value={line.asset_id} aria-label={`Device ${index + 1}`} aria-invalid={!!lineError(index, "asset")} onChange={(event) => updateLine(index, "asset_id", event.target.value)} className="w-full min-w-0 truncate bg-transparent p-2 text-sm" style={boxStyle(lineError(index, "asset"))}><option value="">{availableAssets.length ? "Choose an available rental device" : "No free rental devices — rent one out from inventory above"}</option>{availableAssets.map((asset) => <option key={asset.id} value={asset.id} disabled={lines.some((other, position) => position !== index && other.asset_id === String(asset.id))}>{asset.asset_tag} · {asset.brand} {asset.model_name} · {asset.serial_number}</option>)}</select><input type="number" inputMode="numeric" min="1" max={LIMITS.feeMax} step="1" aria-label={`Monthly fee for device ${index + 1}`} aria-invalid={!!lineError(index, "fee")} value={line.monthly_fee} onChange={(event) => updateLine(index, "monthly_fee", event.target.value)} placeholder="₹ / month" className="w-full min-w-0 bg-transparent p-2 text-sm" style={boxStyle(lineError(index, "fee"))} /><button type="button" className="flex h-9 w-8 shrink-0 items-center justify-center" aria-label={`Remove device ${index + 1}`} disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, position) => position !== index))}><Trash2 size={15} /></button></div><FieldError message={lineError(index, "asset")} /><FieldError message={lineError(index, "fee")} /></div>)}<FieldError message={shown.devices} /></div>
+        <div className="mt-2 space-y-2">{lines.map((line, index) => <div key={index}><div className="grid grid-cols-[minmax(0,1fr)_130px_32px] items-start gap-2">{line.inventory ? (<div aria-label={`Device ${index + 1}`} className="w-full min-w-0 truncate p-2 text-sm" style={boxStyle(lineError(index, "asset"))} title={`${line.inventory.label} · S/N ${line.inventory.serial_number}`}><Package size={12} className="mr-1 inline" />From stock: {line.inventory.label} · S/N {line.inventory.serial_number}{line.inventory.asset_tag ? ` · ${line.inventory.asset_tag}` : ""}</div>) : <select value={line.asset_id} aria-label={`Device ${index + 1}`} aria-invalid={!!lineError(index, "asset")} onChange={(event) => updateLine(index, "asset_id", event.target.value)} className="w-full min-w-0 truncate bg-transparent p-2 text-sm" style={boxStyle(lineError(index, "asset"))}><option value="">{availableAssets.length ? "Choose an available rental device" : "No free rental devices — rent one out from inventory above"}</option>{availableAssets.map((asset) => <option key={asset.id} value={asset.id} disabled={lines.some((other, position) => position !== index && other.asset_id === String(asset.id))}>{asset.asset_tag} · {asset.brand} {asset.model_name} · {asset.serial_number}</option>)}</select>}<input type="number" inputMode="numeric" min="1" max={LIMITS.feeMax} step="1" aria-label={`Monthly fee for device ${index + 1}`} aria-invalid={!!lineError(index, "fee")} value={line.monthly_fee} onChange={(event) => updateLine(index, "monthly_fee", event.target.value)} placeholder="₹ / month" className="w-full min-w-0 bg-transparent p-2 text-sm" style={boxStyle(lineError(index, "fee"))} /><button type="button" className="flex h-9 w-8 shrink-0 items-center justify-center" aria-label={`Remove device ${index + 1}`} disabled={lines.length === 1 && !line.inventory} onClick={() => setLines((current) => (current.length === 1 ? [{ asset_id: "", monthly_fee: "" }] : current.filter((_, position) => position !== index)))}><Trash2 size={15} /></button></div><FieldError message={lineError(index, "asset")} /><FieldError message={lineError(index, "fee")} /></div>)}<FieldError message={shown.devices} /></div>
         <button type="button" onClick={() => setLines((current) => [...current, { asset_id: "", monthly_fee: "" }])} className="mt-2 flex items-center gap-1 text-xs" style={{ color: C.orange }}><Plus size={12} /> Add another device</button>
         <label className="mt-4 block text-xs" style={{ color: C.inkSoft }}>Terms (optional)<textarea value={terms} maxLength={LIMITS.termsMax + 200} aria-invalid={!!fieldError("terms", "terms")} onChange={(event) => setTerms(event.target.value)} rows={3} className="mt-1 w-full resize-none bg-transparent p-2 text-sm" style={boxStyle(fieldError("terms", "terms"))} /><span className="mt-0.5 flex justify-between text-xs"><FieldError message={fieldError("terms", "terms")} /><span style={{ marginLeft: "auto", color: terms.length > LIMITS.termsMax ? C.carbon : C.inkSoft }}>{terms.length}/{LIMITS.termsMax}</span></span></label>
         <div ref={errorRef}><ErrorNote message={error} /></div>
