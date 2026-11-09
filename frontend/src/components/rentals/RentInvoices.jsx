@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FileText, Send } from "lucide-react";
+import { ChevronDown, FileText, Send } from "lucide-react";
 import { C, F, fmt, money } from "../../lib/theme";
 import { api } from "../../lib/api";
 import { ErrorNote, Eyebrow, Pill } from "../Atoms";
@@ -20,6 +20,8 @@ export default function RentInvoices({ rental, canRaise, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
+  // the list of past invoices takes a lot of room: folded until asked for
+  const [showList, setShowList] = useState(false);
 
   const invoices = rental.rent_invoices || [];
   const next = rental.next_billing_period;
@@ -56,11 +58,27 @@ export default function RentInvoices({ rental, canRaise, onChanged }) {
   };
 
   if (!invoices.length && !billable) return null;
+  const overdue = invoices.filter((inv) => inv.status === "Overdue");
+  const awaiting = invoices.filter((inv) => inv.status === "Payment link sent");
+  const unpaid = [...overdue, ...awaiting].reduce((n, inv) => n + (inv.balance_due ?? inv.total), 0);
 
   return (
     <div className="mt-3">
-      <Eyebrow>Rent invoices</Eyebrow>
-      {invoices.length > 0 && (
+      {invoices.length > 0 ? (
+        <button type="button" onClick={() => setShowList((v) => !v)} aria-expanded={showList}
+          className="flex w-full flex-wrap items-center justify-between gap-2 px-3 py-2 text-left text-xs" style={{ backgroundColor: C.slip2, border: `1px solid ${C.rule}`, fontFamily: F.body, color: C.inkSoft }}>
+          <span className="flex items-center gap-2">
+            <span className="uppercase" style={{ fontWeight: 700, letterSpacing: "0.1em" }}>Rent invoices ({invoices.length})</span>
+            {overdue.length > 0 && <Pill color={C.carbon}>{overdue.length} overdue</Pill>}
+            {awaiting.length > 0 && <Pill color={C.amber}>{awaiting.length} awaiting</Pill>}
+            {unpaid > 0 && <span style={{ fontFamily: F.mono, color: C.ink }}>{money(unpaid)} unpaid</span>}
+          </span>
+          <span className="flex items-center gap-1" style={{ color: C.stamp, fontWeight: 600 }}>
+            {showList ? "Hide" : "Show"} <ChevronDown size={13} style={{ transform: showList ? "rotate(180deg)" : "none", transition: "transform 150ms" }} />
+          </span>
+        </button>
+      ) : <Eyebrow>Rent invoices</Eyebrow>}
+      {invoices.length > 0 && showList && (
         <div className="mt-1.5 space-y-1">
           {invoices.map((inv) => (
             <div key={inv.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 text-xs" style={{ backgroundColor: C.slip2, fontFamily: F.body, color: C.inkSoft }}>

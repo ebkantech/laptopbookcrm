@@ -292,3 +292,25 @@ body {
     box-shadow: none !important;
   }
 }
+
+/* Customer statement rows: lift and tilt slightly under the pointer so the
+   row being read stands out. Still for anyone who asks for less motion. */
+.stmt-row {
+  transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+  transform-origin: center;
+}
+.stmt-row:hover {
+  transform: perspective(700px) rotateX(3deg) translateY(-2px) scale(1.008);
+  background-color: var(--cb-inset);
+  box-shadow: 0 6px 16px -6px rgba(23, 32, 51, 0.25);
+  position: relative;
+  z-index: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stmt-row, .stmt-row:hover { transition: none; transform: none; }
+}
+
+/* pop-up success messages (components/Toaster.jsx) */
+.crm-toast { animation: crm-toast-in 180ms ease-out; }
+@keyframes crm-toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .crm-toast { animation: none; } }

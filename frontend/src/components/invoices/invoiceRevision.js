@@ -15,6 +15,8 @@ export const revisionLines = (invoice, products) =>
     variantId: String(item.variant),
     qty: item.qty,
     price: String(item.price),
+    remarks: item.remarks || "",
+    warranty: item.warranty_months ? String(item.warranty_months) : "",
   }));
 
 // Units of a variant this invoice already holds at a stock point -- they

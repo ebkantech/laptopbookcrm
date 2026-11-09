@@ -20,7 +20,7 @@ function initialLines(ticket) {
 function statusLabel(status) {
   return {
     not_sent: "Estimate not sent", pending: "Customer decision pending", expired: "Link expired", revoked: "Link revoked",
-    rejected: "Customer rejected", customer_approved: "Customer approved", admin_approved: "Admin approved", superadmin_approved: "Super Admin approved",
+    rejected: "Customer rejected", changes_requested: "Customer asked for changes", customer_approved: "Customer approved", admin_approved: "Admin approved", superadmin_approved: "Super Admin approved",
   }[status] || status;
 }
 
@@ -93,8 +93,16 @@ export default function EstimateApprovalPanel({ ticket, services, canManage, can
     <section className="mt-5 p-3" data-panel style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip2 }}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div><Eyebrow>{isBulk ? `Bulk approval · ${ticket.order_code}` : "Customer approval"}</Eyebrow><p className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{isBulk ? `Finalize every device in this ${ticket.order_device_count}-device order, then generate one combined approval link.` : (canApprove ? "Final work and cost must be approved before original repair work starts." : "The Admin fixes the estimate when the ticket is booked. If it changes after diagnosis, propose a revision below.")}</p></div>
-        <Pill color={approved ? C.green : status === "pending" ? C.amber : C.inkSoft}>{statusLabel(status)}</Pill>
+        <Pill color={approved ? C.green : status === "pending" ? C.amber : status === "changes_requested" ? C.stamp : C.inkSoft}>{statusLabel(status)}</Pill>
       </div>
+
+      {status === "changes_requested" && estimate?.approval?.reason && (
+        <div role="status" className="mt-3 p-2.5 text-xs" style={{ border: `1px solid ${C.stamp}55`, backgroundColor: `${C.stamp}0D`, fontFamily: F.body, color: C.ink }}>
+          <b>The customer asked for changes:</b>
+          <p className="mt-1 whitespace-pre-line break-words">“{estimate.approval.reason}”</p>
+          <p className="mt-1" style={{ color: C.inkSoft }}>Revise the estimate below, then send a new approval link.</p>
+        </div>
+      )}
 
       {estimate && !editing && (
         <div className="mt-3 space-y-1.5">

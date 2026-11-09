@@ -11,6 +11,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
+from branding import texts
 from crmbook_backend.notify import send_email, send_whatsapp
 from parties.models import Message
 from .models import Warranty, WarrantyClaim
@@ -22,9 +23,8 @@ FINAL_DAYS = 7
 
 def announce(warranty):
     """Email the terms to the customer and keep it on their message thread."""
-    subject = f"Your warranty on {warranty.item_label}"
-    body = (f"{subject}\n\nCovers: {warranty.item_label}\n"
-            f"Valid: {warranty.start_date:%d %b %Y} to {warranty.end_date:%d %b %Y}\n\n{warranty.terms_text}")
+    subject, body = texts.email("warranty_issued", item=warranty.item_label, start=f"{warranty.start_date:%d %b %Y}",
+                                end=f"{warranty.end_date:%d %b %Y}", terms=warranty.terms_text)
     Message.objects.create(party=warranty.party, channel=Message.EMAIL, direction=Message.OUT, body=body)
     send_email(warranty.party.email, subject, body)
 
@@ -35,8 +35,7 @@ def auto_sales_warranty(invoice):
     """A paid product sale gets its warranty without anyone remembering to raise it."""
     from sales.models import Invoice
 
-    days = int(getattr(settings, "WARRANTY_SALES_DAYS", 0) or 0)
-    if days <= 0 or invoice.source != Invoice.SALE or invoice.status != Invoice.PAID or not invoice.party_id:
+    if invoice.source != Invoice.SALE or invoice.status != Invoice.PAID or not invoice.party_id:
         return None
     if Warranty.objects.filter(section=Warranty.SALES, invoice=invoice).exists():
         return None
@@ -44,6 +43,25 @@ def auto_sales_warranty(invoice):
     def label(i):
         sns = [s.serial_number for s in i.serials.all()]
         return f"{i.label} (S/N {', '.join(sns)})" if sns else i.label
+
+    # The guarantee written on the invoice wins: one warranty per item that
+    # has one, for exactly those months. Items left blank get none.
+    promised = [i for i in invoice.items.all() if i.warranty_months and i.item_kind != "discount"]
+    if promised:
+        from rentals.models import add_months
+
+        made = None
+        for item in promised:
+            made = Warranty.objects.create(
+                party=invoice.party, section=Warranty.SALES, item_label=label(item)[:160], invoice=invoice,
+                start_date=start, end_date=add_months(start, item.warranty_months), auto_created=True,
+                notes=f"Guarantee of {item.warranty_months} month{'s' if item.warranty_months != 1 else ''} as written on invoice {invoice.code}.")
+            announce(made)
+        return made
+
+    days = int(getattr(settings, "WARRANTY_SALES_DAYS", 0) or 0)
+    if days <= 0:
+        return None
 
     names = ", ".join(label(i) for i in invoice.items.all() if i.item_kind != "discount") or invoice.code
     w = Warranty.objects.create(party=invoice.party, section=Warranty.SALES, item_label=names[:160], invoice=invoice,
@@ -81,8 +99,11 @@ def safely(fn, obj):
 
 def _reminder_text(w, days_left):
     when = "today" if days_left <= 0 else f"in {days_left} day{'s' if days_left != 1 else ''}"
-    return (f"Hello {w.party.name}, your warranty on {w.item_label} ends {when} ({w.end_date:%d %b %Y}). "
-            "If anything is wrong with it, bring it to us before then -- and ask us about extending your cover.")
+    return texts.message("warranty_reminder", **_reminder_values(w, when))
+
+
+def _reminder_values(w, when):
+    return dict(customer=w.party.name, item=w.item_label, when=when, end=f"{w.end_date:%d %b %Y}")
 
 
 def remind(w, today=None):
@@ -91,7 +112,9 @@ def remind(w, today=None):
     text = _reminder_text(w, (w.end_date - today).days)
     Message.objects.create(party=w.party, channel=Message.WHATSAPP, direction=Message.OUT, body=text)
     send_whatsapp(w.party.phone, text)
-    send_email(w.party.email, f"Your warranty on {w.item_label} ends soon", text)
+    days = (w.end_date - today).days
+    send_email(w.party.email, *texts.email("warranty_reminder", **_reminder_values(
+        w, "today" if days <= 0 else f"in {days} day{'s' if days != 1 else ''}")))
     return text
 
 
@@ -127,11 +150,13 @@ def next_claim_code():
     return f"WC-{top + 1:04d}"
 
 
-def _tell(claim, text):
+def _tell(claim, key, **values):
     w = claim.warranty
+    values = {"claim": claim.code, "item": w.item_label, **values}
+    text = texts.message(key, **values)
     Message.objects.create(party=w.party, channel=Message.WHATSAPP, direction=Message.OUT, body=text)
     send_whatsapp(w.party.phone, text)
-    send_email(w.party.email, f"Warranty claim {claim.code}", text)
+    send_email(w.party.email, *texts.email(key, **values))
 
 
 @transaction.atomic
@@ -145,7 +170,7 @@ def raise_claim(warranty, user, issue, repair_ticket=None):
         raise ValidationError({"repair_ticket": "That repair job belongs to a different customer."})
     claim = WarrantyClaim.objects.create(code=next_claim_code(), warranty=warranty, issue=issue[:2000],
                                          repair_ticket=repair_ticket, raised_by=user)
-    _tell(claim, f"We have logged your warranty claim {claim.code} for {warranty.item_label}. We will update you shortly.")
+    _tell(claim, "warranty_claim_logged")
     return claim
 
 
@@ -162,8 +187,10 @@ def decide_claim(claim, user, decision, note=""):
     claim.status = WarrantyClaim.APPROVED if decision == "approve" else WarrantyClaim.REJECTED
     claim.decision_note, claim.decided_by, claim.decided_at = note[:300], user, timezone.now()
     claim.save(update_fields=["status", "decision_note", "decided_by", "decided_at"])
-    _tell(claim, (f"Your warranty claim {claim.code} is approved." if decision == "approve"
-                  else f"Your warranty claim {claim.code} could not be accepted: {note}"))
+    if decision == "approve":
+        _tell(claim, "warranty_claim_approved")
+    else:
+        _tell(claim, "warranty_claim_rejected", reason=note)
     return claim
 
 
@@ -187,5 +214,5 @@ def resolve_claim(claim, user, resolution, cost, note="", repair_ticket=None):
     claim.status, claim.resolution, claim.cost = WarrantyClaim.RESOLVED, resolution, cost
     claim.resolution_note, claim.resolved_at = (note or "")[:300], timezone.now()
     claim.save(update_fields=["status", "resolution", "cost", "resolution_note", "resolved_at", "repair_ticket"])
-    _tell(claim, f"Your warranty claim {claim.code} is complete ({claim.get_resolution_display().lower()}).")
+    _tell(claim, "warranty_claim_done", resolution=claim.get_resolution_display().lower())
     return claim

@@ -314,7 +314,10 @@ class RepairEstimateLine(models.Model):
 
 class RepairApproval(models.Model):
     PENDING, APPROVED, REJECTED, EXPIRED, REVOKED = "pending", "approved", "rejected", "expired", "revoked"
-    STATUS_CHOICES = [(value, value.title()) for value in (PENDING, APPROVED, REJECTED, EXPIRED, REVOKED)]
+    # the customer asked for the work / cost to change: nothing is decided, staff revise and send a new link
+    CHANGES_REQUESTED = "changes_requested"
+    STATUS_CHOICES = [(value, value.title()) for value in (PENDING, APPROVED, REJECTED, EXPIRED, REVOKED)] + [
+        (CHANGES_REQUESTED, "Changes requested")]
     CUSTOMER, ADMIN, SUPERADMIN = "customer", "admin", "superadmin"
     SOURCE_CHOICES = [
         (CUSTOMER, "Customer via secure link"),
@@ -331,7 +334,7 @@ class RepairApproval(models.Model):
         blank=True,
     )
     token_hash = models.CharField(max_length=64, unique=True, null=True, blank=True, editable=False)
-    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=PENDING)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=PENDING)
     source = models.CharField(max_length=12, choices=SOURCE_CHOICES, blank=True)
     sent_to_phone = models.CharField(max_length=20, blank=True)
     requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="repair_approvals_requested")

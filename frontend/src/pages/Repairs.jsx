@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { C, F, money, todayISO } from "../lib/theme";
 import { api } from "../lib/api";
+import { toast } from "../lib/toast";
 import { onStoreChanged } from "../lib/storeEvents";
 import { useSession } from "../context/SessionContext";
 import { Locked, Pill, PillButton, Spinner, ErrorNote, Eyebrow, TabBar } from "../components/Atoms";
@@ -879,6 +880,8 @@ export default function Repairs() {
     const result = await api.post(isBulk ? "/repair-orders/" : "/tickets/", payload);
     setTickets((current) => isBulk ? [...result.tickets, ...current] : [result, ...current]);
     setAdding(false);
+    if (isBulk) toast.success(`Repair order ${result.code} created`, `${result.tickets?.length || 0} devices booked${result.party_name ? ` for ${result.party_name}` : ""}.`);
+    else toast.success(`Repair ticket ${result.code} created`, `${result.brand} ${result.model_name} booked${result.party_name ? ` for ${result.party_name}` : ""}.`);
     // estimate fixed by the Admin at booking: the client's approval link goes out now
     if (result.approval) setCreated({ code: isBulk ? result.code : result.code, approval: result.approval });
   };

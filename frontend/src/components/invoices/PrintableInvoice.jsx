@@ -54,7 +54,7 @@ function InvoiceSheet({ data }) {
           <div style={{ marginTop: 2, fontWeight: 600 }}>{seller.branch}</div>
           {seller.address && <div style={{ whiteSpace: "pre-line", color: SOFT }}>{seller.address}</div>}
           <div style={{ color: SOFT }}>
-            {[seller.phone && `Ph: ${seller.phone}`, seller.email].filter(Boolean).join(" · ")}
+            {[seller.phone && `Ph: ${seller.phone}`, seller.email, seller.website].filter(Boolean).join(" · ")}
           </div>
           {seller.gstin && <div style={{ marginTop: 2 }}>GSTIN: <b>{seller.gstin}</b></div>}
         </div>
@@ -92,16 +92,18 @@ function InvoiceSheet({ data }) {
           </tr>
         </thead>
         <tbody>
-          {items.map((it) => (
-            <tr key={it.n}>
+          {items.map((it, i) => (
+            <tr key={i}>
               <td style={cell}>{it.n}</td>
               <td style={cell}>
                 <div style={{ fontWeight: 600 }}>{it.description}</div>
-                {(it.spec || it.code) && <div style={{ color: SOFT, fontSize: 11 }}>{[it.spec, it.code].filter(Boolean).join(" · ")}</div>}
+                {/* no internal SKU on the customer's copy -- the invoice no. and S/N trace it */}
+                {it.spec && <div style={{ color: SOFT, fontSize: 11 }}>{it.spec}</div>}
                 {it.serials?.length > 0 && <div style={{ color: SOFT, fontSize: 11, fontFamily: "monospace" }}>S/N {it.serials.join(", ")}</div>}
+                {it.warranty && <div style={{ fontSize: 11, fontWeight: 600 }}>{it.warranty}</div>}
               </td>
-              <td style={cell}>{it.hsn || "—"}</td>
-              <td style={num}>{it.qty}</td>
+              <td style={cell}>{it.adjustment ? "" : it.hsn || "—"}</td>
+              <td style={num}>{it.qty ?? ""}</td>
               <td style={num}>{money(it.rate)}</td>
               <td style={num}>{money(it.amount)}</td>
             </tr>
@@ -130,10 +132,27 @@ function InvoiceSheet({ data }) {
         )}
       </div>
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 48 }}>
-        <div style={{ color: SOFT, fontSize: 11 }}>Thank you for your business. This is a computer-generated invoice.</div>
+      {data.remarks?.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ fontWeight: 700 }}>Remarks</div>
+          {data.remarks.map((r, i) => (
+            <div key={i} style={{ marginTop: 2 }}>* <b>{r.item}</b>: {r.text}</div>
+          ))}
+        </div>
+      )}
+
+      {data.notes?.length > 0 && (
+        <div style={{ marginTop: 14, fontSize: 11, color: SOFT }}>
+          <div style={{ fontWeight: 700, color: INK }}>Terms &amp; notes</div>
+          {data.notes.map((n, i) => <div key={i} style={{ marginTop: 1 }}>{n}</div>)}
+        </div>
+      )}
+
+      {/* footer and signatory wording: Settings -> Business & messages */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 48, gap: 16 }}>
+        <div style={{ color: SOFT, fontSize: 11 }}>{data.footer ?? "Thank you for your business. This is a computer-generated invoice."}</div>
         <div style={{ textAlign: "center" }}>
-          <div style={{ borderTop: `1px solid ${INK}`, paddingTop: 4, minWidth: 180 }}>For {seller.name}<br />Authorised signatory</div>
+          <div style={{ borderTop: `1px solid ${INK}`, paddingTop: 4, minWidth: 180 }}>For {seller.name}<br />{data.signatory ?? "Authorised signatory"}</div>
         </div>
       </div>
     </div>

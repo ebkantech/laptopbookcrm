@@ -98,6 +98,7 @@ INSTALLED_APPS = [
     'reports',
     'copilot',
     'subscriptions',
+    'branding',
 ]
 
 AUTH_USER_MODEL = 'accounts.User'
@@ -246,6 +247,8 @@ BUSINESS_NAME = os.environ.get("BUSINESS_NAME", "Vantage Computers")
 BUSINESS_GSTIN = os.environ.get("BUSINESS_GSTIN", "")
 BUSINESS_PHONE = os.environ.get("BUSINESS_PHONE", "")
 BUSINESS_EMAIL = os.environ.get("BUSINESS_EMAIL", "")
+# printed on rental agreements when the issuing shop has no address in Store Locator
+BUSINESS_ADDRESS = os.environ.get("BUSINESS_ADDRESS", "")
 # Days a customer has to pay a sale or repair invoice before it's Overdue.
 INVOICE_DUE_DAYS = int(os.environ.get("INVOICE_DUE_DAYS", 7))
 # A repair ticket with no promised date is due this many days after it was received

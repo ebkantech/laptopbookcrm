@@ -10,7 +10,7 @@ from accounts.staff import is_staff_admin
 from catalog import serials as serial_tracking
 from catalog.models import Stock, StockSerial
 from catalog.status import require_active
-from .models import Invoice, InvoiceItem, PaymentLink, Refund
+from .models import Invoice, InvoicePayment, InvoiceItem, PaymentLink, Refund
 from .services import create_invoice, discount_amount
 
 
@@ -29,8 +29,12 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = InvoiceItem
         fields = ["id", "variant", "variant_code", "product_name", "description", "qty", "price", "returned_qty",
-                  "serials", "serial_numbers", "sold_serials", "is_discount"]
+                  "serials", "serial_numbers", "sold_serials", "is_discount", "remarks", "warranty_months"]
         read_only_fields = ["description"]
+        extra_kwargs = {"warranty_months": {"min_value": 1, "max_value": 120}}
+
+    def validate_remarks(self, value):
+        return " ".join((value or "").split())
 
     def get_serial_numbers(self, obj):
         return [s.serial_number for s in obj.serials.all()] if obj.pk else []
@@ -70,6 +74,18 @@ class PaymentLinkSerializer(serializers.ModelSerializer):
         return obj.sent_by.get_full_name() or obj.sent_by.username
 
 
+class InvoicePaymentSerializer(serializers.ModelSerializer):
+    recorded_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = InvoicePayment
+        fields = ["id", "amount", "pay_method", "payment_reference", "paid_on", "recorded_by_name"]
+
+    def get_recorded_by_name(self, obj):
+        user = obj.recorded_by
+        return (user.get_full_name() or user.username) if user else "Automatic"
+
+
 class RefundSerializer(serializers.ModelSerializer):
     by_name = serializers.SerializerMethodField()
     items = serializers.SerializerMethodField()
@@ -88,6 +104,7 @@ class RefundSerializer(serializers.ModelSerializer):
 class InvoiceSerializer(serializers.ModelSerializer):
     items = InvoiceItemSerializer(many=True)
     party_name = serializers.CharField(source="party.name", read_only=True)
+    party_type = serializers.CharField(source="party.type", read_only=True)
     stock_point_name = serializers.CharField(source="stock_point.name", read_only=True)
     total = serializers.IntegerField(read_only=True)
     settled_by_name = serializers.SerializerMethodField()
@@ -95,18 +112,22 @@ class InvoiceSerializer(serializers.ModelSerializer):
     source_label = serializers.CharField(source="get_source_display", read_only=True)
     reference = serializers.SerializerMethodField()
     refunds = RefundSerializer(many=True, read_only=True)
+    part_payments = InvoicePaymentSerializer(many=True, read_only=True)
+    amount_paid = serializers.IntegerField(read_only=True)
+    balance_due = serializers.IntegerField(read_only=True)
     refunded_total = serializers.IntegerField(read_only=True)
     net_total = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Invoice
         fields = [
-            "id", "code", "source", "source_label", "reference", "party", "party_name", "stock_point", "stock_point_name",
+            "id", "code", "source", "source_label", "reference", "party", "party_name", "party_type", "stock_point", "stock_point_name",
             "date", "status", "pay_method", "paid_on", "payment_reference", "settled_by_name",
             "recurring_interval", "recurring_next", "repair_ticket", "rental", "lead", "period_start", "period_end",
             "due_date", "cancel_reason", "cancelled_at", "cancelled_by_name",
             "items", "total", "payment_links", "is_advance", "is_deposit", "refunds", "refunded_total", "net_total",
             "discount_percent", "discount_reason", "discount_by_name", "subtotal", "discount_amount",
+            "part_payments", "amount_paid", "balance_due",
         ]
         # Payment details are only ever written by the settle action, so
         # every settlement goes through its validation and audit fields;

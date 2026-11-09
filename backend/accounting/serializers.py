@@ -11,7 +11,13 @@ def _posted_from(entry):
     if entry.refund_id:
         return entry.refund.invoice.code
     payment = entry.expense_payment or entry.expense_reversal
-    return payment.expense.code if payment else None
+    if payment:
+        return payment.expense.code
+    if entry.invoice_payment_id:
+        return entry.invoice_payment.invoice.code
+    if entry.supplier_payment_id:
+        return f"Supplier: {entry.supplier_payment.supplier.name}"
+    return None
 
 
 class CashEntrySerializer(serializers.ModelSerializer):

@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, IndianRupee, Mail, PencilLine, Plus, Printer, Repeat2, ShieldCheck, X } from "lucide-react";
 import { C, F, fmt, money, todayISO } from "../lib/theme";
 import { api } from "../lib/api";
+import { toast } from "../lib/toast";
 import { onStoreChanged } from "../lib/storeEvents";
 import { useSession } from "../context/SessionContext";
 import { Eyebrow, ErrorNote, Pill, PillButton, SearchInput, Spinner, TabBar } from "../components/Atoms";
@@ -12,7 +13,8 @@ import PrintableInvoice from "../components/invoices/PrintableInvoice";
 import UpiPaymentLink from "../components/invoices/UpiPaymentLink";
 import PartyPicker from "../components/invoices/PartyPicker";
 import SerialPicker from "../components/serials/SerialPicker";
-import { blankLine, discountOff, placeVariant, variantForProduct } from "../components/invoices/saleLines";
+import { WARRANTY_CHOICES, blankLine, discountOff, placeVariant, variantForProduct, warrantyLabel } from "../components/invoices/saleLines";
+import ProductSearch from "../components/invoices/ProductSearch";
 import { canRevise, revisionLines, unitsOnInvoice } from "../components/invoices/invoiceRevision";
 
 const STATUS_COLOR = { Paid: "#36D399", "Payment link sent": "#F5A623", Overdue: "#FB5B5B", Cancelled: "#8A8F98", Refunded: "#7C6FD8" };
@@ -78,6 +80,19 @@ function NewInvoiceModal({ products, stockPoints, revising, defaultStockPoint, o
     const v = variantForProduct(product, lines, i);
     place(i, { productId, variantId: v ? String(v.id) : "", price: v ? String(v.sell_price) : "" });
   };
+  // from the search box: a product, a SKU (that variant) or a serial number (that exact unit)
+  const pickFromSearch = (i, { productId, variantId, serial }) => {
+    if (!variantId) return pickProduct(i, productId);
+    const v = products.find((p) => p.id === +productId)?.variants.find((x) => x.id === +variantId);
+    const { lines: next, merged } = placeVariant(lines, i, { productId, variantId, price: v ? String(v.sell_price) : "" });
+    const at = merged ? merged.index : i;
+    if (serial && !next[at].serials.includes(serial)) {
+      const serials = [...next[at].serials, serial];
+      next[at] = { ...next[at], serials, qty: merged ? next[at].qty : Math.max(+next[at].qty || 1, serials.length) };
+    }
+    setLines(next);
+    setNote(merged ? `${products.find((p) => p.id === +productId)?.display_name || "This item"}${v?.spec ? ` (${v.spec})` : ""} is already on the invoice — quantity raised to ${merged.qty}.` : "");
+  };
   const pickVariant = (i, variantId) => {
     const v = products.find((p) => p.id === +lines[i].productId)?.variants.find((x) => x.id === +variantId);
     place(i, { variantId, price: v ? String(v.sell_price) : "" });
@@ -105,7 +120,10 @@ function NewInvoiceModal({ products, stockPoints, revising, defaultStockPoint, o
     }
     setBusy(true);
     try {
-      const items = filled.map((l) => ({ variant: +l.variantId, qty: +l.qty, price: +l.price, ...(l.serials.length ? { serials: l.serials } : {}) }));
+      const items = filled.map((l) => ({
+        variant: +l.variantId, qty: +l.qty, price: +l.price, remarks: (l.remarks || "").trim(),
+        warranty_months: l.warranty ? +l.warranty : null, ...(l.serials.length ? { serials: l.serials } : {}),
+      }));
       // a revision keeps its invoice date; only the customer, shop and lines change
       const offer = { discount_percent: +discount || 0, discount_reason: +discount > 0 ? discountReason.trim() : "" };
       await onCreate(revising ? { party, stock_point: stockPoint, items, ...offer } : { party, stock_point: stockPoint, date: todayISO(), items, ...offer });
@@ -147,10 +165,7 @@ function NewInvoiceModal({ products, stockPoints, revising, defaultStockPoint, o
                   {/* minmax(0, …): a long product name must not widen its column and squeeze the others.
                       Phones: product on its own row, then variant / qty / price. */}
                   <div className="grid grid-cols-[minmax(0,1fr)_56px_88px_24px] items-start gap-2 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_64px_100px_24px]">
-                    <select value={l.productId} onChange={(e) => pickProduct(i, e.target.value)} title={product?.display_name || "Product"} className="col-span-4 w-full min-w-0 truncate py-1.5 text-sm outline-none sm:col-span-1" style={field}>
-                      <option value="">Product…</option>
-                      {products.map((p) => <option key={p.id} value={p.id}>{p.display_name}</option>)}
-                    </select>
+                    <ProductSearch products={products} productId={l.productId} stockPointId={stockPoint} onPick={(pick) => pickFromSearch(i, pick)} />
                     <div className="min-w-0">
                       <select value={l.variantId} onChange={(e) => pickVariant(i, e.target.value)} disabled={!product} title={v?.spec || "Variant"} className="w-full min-w-0 truncate py-1.5 text-sm outline-none" style={field}>
                         {product?.variants.map((x) => <option key={x.id} value={x.id}>{x.spec}</option>)}
@@ -161,6 +176,17 @@ function NewInvoiceModal({ products, stockPoints, revising, defaultStockPoint, o
                     <input value={l.price} onChange={(e) => setLine(i, { price: e.target.value.replace(/\D/g, "") })} placeholder="₹ each" title="Unit price -- edit for a discount" className="w-full min-w-0 py-1.5 text-right text-sm outline-none" style={{ ...field, fontFamily: F.mono }} />
                     <button type="button" disabled={lines.length === 1} onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))} className="pt-2" title="Remove line"><X size={14} style={{ color: C.inkSoft }} /></button>
                   </div>
+                  {v && (
+                    <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_170px]">
+                      <input value={l.remarks} maxLength={300} onChange={(e) => setLine(i, { remarks: e.target.value })} placeholder="Remarks (optional), e.g. charger & bag included, minor scratch on lid"
+                        aria-label="Remarks" className="w-full min-w-0 px-2 py-1.5 text-xs outline-none" style={field} />
+                      <select value={l.warranty} onChange={(e) => setLine(i, { warranty: e.target.value })} aria-label="Warranty" title="Leave as No warranty if no guarantee is promised"
+                        className="w-full py-1.5 text-xs outline-none" style={{ ...field, color: l.warranty ? C.ink : C.inkSoft, fontWeight: l.warranty ? 600 : 400 }}>
+                        <option value="">No warranty</option>
+                        {WARRANTY_CHOICES.map((m) => <option key={m} value={m}>Warranty: {warrantyLabel(m)}</option>)}
+                      </select>
+                    </div>
+                  )}
                   {product?.serial_tracking && v && (
                     <SerialPicker variantId={v.id} stockPointId={stockPoint} qty={l.qty} value={l.serials}
                       onChange={(serials) => setLine(i, { serials, qty: Math.max(+l.qty || 0, serials.length) })}
@@ -278,6 +304,8 @@ function WarrantyCard({ invoice, warranty, onGranted }) {
  * the reference (UTR, cheque no. ...) are what let anyone match this
  * invoice against the bank/UPI statement later. */
 function RecordPayment({ invoice, onSettle }) {
+  const balance = invoice.balance_due ?? invoice.total;
+  const [amount, setAmount] = useState(String(balance));
   const [method, setMethod] = useState("UPI");
   const [reference, setReference] = useState("");
   const [paidOn, setPaidOn] = useState(todayISO());
@@ -287,9 +315,12 @@ function RecordPayment({ invoice, onSettle }) {
   const submit = async () => {
     setError("");
     if (method !== "Cash" && !reference.trim()) return setError(`Enter the ${REFERENCE_HINT[method]} so this payment can be traced.`);
+    const rupees = Number(amount);
+    if (!Number.isInteger(rupees) || rupees <= 0 || rupees > balance) return setError(`Enter a whole amount from ₹1 to ${money(balance)}.`);
     setBusy(true);
     try {
-      await onSettle(invoice.id, { pay_method: method, payment_reference: reference.trim(), paid_on: paidOn });
+      await onSettle(invoice.id, { pay_method: method, payment_reference: reference.trim(), paid_on: paidOn, ...(rupees < balance ? { amount: rupees } : {}) });
+      setReference("");
     } catch (e) {
       setError(e.body?.detail || e.message);
     } finally {
@@ -301,7 +332,16 @@ function RecordPayment({ invoice, onSettle }) {
   return (
     <div className="mt-3 p-3" data-panel style={{ border: `1px solid ${C.rule}` }}>
       <Eyebrow>Record payment received</Eyebrow>
+      {invoice.part_payments?.length > 0 && (
+        <ul className="mt-2 space-y-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
+          {invoice.part_payments.map((p) => <li key={p.id}>Part paid <b style={{ color: C.ink }}>{money(p.amount)}</b> via {p.pay_method} on {fmt(p.paid_on)}{p.payment_reference ? ` · ref ${p.payment_reference}` : ""}</li>)}
+          <li style={{ color: C.carbon, fontWeight: 600 }}>Still owed {money(balance)}</li>
+        </ul>
+      )}
       <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <label className="block text-xs sm:col-span-2" style={{ fontFamily: F.body, color: C.inkSoft }}>Amount received (₹) — less than {money(balance)} records a part payment
+          <input type="number" inputMode="numeric" min="1" max={balance} step="1" value={amount} onChange={(e) => setAmount(e.target.value)} className="mt-1 w-full px-2 py-1.5 text-sm outline-none" style={{ ...field, fontFamily: F.mono }} />
+        </label>
         <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Method
           <select value={method} onChange={(e) => setMethod(e.target.value)} className="mt-1 w-full px-2 py-1.5 text-sm outline-none" style={field}>
             {PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}
@@ -316,7 +356,7 @@ function RecordPayment({ invoice, onSettle }) {
       </div>
       <ErrorNote message={error} />
       <button onClick={submit} disabled={busy} className="mt-2 flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase" style={{ backgroundColor: C.green, color: C.onAccent, fontFamily: F.body, fontWeight: 600, opacity: busy ? 0.7 : 1 }}>
-        <Check size={12} /> {busy ? "Saving…" : `Mark paid — ${money(invoice.total)}`}
+        <Check size={12} /> {busy ? "Saving…" : Number(amount) < balance ? `Record part payment — ${money(Number(amount) || 0)}` : `Mark paid — ${money(balance)}`}
       </button>
     </div>
   );
@@ -536,7 +576,7 @@ function InvoiceDetail({ invoice, onClose, onSettle, onChanged, onRevise }) {
         <div className="mt-4 space-y-1.5">
           {invoice.items.map((it) => (
             <div key={it.id} className="flex items-center justify-between px-3 py-2 rounded-xl" style={{ backgroundColor: C.slip2 }}>
-              <span className="text-sm" style={{ fontFamily: F.body, color: C.ink }}>{it.product_name} <span style={{ fontFamily: F.mono, color: C.inkSoft, fontSize: 11 }}>{it.qty} × {money(it.price)}</span>{it.serial_numbers?.length > 0 && <span className="block text-[11px]" style={{ fontFamily: F.mono, color: C.inkSoft }}>S/N {it.serial_numbers.join(", ")}</span>}</span>
+              <span className="text-sm" style={{ fontFamily: F.body, color: C.ink }}>{it.product_name} <span style={{ fontFamily: F.mono, color: C.inkSoft, fontSize: 11 }}>{it.qty} × {money(it.price)}</span>{it.serial_numbers?.length > 0 && <span className="block text-[11px]" style={{ fontFamily: F.mono, color: C.inkSoft }}>S/N {it.serial_numbers.join(", ")}</span>}{it.remarks && <span className="block text-[11px]" style={{ fontFamily: F.body, color: C.inkSoft }}>Remarks: {it.remarks}</span>}{it.warranty_months > 0 && <span className="block text-[11px]" style={{ fontFamily: F.body, color: C.green, fontWeight: 600 }}>Warranty: {warrantyLabel(it.warranty_months)}</span>}</span>
               <span className="text-sm" style={{ fontFamily: F.mono, color: C.ink }}>{money(it.price * it.qty)}</span>
             </div>
           ))}
@@ -578,7 +618,7 @@ function InvoiceDetail({ invoice, onClose, onSettle, onChanged, onRevise }) {
           ) : (
             <p className="mt-2 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Marked paid before payment details were recorded{invoice.pay_method ? ` (${invoice.pay_method})` : ""}.</p>
           )
-        ) : can("invoices.settle") && <RecordPayment invoice={invoice} onSettle={onSettle} />}
+        ) : can("invoices.settle") && <RecordPayment key={invoice.balance_due} invoice={invoice} onSettle={onSettle} />}
         {invoice.status !== "Cancelled" && <UpiPaymentLink invoice={invoice} onChanged={onChanged} />}
         {isOutstanding(invoice) && can("invoices.create") && <CancelInvoice invoice={invoice} onChanged={onChanged} />}
         <RefundHistory invoice={invoice} />
@@ -619,6 +659,23 @@ export default function Invoices() {
   const [adding, setAdding] = useState(false);
   const [revising, setRevising] = useState(null);
   const [openInvoice, setOpenInvoice] = useState(null);
+  // Arriving from a customer's Pay button: /sales?party=<id>&due=1 shows just their unpaid invoices.
+  const [partyFilter, setPartyFilter] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("party") ? { id: Number(params.get("party")), due: params.get("due") === "1" } : null;
+  });
+  const clearPartyFilter = () => {
+    setPartyFilter(null);
+    window.history.replaceState(window.history.state, "", "/sales");
+  };
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    // one unpaid invoice: open it straight away, ready for the payment
+    if (autoOpened.current || !partyFilter?.due || !invoices) return;
+    autoOpened.current = true;
+    const due = invoices.filter((inv) => inv.party === partyFilter.id && isOutstanding(inv));
+    if (due.length === 1) setOpenInvoice(due[0]);
+  }, [invoices, partyFilter]);
 
   // Only products that have something sellable: stock and prices live
   // on variants, so a product with none yet can't go on an invoice.
@@ -643,6 +700,7 @@ export default function Invoices() {
     setInvoices((l) => [inv, ...l]);
     setAdding(false);
     loadProducts();
+    toast.success(`Sale ${inv.code} created`, `₹${Number(inv.total || 0).toLocaleString("en-IN")}${inv.party_name ? ` · ${inv.party_name}` : ""} · ${inv.status === "Paid" ? "Paid" : "Payment pending"}.`);
   };
 
   // same invoice, same number: the server swaps its lines and moves stock by the difference
@@ -671,7 +729,11 @@ export default function Invoices() {
 
   // All filtering is client-side -- the full ledger is already loaded.
   const q = query.trim().toLowerCase();
-  const bySource = source === "all" ? invoices : invoices.filter((inv) => inv.source === source);
+  const forParty = partyFilter
+    ? invoices.filter((inv) => inv.party === partyFilter.id && (!partyFilter.due || isOutstanding(inv)))
+    : invoices;
+  const bySource = source === "all" ? forParty : forParty.filter((inv) => inv.source === source);
+  const filteredPartyName = partyFilter && invoices.find((inv) => inv.party === partyFilter.id)?.party_name;
   const byStatus = statusFilter === "all" ? bySource : bySource.filter((inv) => inv.status === statusFilter);
   const visibleInvoices = q
     ? byStatus.filter((inv) => inv.code.toLowerCase().includes(q) || inv.party_name.toLowerCase().includes(q) || (inv.reference || "").toLowerCase().includes(q))
@@ -707,10 +769,16 @@ export default function Invoices() {
         <SearchInput value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by invoice code, customer, ticket or agreement" className="basis-full sm:basis-0" />
         <OrderToggle value={order} onChange={setOrder} label="Invoice order" />
         <span className="text-xs" aria-live="polite" style={{ fontFamily: F.body, color: C.inkSoft }}>
-          To collect: <b style={{ fontFamily: F.mono, color: C.ink }}>{money(awaiting.reduce((sum, inv) => sum + inv.total, 0))}</b> across {awaiting.length} invoice{awaiting.length !== 1 ? "s" : ""}
+          To collect: <b style={{ fontFamily: F.mono, color: C.ink }}>{money(awaiting.reduce((sum, inv) => sum + (inv.balance_due ?? inv.total), 0))}</b> across {awaiting.length} invoice{awaiting.length !== 1 ? "s" : ""}
         </span>
       </div>
 
+      {partyFilter && (
+        <div className="mx-5 mb-3 flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-xs sm:mx-8" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.green}`, backgroundColor: `${C.green}0D` }}>
+          Showing {partyFilter.due ? "unpaid invoices" : "invoices"} for <b>{filteredPartyName || "this customer"}</b>. Open one to record a full or part payment.
+          <button type="button" onClick={clearPartyFilter} className="ml-auto flex items-center gap-1 underline" style={{ color: C.inkSoft }}><X size={12} /> Show all invoices</button>
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto px-5 pb-4 sm:px-8">
         <div className="flex flex-col gap-2.5">
           {orderRows(visibleInvoices, order, "desc").map((inv) => (
@@ -736,7 +804,7 @@ export default function Invoices() {
                   {inv.recurring_interval && <Pill color={C.blue}><Repeat2 size={10} />{inv.recurring_interval}</Pill>}
                 </div>
                 <p className="mt-0.5 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
-                  {inv.party_name} · {fmt(inv.date)}{inv.reference ? ` · ${inv.reference}` : ""}
+                  {inv.party_name}{inv.party_type ? ` (${inv.party_type})` : ""} · {fmt(inv.date)}{inv.reference ? ` · ${inv.reference}` : ""}
                 </p>
               </div>
               <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{inv.stock_point_name}</span>

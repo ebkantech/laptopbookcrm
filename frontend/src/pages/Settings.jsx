@@ -1,7 +1,7 @@
 import SubscriptionPanel from "../components/SubscriptionPanel";
 import { Fragment, useEffect, useState } from "react";
 import {
-  BellRing, Check, KeyRound, LogOut, Mail, Minus, Phone, Plus, ShieldCheck, User as UserIcon, Users, CreditCard } from "lucide-react";
+  BellRing, Building2, Check, KeyRound, LogOut, Mail, Minus, Phone, Plus, ShieldCheck, User as UserIcon, Users, CreditCard } from "lucide-react";
 import { C, F } from "../lib/theme";
 import { api } from "../lib/api";
 import { useSession } from "../context/SessionContext";
@@ -9,6 +9,7 @@ import { Eyebrow, ErrorNote, Locked, Pill, PillButton, Spinner, TabBar } from ".
 import PageHeader from "../components/PageHeader";
 import ChangePassword from "./settings/ChangePassword";
 import StaffManagement from "./settings/StaffManagement";
+import BusinessMessages from "./settings/BusinessMessages";
 import { appEnabled, grantedCount, groupByApp, toggleAppCodes } from "./settings/appAccess";
 
 function Profile() {
@@ -421,7 +422,7 @@ function StaffNotifications() {
 
 export default function Settings() {
   const { can, me } = useSession();
-  const [tab, setTab] = useState("profile");
+  const [tab, setTab] = useState(() => new URLSearchParams(window.location.search).get("tab") || "profile");
   // Staff management: staff administrators only (roles.manage, or the
   // Owner) -- the /users/ API enforces the same rule.
   const staffAdmin = !!me?.sees_all_stores || can("roles.manage");
@@ -431,6 +432,7 @@ export default function Settings() {
     ...(staffAdmin ? [{ id: "staff", label: "Staff management", icon: Users }] : []),
     { id: "roles", label: "Roles & access", icon: ShieldCheck },
     { id: "notifications", label: "Staff alerts", icon: BellRing },
+    { id: "business", label: "Business & messages", icon: Building2 },
     ...(staffAdmin ? [{ id: "subscription", label: "Subscription", icon: CreditCard }] : []),
   ];
   return (
@@ -445,6 +447,7 @@ export default function Settings() {
         {tab === "staff" && staffAdmin && <StaffManagement />}
         {tab === "roles" && <RolesAccess onManageStaff={() => setTab("staff")} />}
         {tab === "notifications" && <StaffNotifications />}
+        {tab === "business" && <BusinessMessages />}
         {tab === "subscription" && staffAdmin && <SubscriptionPanel />}
       </div>
     </div>

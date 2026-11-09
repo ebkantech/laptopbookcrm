@@ -1,3 +1,5 @@
+import re
+
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Prefetch
@@ -5,6 +7,7 @@ from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.response import Response
 
 from accounts.permissions import HasPerm, _log_denial
@@ -17,6 +20,7 @@ from portal.services import (
     revoke_open_invites, send_invite_whatsapp,
 )
 from django.core.exceptions import ValidationError
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 
 from sales.models import Invoice
@@ -25,6 +29,7 @@ from .models import Message, MessageHidden, MessageRevision, Party
 from .serializers import (
     MessageRecordSerializer, MessageSerializer, PartyDetailSerializer, PartyInvoiceItemSerializer, PartySerializer,
 )
+from . import statement as party_statement
 from . import whatsapp as party_whatsapp
 
 
@@ -70,7 +75,10 @@ def _deliver_email(message):
     server accepted it -- there's no inbox confirmation for email. A skip
     (no address on file) counts as failed: nothing left the CRM.
     """
-    result = send_email(message.party.email, f"Message from {settings.BUSINESS_NAME}", message.body)
+    from branding import texts
+
+    subject, body = texts.email("party_email", message=message.body)
+    result = send_email(message.party.email, subject, body)
     if result.get("status") == "sent":
         message.delivery_status, message.delivery_error = Message.DELIVERY_SENT, ""
     else:
@@ -123,6 +131,7 @@ def _issue_portal_invite(party, request):
     return invite, link, delivery_status, whatsapp_delivery
 
 
+
 class PartyViewSet(viewsets.ModelViewSet):
     queryset = Party.objects.prefetch_related("invoices__items", "invoices__stock_point", "messages", "id_documents").all()
     permission_classes = [permissions.IsAuthenticated, HasPerm]
@@ -132,6 +141,7 @@ class PartyViewSet(viewsets.ModelViewSet):
         "partial_update": "parties.edit", "destroy": "parties.manage",
         "portal_account": "parties.view",
         "invoice_items": "parties.view",
+        "statement": "parties.view", "statement_pdf": "parties.view",
         "portal_invite": "parties.manage", "portal_reset_link": "parties.manage",
         "send_message": "parties.manage",
         "recheck_whatsapp": "parties.manage",
@@ -189,12 +199,33 @@ class PartyViewSet(viewsets.ModelViewSet):
         # no home store). Their invoice history and spend, though, come
         # from store-owned invoices, so only this account's store's are nested.
         scope = StoreScope(self.request.user)
-        invoices = scope.filter(Invoice.objects.prefetch_related("items").select_related("stock_point"), "stock_point")
+        invoices = scope.filter(Invoice.objects.prefetch_related("items", "part_payments", "payment_links").select_related("stock_point"), "stock_point")
         qs = super().get_queryset().prefetch_related(None).prefetch_related(Prefetch("invoices", queryset=invoices), "messages")
         q = self.request.query_params.get("q")
         if q:
             qs = qs.filter(name__icontains=q)
+        if self.action == "list":
+            qs = self._filter_by_invoices(qs, scope)
         return qs
+
+    def _filter_by_invoices(self, qs, scope):
+        """from / to / due=1 on the list: only customers with invoices (in this
+        account's stores) dated in the period, and with money owed when due=1.
+        The popup's statement is opened with the same filters."""
+        try:
+            date_from, date_to, due_only = party_statement.parse_filters(self.request.query_params)
+        except party_statement.FilterError as error:
+            raise DRFValidationError({"detail": str(error)})
+        if not (date_from or date_to or due_only):
+            return qs
+        matching = scope.filter(Invoice.objects.exclude(status=Invoice.CANCELLED), "stock_point")
+        if date_from:
+            matching = matching.filter(date__gte=date_from)
+        if date_to:
+            matching = matching.filter(date__lte=date_to)
+        if due_only:
+            matching = matching.filter(status__in=Invoice.OUTSTANDING)
+        return qs.filter(pk__in=matching.values("party_id"))
 
     @action(detail=True, methods=["get"], url_path="portal-account")
     def portal_account(self, request, pk=None):
@@ -216,6 +247,35 @@ class PartyViewSet(viewsets.ModelViewSet):
                 "usable": latest_invite.is_valid,
             },
         })
+
+    def _statement(self, request, pk):
+        """(data, None) or (None, error Response). Needs invoices.view, like the invoice items."""
+        if not (request.user.is_superuser or request.user.has_perm_code("invoices.view")):
+            _log_denial(request, "invoices.view")
+            return None, Response({"detail": "Your role needs Invoices view permission to see the statement."}, status=403)
+        party = get_object_or_404(Party, pk=pk)
+        try:
+            date_from, date_to, due_only = party_statement.parse_filters(request.query_params)
+        except party_statement.FilterError as error:
+            return None, Response({"detail": str(error)}, status=400)
+        return party_statement.build(party, request.user, date_from, date_to, due_only), None
+
+    @action(detail=True, methods=["get"])
+    def statement(self, request, pk=None):
+        """The customer's statement. Query: from, to (YYYY-MM-DD), due=1 for unpaid invoices only."""
+        data, error = self._statement(request, pk)
+        return error or Response(data)
+
+    @action(detail=True, methods=["get"], url_path="statement/pdf")
+    def statement_pdf(self, request, pk=None):
+        data, error = self._statement(request, pk)
+        if error:
+            return error
+        name = re.sub(r"[^A-Za-z0-9]+", "-", data["party"]["name"]).strip("-") or "customer"
+        response = HttpResponse(party_statement.render_pdf(data), content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="Statement-{name}-{data["generated_on"]}.pdf"'
+        response["Cache-Control"] = "no-store, private"
+        return response
 
     @action(detail=True, methods=["get"], url_path=r"invoices/(?P<invoice_id>\d+)/items")
     def invoice_items(self, request, pk=None, invoice_id=None):

@@ -37,9 +37,28 @@ def default_bank_account():
     return account
 
 
+def invoice_split(invoice):
+    """What a bill was for, in rupees: {"service": .., "parts": .., "products": ..}
+    (only the non-zero ones). Service charges -- labour, visit charge,
+    on-site work -- are income with no goods cost; parts and products carry
+    one, so the two are never lumped together."""
+    split = {}
+    for item in invoice.items.all():
+        if item.item_kind == "discount" or item.price < 0:
+            continue
+        kind = "parts" if item.item_kind == "part" else "products" if item.item_kind == "product" else "service"
+        split[kind] = split.get(kind, 0) + item.qty * item.price
+    return {k: v for k, v in split.items() if v}
+
+
 def _particulars(invoice):
     what = {"sale": "Sale", "repair": "Repair", "rental": "Rent", "onsite": "On-site service"}.get(invoice.source, "Invoice")
-    return f"{what} {invoice.code} -- {invoice.party.name}"[:160]
+    text = f"{what} {invoice.code} -- {invoice.party.name}"
+    if invoice.source in ("repair", "onsite"):
+        split = invoice_split(invoice)
+        if len(split) > 1 or "service" not in split:
+            text += " (" + " + ".join(f"{k} Rs {v:,}" for k, v in split.items()) + ")"
+    return text[:160]
 
 
 @transaction.atomic
@@ -47,6 +66,8 @@ def post_invoice_payment(invoice):
     """Post a just-paid invoice to the cash or bank book. Returns the entry,
     or None when nothing was collected or it's already posted."""
     if invoice.total <= 0 or invoice.pay_method in NO_MONEY_METHODS:
+        return None
+    if invoice.part_payments.exists():  # each instalment was posted as it came in
         return None
     if CashEntry.objects.filter(invoice=invoice).exists() or BankEntry.objects.filter(invoice=invoice).exists():
         return None
@@ -67,6 +88,32 @@ def post_invoice_payment(invoice):
         account=default_bank_account(), date=date, type=BankEntry.IN, amount=invoice.total,
         particulars=f"{_particulars(invoice)} via {invoice.pay_method or 'bank'}"[:160],
         reference=invoice.payment_reference[:80], invoice=invoice,
+    )
+
+
+@transaction.atomic
+def post_part_payment(payment):
+    """Post one instalment of an invoice as an "in" entry."""
+    if CashEntry.objects.filter(invoice_payment=payment).exists() or BankEntry.objects.filter(invoice_payment=payment).exists():
+        return None
+    invoice = payment.invoice
+    particulars = f"Part payment, {_particulars(invoice)}"
+    if payment.pay_method == "Cash":
+        by = payment.recorded_by
+        if by is None:
+            from accounts.models import User
+
+            by = User.objects.filter(is_superuser=True).order_by("id").first()
+        if payment.payment_reference:
+            particulars = f"{particulars} (receipt {payment.payment_reference})"
+        return CashEntry.objects.create(
+            date=payment.paid_on, particulars=particulars[:160], type=CashEntry.IN, amount=payment.amount,
+            by=by, invoice_payment=payment,
+        )
+    return BankEntry.objects.create(
+        account=default_bank_account(), date=payment.paid_on, type=BankEntry.IN, amount=payment.amount,
+        particulars=f"{particulars} via {payment.pay_method}"[:160], reference=payment.payment_reference[:80],
+        invoice_payment=payment,
     )
 
 

@@ -124,3 +124,8 @@
 .cr-bulk { display: grid; gap: 0.5rem; padding-top: 0.85rem; border-top: 1px solid var(--cb-rule); }
 .cr-bulk-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .cr-bulk-actions .st-btn { display: inline-flex; align-items: center; gap: 0.4rem; }
+
+/* "+ New supplier" form inside Add stock */
+.as-new-supplier { border: 1px solid var(--cb-accent, #3157D5); border-radius: 12px; padding: 12px; background: var(--cb-inset, #F8FAFC); }
+.as-new-supplier .as-grid { margin-top: 8px; }
+.as-new-supplier-actions { display: flex; gap: 8px; margin-top: 10px; }

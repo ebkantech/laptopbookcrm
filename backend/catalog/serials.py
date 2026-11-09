@@ -199,7 +199,12 @@ def trace(serial):
     product = serial.variant.product
     warranties = Warranty.objects.filter(invoice=invoice) if invoice else Warranty.objects.none()
     repairs = RepairTicket.objects.filter(serial__iexact=serial.serial_number).order_by("-id")
+    from rentals.models import RentalAsset
+
+    # a unit in the rental fleet has its own history (customers, problems, repairs)
+    asset = RentalAsset.objects.filter(serial_number__iexact=serial.serial_number).only("id").first()
     return {
+        "rental_asset_id": asset.id if asset else None,
         "serial_number": serial.serial_number, "status": serial.status, "status_label": serial.get_status_display(),
         "product": product.display_name, "product_id": product.id, "product_code": product.product_code,
         "spec": serial.variant.spec, "colour": serial.variant.colour, "variant_code": serial.variant.code,

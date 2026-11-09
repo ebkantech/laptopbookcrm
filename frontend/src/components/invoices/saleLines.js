@@ -2,7 +2,16 @@
  * already on the invoice raises that line's quantity instead of adding a
  * second line for it. */
 
-export const blankLine = () => ({ productId: "", variantId: "", qty: 1, price: "", serials: [], serialInfo: null });
+// remarks: printed under the line; warranty: months promised ("" = no warranty given)
+export const blankLine = () => ({ productId: "", variantId: "", qty: 1, price: "", serials: [], serialInfo: null, remarks: "", warranty: "" });
+
+// The guarantee choices on a sale line; "" means none was promised.
+export const WARRANTY_CHOICES = [1, 3, 6, 12, 24, 36];
+export const warrantyLabel = (months) => {
+  const m = Number(months);
+  if (!m) return "";
+  return m % 12 === 0 ? `${m / 12} year${m > 12 ? "s" : ""}` : `${m} month${m > 1 ? "s" : ""}`;
+};
 
 /* The variant to pre-select when a product is picked on line i: the first one
  * not already on another line (so a second colour/spec gets its own line),

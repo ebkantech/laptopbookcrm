@@ -108,6 +108,22 @@ class Invoice(models.Model):
         return sum(r.amount for r in self.refunds.all())
 
     @property
+    def amount_paid(self):
+        """Received so far: all of it once paid, otherwise the part payments."""
+        if self.status in self.SETTLED:
+            return self.total
+        if self.status == self.CANCELLED:
+            return 0
+        return sum(p.amount for p in self.part_payments.all())
+
+    @property
+    def balance_due(self):
+        """Still owed. Nothing on a paid or cancelled invoice."""
+        if self.status not in self.OUTSTANDING:
+            return 0
+        return max(self.total - self.amount_paid, 0)
+
+    @property
     def net_total(self):
         """What the business kept: the total less anything refunded.
         Revenue figures use this for paid invoices."""
@@ -131,6 +147,11 @@ class InvoiceItem(models.Model):
     unit_cost = models.PositiveIntegerField(null=True, blank=True)
     cost_estimated = models.BooleanField(default=False, help_text="unit_cost was the automatic guess, not a purchase price.")
     item_kind = models.CharField(max_length=10, blank=True, help_text="product / part: goods whose cost must be known.")
+    # Printed under the line on the invoice: condition, accessories in the box, etc.
+    remarks = models.CharField(max_length=300, blank=True)
+    # The guarantee promised on this item, in months. Blank = none promised:
+    # nothing is printed and no warranty record is made for it.
+    warranty_months = models.PositiveSmallIntegerField(null=True, blank=True)
 
     def save(self, *args, **kwargs):
         if self.variant_id and not self.item_kind:
@@ -151,6 +172,28 @@ class InvoiceItem(models.Model):
 
 
 PAYMENT_METHODS = ["Cash", "UPI", "Bank transfer", "Card", "Cheque", "Other"]
+
+
+class InvoicePayment(models.Model):
+    """
+    Money received against an invoice in instalments. The invoice stays
+    outstanding until they add up to its total; then it is marked paid as
+    usual. Each one is posted to the cash or bank book on its own.
+    """
+    invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="part_payments")
+    amount = models.PositiveIntegerField()
+    pay_method = models.CharField(max_length=40)
+    payment_reference = models.CharField(max_length=80, blank=True)
+    paid_on = models.DateField()
+    recorded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+                                    related_name="invoice_payments_recorded")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["paid_on", "id"]
+
+    def __str__(self):
+        return f"Rs {self.amount} on {self.invoice.code}"
 
 
 class PaymentLink(models.Model):

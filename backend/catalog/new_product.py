@@ -50,40 +50,25 @@ SERIAL_ATTEMPTS = 8             # tries at inserting a batch before giving up
 NAME_TOO_SHORT = "The product name needs at least two letters (A–Z) to make its serial numbers."
 MANUAL_SERIALS = "Serial numbers are generated automatically for every unit -- don't send them."
 
-# (key, label, required) per category -- the same list the form shows.
-# Brand, product name and colour are common fields.
-CATEGORY_FIELDS = {
-    Product.LAPTOP: [("processor", "Processor", True), ("generation", "Generation", False), ("ram", "RAM", True),
-                     ("storage", "Storage", True), ("screen_size", "Screen size", False)],
-    Product.CHARGER: [("wattage", "Wattage", True), ("connector_type", "Connector type", True),
-                      ("output_voltage", "Output voltage", False), ("compatibility", "Compatibility", False)],
-    Product.SSD: [("capacity", "Capacity", True), ("interface", "Interface", True), ("form_factor", "Form factor", False)],
-    Product.RAM: [("capacity", "Capacity", True), ("ddr_type", "DDR type", True), ("speed", "Speed", False),
-                  ("form_factor", "Form factor", False)],
-    Product.ACCESSORIES: [("accessory_type", "Accessory type", True), ("warranty", "Warranty", False),
-                          ("other_specs", "Other specifications", False)],
-    Product.OTHER: [("variant_size", "Variant / size", False), ("unit", "Unit", True),
-                    ("custom_specs", "Custom specifications", False)],
-}
-BRAND_OPTIONAL = {Product.OTHER}
-CHOICES = {(Product.SSD, "interface"): ["SATA", "NVMe"]}
+# Categories and the details each asks for live in the database
+# (catalog.ProductCategory) so an Admin can edit them at run time; brand,
+# product name, colour and HSN are common to every category.
 CONDITIONS = ["New", "Refurbished", "Used"]
-# codes follow the existing prefixes: laptops VC-LAP, everything else VC-ACC
-CODE_PREFIX = {Product.LAPTOP: "VC-LAP"}
 
-# What the variant's spec line is built from, in order.
-SUMMARY_KEYS = {
-    Product.LAPTOP: ["processor", "generation", "ram", "storage", "screen_size"],
-    Product.CHARGER: ["wattage", "connector_type", "output_voltage"],
-    Product.SSD: ["capacity", "interface", "form_factor"],
-    Product.RAM: ["capacity", "ddr_type", "speed", "form_factor"],
-    Product.ACCESSORIES: ["accessory_type"],
-    Product.OTHER: ["variant_size"],
-}
+
+def category_for(key, active_only=True):
+    from .models import ProductCategory
+
+    qs = ProductCategory.objects.filter(key=key)
+    return (qs.filter(is_active=True) if active_only else qs).first()
 
 
 def spec_summary(category, specs):
-    parts = [specs[k] for k in SUMMARY_KEYS[category] if specs.get(k)]
+    """The variant's spec line from the category's summary fields, in order
+    (the first three fields if none is marked)."""
+    fields = category.fields if category else []
+    keys = [f["key"] for f in fields if f.get("summary")] or [f["key"] for f in fields[:3]]
+    parts = [specs[k] for k in keys if specs.get(k)]
     return " / ".join(parts)[:80] or "Standard"
 
 
@@ -177,7 +162,7 @@ def _check_prices(sell, mrp, errors):
 # --------------------------------------------------------------------------
 
 class NewProductSerializer(serializers.Serializer):
-    category = serializers.ChoiceField(choices=[c for c, _ in Product.CATEGORY_CHOICES])
+    category = serializers.CharField(max_length=20)
     brand = serializers.CharField(max_length=40, required=False, allow_blank=True, default="")
     model_name = serializers.CharField(max_length=80)
     description = serializers.CharField(max_length=2000, required=False, allow_blank=True, default="")
@@ -192,9 +177,21 @@ class NewProductSerializer(serializers.Serializer):
     cost = serializers.IntegerField(min_value=1, max_value=100_000_000, required=False, allow_null=True)
     mrp = serializers.IntegerField(min_value=1, max_value=100_000_000, required=False, allow_null=True)
     location = serializers.CharField(max_length=80, required=False, allow_blank=True, default="")
+    # optional: who it was bought from (a Supplier party) and their bill number
+    supplier = serializers.IntegerField(required=False, allow_null=True)
+    bill_no = serializers.CharField(max_length=60, required=False, allow_blank=True, default="")
+    # paid for in full when it arrived (Cash / UPI / ...); blank = bought on credit, owed to the supplier
+    paid_method = serializers.CharField(max_length=40, required=False, allow_blank=True, default="")
 
     def validate(self, attrs):
-        category = attrs["category"]
+        if attrs.get("supplier"):
+            from .purchases import supplier_from
+
+            attrs["supplier"] = supplier_from(attrs["supplier"])
+        category = category_for(attrs["category"])
+        if category is None:
+            raise serializers.ValidationError({"category": ["Choose a product category."]})
+        attrs["category_obj"] = category
         errors = {}
         refuse_manual_serials(self.initial_data, errors)
         attrs["brand"] = attrs["brand"].strip()
@@ -203,24 +200,24 @@ class NewProductSerializer(serializers.Serializer):
         attrs["hsn"] = clean_hsn(attrs["hsn"], errors)
         if not attrs["model_name"]:
             errors["model_name"] = ["Enter the model / product name."]
-        if not attrs["brand"] and category not in BRAND_OPTIONAL:
+        if not attrs["brand"] and category.brand_required:
             errors["brand"] = ["Enter the brand."]
         name = f"{attrs['brand']} {attrs['model_name']}".strip()
         if attrs["model_name"] and not serial_prefix(name):
             errors.setdefault("model_name", []).append(NAME_TOO_SHORT)
 
-        # keep only this category's specifications; refuse unknown keys
-        allowed = {key: (label, required) for key, label, required in CATEGORY_FIELDS[category]}
+        # keep only this category's details (as the Admin set them up); refuse unknown keys
+        allowed = {f["key"]: f for f in category.fields}
         raw = attrs.get("specs") or {}
         unknown = sorted(set(raw) - set(allowed))
         if unknown:
-            errors["specs"] = [f"Not a {category} specification: {', '.join(unknown)}."]
+            errors["specs"] = [f"Not a {category.name} detail: {', '.join(unknown)}."]
         specs = {}
-        for key, (label, required) in allowed.items():
+        for key, field in allowed.items():
             value = (raw.get(key) or "").strip()
-            if required and not value:
-                errors[f"specs.{key}"] = [f"Enter the {label.lower()}."]
-            options = CHOICES.get((category, key))
+            if field.get("required") and not value:
+                errors[f"specs.{key}"] = [f"Enter the {field['label'].lower()}."]
+            options = field.get("options") if field.get("type") == "choice" else None
             if value and options and value not in options:
                 errors[f"specs.{key}"] = [f"Choose one of: {', '.join(options)}."]
             if value:
@@ -245,7 +242,8 @@ def create(data, user, stock_point):
     """One Product (one Product ID), its first Variant, the store's stock and
     one serial number per unit -- all inside AddStockView's transaction.
     Returns (product, variant, stock, serials)."""
-    spec = spec_summary(data["category"], data["specs"])
+    category = data["category_obj"]
+    spec = spec_summary(category, data["specs"])
     duplicate = find_duplicate(data, spec)
     if duplicate:
         raise serializers.ValidationError({"model_name": [
@@ -257,7 +255,7 @@ def create(data, user, stock_point):
         category=data["category"], brand=data["brand"] or "—", model_name=data["model_name"],
         processor=specs.get("processor", "")[:40], condition=data["condition"], description=data["description"].strip(),
         hsn=data["hsn"], specs=specs, serial_tracking=True,
-        product_code=next_code(CODE_PREFIX.get(data["category"], "VC-ACC"), Product, "product_code"),
+        product_code=next_code(category.code_prefix or "VC-ACC", Product, "product_code"),
     )
     sell = data["sell_price"]
     bought = data.get("cost")
@@ -292,8 +290,17 @@ class ExistingStockSerializer(serializers.Serializer):
     cost = serializers.IntegerField(min_value=1, max_value=100_000_000, required=False, allow_null=True)
     mrp = serializers.IntegerField(min_value=1, max_value=100_000_000, required=False, allow_null=True)
     location = serializers.CharField(max_length=80, required=False, allow_blank=True, default="")
+    # optional: who it was bought from (a Supplier party) and their bill number
+    supplier = serializers.IntegerField(required=False, allow_null=True)
+    bill_no = serializers.CharField(max_length=60, required=False, allow_blank=True, default="")
+    # paid for in full when it arrived (Cash / UPI / ...); blank = bought on credit, owed to the supplier
+    paid_method = serializers.CharField(max_length=40, required=False, allow_blank=True, default="")
 
     def validate(self, attrs):
+        if attrs.get("supplier"):
+            from .purchases import supplier_from
+
+            attrs["supplier"] = supplier_from(attrs["supplier"])
         errors = {}
         refuse_manual_serials(self.initial_data, errors)
         attrs["colour"] = clean_colour(attrs["colour"])

@@ -1,4 +1,3 @@
-from django.conf import settings
 from django.db import transaction
 from django.db.models import ProtectedError, Q
 from django.http import JsonResponse
@@ -585,7 +584,7 @@ class UserViewSet(viewsets.ModelViewSet):
         if delivery == "email":
             name = user.get_full_name() or user.username
             sent = send_email(
-                user.email, f"Set your {settings.BUSINESS_NAME} CRM password",
+                user.email, f"Set your {_business_name()} CRM password",
                 f"Hello {name},\n\nAn administrator reset the password for your account ({user.username}). "
                 f"Choose a new password here within {SETUP_LINK_HOURS} hours:\n\n{link}\n\n"
                 "The link works once. If you didn't expect this, contact your administrator.",
@@ -693,3 +692,10 @@ class PasswordSetupView(APIView):
         revoke_sessions(user)
         log_admin_action(None, "set-password-via-link", user)
         return Response({"detail": "Your password has been set. You can now sign in."})
+
+
+def _business_name():
+    """Settings -> Business & messages, else .env BUSINESS_NAME."""
+    from branding import texts
+
+    return texts.business().name

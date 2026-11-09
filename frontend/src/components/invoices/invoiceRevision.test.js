@@ -24,11 +24,19 @@ test("paid, refunded and cancelled invoices, repairs, rentals and staff without 
 });
 
 test("revising starts from the invoice's own lines: product, variant, quantity and price", () => {
+  const blank = { remarks: "", warranty: "" };
   assert.deepEqual(revisionLines(sale, products), [
-    { productId: "100", variantId: "11", qty: 3, price: "40000" },
-    { productId: "200", variantId: "21", qty: 1, price: "1500" },
-    { productId: "100", variantId: "11", qty: 1, price: "39000" },
+    { productId: "100", variantId: "11", qty: 3, price: "40000", ...blank },
+    { productId: "200", variantId: "21", qty: 1, price: "1500", ...blank },
+    { productId: "100", variantId: "11", qty: 1, price: "39000", ...blank },
   ]);
+});
+
+test("revising keeps each line's remarks and warranty", () => {
+  const withNotes = { ...sale, items: [{ ...sale.items[0], remarks: "Bag included", warranty_months: 12 }] };
+  const [line] = revisionLines(withNotes, products);
+  assert.equal(line.remarks, "Bag included");
+  assert.equal(line.warranty, "12");
 });
 
 test("units already on the invoice count as available only at its own shop", () => {

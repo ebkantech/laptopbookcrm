@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { C, F, money } from "../lib/theme";
 import { api } from "../lib/api";
+import { toast } from "../lib/toast";
 import { onStoreChanged } from "../lib/storeEvents";
 import { useSession } from "../context/SessionContext";
 import { Eyebrow, ErrorNote, Pill, PillButton, SearchInput, Spinner } from "../components/Atoms";
@@ -14,6 +15,8 @@ import AddStockModal from "./inventory/AddStockModal";
 // Inventory -> Costs: products / parts still on an estimated or missing purchase cost
 import CostReviewModal from "./inventory/CostReviewModal";
 import TraceSerialModal from "../components/serials/TraceSerialModal";
+import RentalFleetPanel from "./inventory/RentalFleetPanel";
+import SupplierTagPanel from "./inventory/SupplierTagPanel";
 import { SERIAL_STATUS_COLOR } from "../components/serials/serialStatus";
 import { printSerialLabels } from "../components/serials/serialLabels";
 import Prompt from "../components/leads/Prompt";
@@ -565,6 +568,7 @@ export default function Inventory() {
     const level = result.previous_quantity !== undefined ? ` Stock there: ${result.previous_quantity} → ${result.new_quantity}.` : ` Stock there: ${result.new_quantity}.`;
     setFlash(`Added stock at ${result.stock_point}${result.location ? ` (${result.location})` : ""}.${level}${bits.length ? " " + bits.join(", ") + "." : ""}`);
     setTimeout(() => setFlash(""), 6000);
+    toast.success(`Stock added${result.product?.display_name ? ` — ${result.product.display_name}` : ""}`, `At ${result.stock_point}.${level}`);
   };
 
   // A corrected cost: patch the variant in the open panel and the list.
@@ -629,6 +633,7 @@ export default function Inventory() {
         <div className="flex flex-col gap-2.5">
           {products.map((p) => {
             const totalStock = p.variants.reduce((a, v) => a + v.total_stock, 0);
+            const forRent = p.variants.reduce((a, v) => a + (v.rental_units || 0), 0);
             const lowest = p.variants.some((v) => v.total_stock <= 4);
             return (
               <button
@@ -643,7 +648,7 @@ export default function Inventory() {
                     <p className="truncate text-sm" style={{ fontFamily: F.display, fontWeight: 600, color: C.ink }}>{p.display_name}</p>
                     <p className="mt-0.5 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{p.condition} · {p.variants.length ? `${p.variants.length} variant${p.variants.length > 1 ? "s" : ""}` : "no variants"}</p>
                   </div>
-                  <span className="shrink-0 md:hidden"><Pill color={lowest ? C.carbon : C.green}>{totalStock} units</Pill></span>
+                  <span className="flex shrink-0 flex-col items-end gap-1 md:hidden"><Pill color={lowest ? C.carbon : C.green}>{totalStock} for sale</Pill>{forRent > 0 && <Pill color={C.blue}>{forRent} for rent</Pill>}</span>
                 </div>
                 <span className="min-w-0 text-xs" style={{ fontFamily: F.mono, color: C.ink }}>
                   <MobileLabel>Product ID · HSN</MobileLabel>
@@ -658,7 +663,10 @@ export default function Inventory() {
                   <MobileLabel>Sell price</MobileLabel>
                   {p.variants.length ? money(p.variants[0].sell_price) : "—"}
                 </span>
-                <span className="hidden md:block"><Pill color={lowest ? C.carbon : C.green}>{totalStock} units</Pill></span>
+                <span className="hidden md:block">
+                  <Pill color={lowest ? C.carbon : C.green}>{totalStock} for sale</Pill>
+                  {forRent > 0 && <span className="mt-1 block"><Pill color={C.blue}>{forRent} for rent</Pill></span>}
+                </span>
                 <span className="block min-w-0">
                   <MobileLabel>Stock location</MobileLabel>
                   <StockLocationCell product={p} />
@@ -722,6 +730,10 @@ export default function Inventory() {
                       <StockTile key={s.id ?? s.stock_point} stock={s} canEdit={can("inventory.edit")} onSaved={onLocationSaved} />
                     ))}
                   </div>
+                  {can("inventory.edit") && <SupplierTagPanel product={openProduct} variant={v} />}
+                  <RentalFleetPanel product={openProduct} variant={v} serials={serialsFor(v.code)}
+                    canView={can("rentals.view")} canManage={can("rentals.manage")}
+                    onChanged={() => { api.get(`/products/${openProduct.id}/`).then(setOpenProduct, () => {}); load(query); }} />
                 </div>
               ))}
             </div>

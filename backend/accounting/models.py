@@ -19,6 +19,10 @@ class CashEntry(models.Model):
     invoice = models.OneToOneField(
         "sales.Invoice", on_delete=models.PROTECT, null=True, blank=True, related_name="cash_entry",
     )
+    # Set for one instalment of an invoice paid in parts.
+    invoice_payment = models.OneToOneField(
+        "sales.InvoicePayment", on_delete=models.PROTECT, null=True, blank=True, related_name="cash_entry",
+    )
     # Set when the entry is a refund paid out on an invoice.
     refund = models.OneToOneField(
         "sales.Refund", on_delete=models.PROTECT, null=True, blank=True, related_name="cash_entry",
@@ -30,6 +34,10 @@ class CashEntry(models.Model):
     )
     expense_reversal = models.OneToOneField(
         "accounting.ExpensePayment", on_delete=models.PROTECT, null=True, blank=True, related_name="cash_reversal",
+    )
+    # Set when the entry is a payment made to a supplier (catalog.purchases).
+    supplier_payment = models.OneToOneField(
+        "catalog.SupplierPayment", on_delete=models.PROTECT, null=True, blank=True, related_name="cash_entry",
     )
 
     class Meta:
@@ -65,6 +73,9 @@ class BankEntry(models.Model):
     invoice = models.OneToOneField(
         "sales.Invoice", on_delete=models.PROTECT, null=True, blank=True, related_name="bank_entry",
     )
+    invoice_payment = models.OneToOneField(
+        "sales.InvoicePayment", on_delete=models.PROTECT, null=True, blank=True, related_name="bank_entry",
+    )
     refund = models.OneToOneField(
         "sales.Refund", on_delete=models.PROTECT, null=True, blank=True, related_name="bank_entry",
     )
@@ -73,6 +84,9 @@ class BankEntry(models.Model):
     )
     expense_reversal = models.OneToOneField(
         "accounting.ExpensePayment", on_delete=models.PROTECT, null=True, blank=True, related_name="bank_reversal",
+    )
+    supplier_payment = models.OneToOneField(
+        "catalog.SupplierPayment", on_delete=models.PROTECT, null=True, blank=True, related_name="bank_entry",
     )
 
     class Meta:

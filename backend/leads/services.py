@@ -275,10 +275,9 @@ def build_whatsapp_url(phone, message):
 
 
 def approval_message(lead, url):
-    return (
-        f"Hello {lead.party.name}, your laptop service bill for job {lead.code} is ready. "
-        f"Please review and approve it here (valid for 24 hours): {url}"
-    )
+    from branding import texts
+
+    return texts.message("onsite_approval_link", customer=lead.party.name, job=lead.code, link=url)
 
 
 @transaction.atomic
@@ -628,7 +627,9 @@ def on_lead_invoice_paid(invoice):
         return
     if lead.status in (Lead.WORK_DONE, Lead.REJECTED, Lead.TO_STORE) and not lead.checked_out_at:
         _check_out(lead)
-    text = f"Thank you {lead.party.name}. We received ₹{invoice.total} for job {lead.code} ({invoice.code})."
+    from branding import texts
+
+    text = texts.message("onsite_paid", customer=lead.party.name, amount=invoice.total, job=lead.code, invoice=invoice.code)
     send_whatsapp(_party_phone(lead), text)
 
 
@@ -750,7 +751,9 @@ def take_to_store(lead, user, reason, charge_visit=True):
         lead.save(update_fields=["checked_out_at"])
     notify_staff("repair_ticket_created", f"On-site job {lead.code} brought to store -- {ticket.code}",
                  f"{lead.party.name}'s {lead.device or 'laptop'} could not be fixed on site and is now repair ticket {ticket.code} at {lead.stock_point.name}. {reason}")
-    send_whatsapp(_party_phone(lead), f"Hello {lead.party.name}, your laptop from job {lead.code} is being repaired at our store (ticket {ticket.code}). We'll keep you posted.")
+    from branding import texts
+
+    send_whatsapp(_party_phone(lead), texts.message("onsite_to_store", customer=lead.party.name, job=lead.code, ticket=ticket.code))
     return ticket
 
 

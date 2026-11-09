@@ -1,6 +1,7 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
+from .approval_link import RentalApprovalPortalView, RepairApprovalPortalView, RepairOrderApprovalPortalView
 from .meta_webhook import meta_whatsapp_webhook
 from .views import (
     PortalAccessLogListView, PortalFeedbackView, PortalInviteViewSet, PortalInviteStatusView, PortalInvoiceDetailView,
@@ -15,6 +16,10 @@ router.register("portal-invites", PortalInviteViewSet, basename="portalinvite")
 urlpatterns = router.urls + [
     path("portal/invite-status/<uuid:token>/", PortalInviteStatusView.as_view(), name="portal-invite-status"),
     path("portal/verify/", PortalVerifyView.as_view(), name="portal-verify"),
+    # "Open my portal" on the rental / repair approval pages
+    path("public/rental-approvals/<str:token>/portal/", RentalApprovalPortalView.as_view(), name="public-rental-approval-portal"),
+    path("public/repair-approvals/<str:token>/portal/", RepairApprovalPortalView.as_view(), name="public-repair-approval-portal"),
+    path("public/repair-order-approvals/<str:token>/portal/", RepairOrderApprovalPortalView.as_view(), name="public-repair-order-approval-portal"),
     path("portal/resend-otp/", PortalResendOtpView.as_view(), name="portal-resend-otp"),
     path("portal/location/", PortalLocationView.as_view(), name="portal-location"),
     path("portal/me/", PortalMeView.as_view(), name="portal-me"),

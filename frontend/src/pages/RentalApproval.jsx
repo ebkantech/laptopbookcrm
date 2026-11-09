@@ -3,6 +3,7 @@ import { AlertCircle, CheckCircle2, Clock3, FileCheck2, LoaderCircle, MessageSqu
 
 import { api } from "../lib/api";
 import { C, F, money } from "../lib/theme";
+import OpenPortal from "../components/approvals/OpenPortal";
 
 const MAX_MESSAGE = 500;
 
@@ -147,6 +148,7 @@ export default function RentalApproval({ token }) {
               </form>
             )}
             {error && <p className="mt-4 text-sm" style={{ color: C.carbon }}>{error}</p>}
+            <OpenPortal endpoint={endpoint} decided={terminal} />
           </article>
         )}
       </div>

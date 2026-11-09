@@ -100,6 +100,66 @@ def on_invoice_paid(invoice):
         on_lead_invoice_paid(invoice)
 
 
+class PaymentError(Exception):
+    pass
+
+
+def settle(invoice, *, method, reference, paid_on, user):
+    """
+    Mark a locked, outstanding invoice paid. If part of it was paid already,
+    the rest is recorded as the last instalment, so the books get only the
+    money that actually came in now.
+    """
+    from accounting.posting import post_part_payment
+
+    from .models import Invoice, InvoicePayment
+
+    balance = invoice.balance_due
+    if invoice.part_payments.exists() and balance > 0:
+        post_part_payment(InvoicePayment.objects.create(
+            invoice=invoice, amount=balance, pay_method=method, payment_reference=reference,
+            paid_on=paid_on, recorded_by=user,
+        ))
+    invoice.status = Invoice.PAID
+    invoice.pay_method = method
+    invoice.payment_reference = reference
+    invoice.paid_on = paid_on
+    invoice.settled_by = user
+    invoice.save(update_fields=["status", "pay_method", "payment_reference", "paid_on", "settled_by"])
+    on_invoice_paid(invoice)
+
+
+def record_part_payment(invoice, *, amount, method, reference, paid_on, user):
+    """
+    Take part of what is owed on a locked invoice. Paying the whole balance
+    settles it. Any payment link still out is replaced with one for the
+    balance after the transaction, because it would collect the old amount.
+    """
+    from accounting.posting import post_part_payment
+
+    from .models import Invoice, InvoicePayment, PaymentLink
+    from .payments import replace_invoice_link
+
+    if invoice.status not in Invoice.OUTSTANDING:
+        raise PaymentError("Only an unpaid invoice can take a part payment.")
+    balance = invoice.balance_due
+    if amount <= 0:
+        raise PaymentError("Enter an amount above zero.")
+    if amount > balance:
+        raise PaymentError(f"That is more than the Rs {balance} still owed.")
+    if amount == balance:
+        settle(invoice, method=method, reference=reference, paid_on=paid_on, user=user)
+        return None
+    payment = InvoicePayment.objects.create(
+        invoice=invoice, amount=amount, pay_method=method, payment_reference=reference, paid_on=paid_on,
+        recorded_by=user,
+    )
+    post_part_payment(payment)
+    if invoice.payment_links.filter(status=PaymentLink.SENT).exists():
+        transaction.on_commit(lambda: replace_invoice_link(Invoice.objects.get(pk=invoice.pk), user))
+    return payment
+
+
 def mark_overdue():
     """Unpaid invoices past their due date become Overdue. One cheap UPDATE,
     run whenever invoice figures are read (list, dashboard, reports), so
@@ -135,6 +195,8 @@ def cancel_invoice(invoice, user, reason):
         raise CancelError("This invoice is already cancelled.")
     if invoice.status in Invoice.SETTLED:
         raise CancelError("A paid invoice can't be cancelled -- it needs a refund instead.")
+    if invoice.part_payments.exists():
+        raise CancelError("Part of this invoice has been paid, so it can't be cancelled.")
     if invoice.source == Invoice.SALE:
         for item in invoice.items.filter(variant__isnull=False):
             updated = Stock.objects.filter(variant_id=item.variant_id, stock_point_id=invoice.stock_point_id).update(quantity=F("quantity") + item.qty)

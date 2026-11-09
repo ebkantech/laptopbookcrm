@@ -53,6 +53,8 @@ import uuid
 from django.db import transaction
 from django.utils import timezone
 
+from branding import texts
+
 logger = logging.getLogger("crmbook.payments")
 
 LINKED, NOT_LINKED, UNKNOWN = "linked", "not_linked", "unknown"
@@ -185,7 +187,7 @@ def create_upi_link(invoice, phone10, sent_by_name, description):
     if provider == "razorpay":
         party = invoice.party
         data = _razorpay_request("POST", "/payment_links", {
-            "amount": invoice.total * 100,  # paise
+            "amount": invoice.balance_due * 100,  # paise: what is still owed
             "currency": "INR",
             "upi_link": True,
             "description": description[:2048],
@@ -211,13 +213,11 @@ def send_invoice_link(invoice, sent_by=None):
     Sales & Invoices. The UPI lookup is skipped because nobody is there to
     answer it; the link records that as UPI_NOT_CHECKED.
     """
-    from django.conf import settings
-
     from parties.models import Message
 
     from .models import Invoice, PaymentLink
 
-    if invoice.status not in Invoice.OUTSTANDING or invoice.total <= 0:
+    if invoice.status not in Invoice.OUTSTANDING or invoice.balance_due <= 0:
         return ""
     open_link = invoice.payment_links.filter(status=PaymentLink.SENT).first()
     if open_link:
@@ -225,20 +225,20 @@ def send_invoice_link(invoice, sent_by=None):
     phone = normalize_mobile(invoice.party.phone)
     if not phone:
         return ""
-    sender = (sent_by.get_full_name() or sent_by.username) if sent_by else settings.BUSINESS_NAME
-    description = f"Hi {invoice.party.name}, here is your UPI payment link for invoice {invoice.code} of Rs {invoice.total} from {settings.BUSINESS_NAME}."
+    sender = (sent_by.get_full_name() or sent_by.username) if sent_by else texts.business().name
+    description = texts.message("payment_link", customer=invoice.party.name, invoice=invoice.code, amount=invoice.balance_due)
     try:
         created = create_upi_link(invoice, phone, sender, description)
     except PaymentProviderError:
         logger.exception("Couldn't create a payment link for invoice %s", invoice.code)
         return ""
     PaymentLink.objects.create(
-        invoice=invoice, phone=phone, upi_check=PaymentLink.UPI_NOT_CHECKED, amount=invoice.total,
+        invoice=invoice, phone=phone, upi_check=PaymentLink.UPI_NOT_CHECKED, amount=invoice.balance_due,
         provider=payment_provider(), provider_link_id=created["provider_link_id"], url=created["url"], sent_by=sent_by,
     )
     Message.objects.create(
         party=invoice.party, channel=Message.SMS, direction=Message.OUT,
-        body=f"{description} Pay here: {created['url']} (sent to {mask(phone)})",
+        body=f"{description}{texts.pay_note(created['url'])} (sent to {mask(phone)})",
     )
     return created["url"]
 
@@ -246,7 +246,7 @@ def send_invoice_link(invoice, sent_by=None):
 def pay_note(invoice, sent_by=None):
     """The sentence added to the invoice message, or "" when there's no link."""
     url = send_invoice_link(invoice, sent_by)
-    return f" Pay here: {url}" if url else ""
+    return texts.pay_note(url)
 
 
 def replace_invoice_link(invoice, sent_by=None):
@@ -321,22 +321,17 @@ def _mark_link_paid(invoice, link, payment_id, rrn):
     link.provider_payment_id = payment_id or ""
     link.save(update_fields=["status", "paid_at", "provider_payment_id"])
 
-    if invoice.status in Invoice.OUTSTANDING and link.amount != invoice.total:
+    if invoice.status in Invoice.OUTSTANDING and link.amount != invoice.balance_due:
         # a link sent before the invoice was revised: the money is recorded on
         # the link, but staff must reconcile it -- never settle a different total
         logger.warning("UPI link %s paid ₹%s but invoice %s is now ₹%s -- not settled",
-                       link.pk, link.amount, invoice.code, invoice.total)
+                       link.pk, link.amount, invoice.code, invoice.balance_due)
     elif invoice.status in Invoice.OUTSTANDING:  # never revive a cancelled invoice
         reference = " / ".join(x for x in [f"UPI RRN {rrn}" if rrn else "", payment_id or ""] if x) or f"UPI link {link.provider_link_id}"
-        invoice.status = Invoice.PAID
-        invoice.pay_method = "UPI"
-        invoice.payment_reference = reference[:80]
-        invoice.paid_on = timezone.localdate()
-        invoice.settled_by = None  # confirmed by the payment provider, not a person
-        invoice.save(update_fields=["status", "pay_method", "payment_reference", "paid_on", "settled_by"])
-        from .services import on_invoice_paid
+        from .services import settle
 
-        on_invoice_paid(invoice)
+        # settled_by stays blank: confirmed by the payment provider, not a person
+        settle(invoice, method="UPI", reference=reference[:80], paid_on=timezone.localdate(), user=None)
     # any other open links for the same invoice are now moot
     invoice.payment_links.exclude(pk=link.pk).filter(status=PaymentLink.SENT).update(status=PaymentLink.CANCELLED)
     return True

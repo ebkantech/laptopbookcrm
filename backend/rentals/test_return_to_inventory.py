@@ -50,3 +50,39 @@ class ReturnToInventoryTests(TestCase):
         self.assertIn("free device", self.client_.post(f"/api/rental-assets/{rented.id}/return-to-inventory/").json()["detail"])
         manual = RentalAsset.objects.create(asset_tag="AST-8", serial_number="SN-8", brand="Dell", model_name="X")
         self.assertIn("wasn't taken from Inventory", self.client_.post(f"/api/rental-assets/{manual.id}/return-to-inventory/").json()["detail"])
+
+
+class PriceAndRentTests(TestCase):
+    """Rentals -> Devices: what a laptop cost and its usual rent per month."""
+
+    def setUp(self):
+        self.client_ = client_for(make_user("renter2", ["rentals.view", "rentals.manage"], owner=True))
+        self.shop = StockPoint.objects.create(slug="pr-shop", name="Price Shop", kind=StockPoint.SHOP)
+        product = Product.objects.create(model_name="Latitude 7420", brand="Dell", product_code="P-PR")
+        self.variant = Variant.objects.create(product=product, code="V-PR", spec="16GB", mrp=60000, sell_price=55000, cost=41000)
+        self.stock = Stock.objects.create(variant=self.variant, stock_point=self.shop, quantity=3)
+
+    def take(self, serial, **extra):
+        response = self.client_.post("/api/rental-assets/from-inventory/",
+                                     {"stock": self.stock.id, "serial_number": serial, **extra}, format="json")
+        self.assertEqual(response.status_code, 201, response.content)
+        return response.json()
+
+    def test_purchase_price_defaults_to_cost_and_rent_is_kept(self):
+        asset = self.take("SN-PR-1", monthly_rent=2500)
+        self.assertEqual((asset["purchase_price"], asset["monthly_rent"]), (41000, 2500))
+        typed = self.take("SN-PR-2", purchase_price=38000)
+        self.assertEqual((typed["purchase_price"], typed["monthly_rent"]), (38000, None))
+
+    def test_price_and_rent_can_be_changed_later(self):
+        asset = self.take("SN-PR-3")
+        response = self.client_.patch(f"/api/rental-assets/{asset['id']}/", {"purchase_price": 40000, "monthly_rent": 3000}, format="json")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual((response.json()["purchase_price"], response.json()["monthly_rent"]), (40000, 3000))
+        bad = self.client_.patch(f"/api/rental-assets/{asset['id']}/", {"monthly_rent": 0}, format="json")
+        self.assertEqual(bad.status_code, 400)
+
+    def test_viewer_cannot_change_the_price(self):
+        asset = self.take("SN-PR-4")
+        viewer = client_for(make_user("viewer-pr", ["rentals.view"], stock_point=self.shop))
+        self.assertEqual(viewer.patch(f"/api/rental-assets/{asset['id']}/", {"monthly_rent": 1}, format="json").status_code, 403)

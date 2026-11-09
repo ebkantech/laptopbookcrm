@@ -1,7 +1,6 @@
 import json
 from datetime import date
 
-from django.conf import settings
 from django.db import transaction
 from rest_framework import permissions, viewsets
 from rest_framework.decorators import action
@@ -9,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import HasPerm
+from branding import texts
 from accounts.store_scope import StoreScopedMixin
 from crmbook_backend.notify import notify_staff
 from parties.models import Message
@@ -16,7 +16,10 @@ from parties.models import Message
 from . import payments
 from .documents import invoice_document
 from .models import PAYMENT_METHODS, Invoice, PaymentLink
-from .services import CancelError, RefundError, cancel_invoice, mark_overdue, on_invoice_paid, refund_invoice
+from .services import (
+    CancelError, PaymentError, RefundError, cancel_invoice, mark_overdue, on_invoice_paid, record_part_payment,
+    refund_invoice, settle,
+)
 from .serializers import InvoiceSerializer
 
 
@@ -28,7 +31,7 @@ class InvoiceViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         "party", "stock_point", "settled_by", "repair_ticket", "rental", "lead",
     ).prefetch_related(
         "items__variant__product", "items__refund_items", "payment_links__sent_by",
-        "refunds__by", "refunds__items__invoice_item__variant__product",
+        "refunds__by", "refunds__items__invoice_item__variant__product", "part_payments__recorded_by",
     ).all()
     serializer_class = InvoiceSerializer
     permission_classes = [permissions.IsAuthenticated, HasPerm]
@@ -84,6 +87,9 @@ class InvoiceViewSet(StoreScopedMixin, viewsets.ModelViewSet):
             response = self._settle(request, invoice)
         if response is not None:
             return response
+        invoice.refresh_from_db()
+        if invoice.status != Invoice.PAID:  # a part payment: the invoice is still open
+            return Response(InvoiceSerializer(invoice).data)
         # Task 2 wiring: "any payment done" -- who actually gets pinged is
         # configured on Settings > Staff alerts, not hardcoded here.
         notify_staff(
@@ -115,13 +121,19 @@ class InvoiceViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         if paid_on > date.today():
             return Response({"detail": "paid_on can't be in the future."}, status=400)
 
-        invoice.status = Invoice.PAID
-        invoice.pay_method = method
-        invoice.payment_reference = reference
-        invoice.paid_on = paid_on
-        invoice.settled_by = request.user
-        invoice.save(update_fields=["status", "pay_method", "payment_reference", "paid_on", "settled_by"])
-        on_invoice_paid(invoice)
+        amount = request.data.get("amount")
+        if amount in (None, ""):
+            settle(invoice, method=method, reference=reference, paid_on=paid_on, user=request.user)
+            return None
+        try:
+            amount = int(amount)
+        except (TypeError, ValueError):
+            return Response({"detail": "amount must be a whole number of rupees."}, status=400)
+        try:
+            record_part_payment(invoice, amount=amount, method=method, reference=reference, paid_on=paid_on,
+                                user=request.user)
+        except PaymentError as error:
+            return Response({"detail": str(error)}, status=400)
         return None
 
     @action(detail=True, methods=["post"])
@@ -218,7 +230,7 @@ class InvoiceViewSet(StoreScopedMixin, viewsets.ModelViewSet):
             return Response({"detail": "This invoice is already paid."}, status=400)
         if invoice.status == Invoice.CANCELLED:
             return Response({"detail": "This invoice was cancelled."}, status=400)
-        if invoice.total <= 0:
+        if invoice.balance_due <= 0:
             return Response({"detail": "This invoice has no amount to collect."}, status=400)
         phone, error = self._phone_from(request, invoice)
         if error:
@@ -232,10 +244,8 @@ class InvoiceViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         upi_check = PaymentLink.UPI_VERIFIED if check["status"] == payments.LINKED else PaymentLink.UPI_STAFF_CONFIRMED
 
         sender = request.user.get_full_name() or request.user.username
-        description = (
-            f"Hi {invoice.party.name}, {sender} from {settings.BUSINESS_NAME} has sent you a UPI payment link "
-            f"for invoice {invoice.code} of Rs {invoice.total}."
-        )
+        description = texts.message("payment_link_staff", customer=invoice.party.name, sender=sender,
+                                    invoice=invoice.code, amount=invoice.balance_due)
         try:
             created = payments.create_upi_link(invoice, phone, sender, description)
         except payments.PaymentProviderError as e:
@@ -245,7 +255,7 @@ class InvoiceViewSet(StoreScopedMixin, viewsets.ModelViewSet):
             # a fresh link supersedes any earlier unpaid one
             invoice.payment_links.filter(status=PaymentLink.SENT).update(status=PaymentLink.CANCELLED)
             link = PaymentLink.objects.create(
-                invoice=invoice, phone=phone, upi_check=upi_check, amount=invoice.total,
+                invoice=invoice, phone=phone, upi_check=upi_check, amount=invoice.balance_due,
                 provider=payments.payment_provider(), provider_link_id=created["provider_link_id"],
                 url=created["url"], sent_by=request.user,
             )
@@ -254,7 +264,7 @@ class InvoiceViewSet(StoreScopedMixin, viewsets.ModelViewSet):
                 invoice.save(update_fields=["status"])
             Message.objects.create(
                 party=invoice.party, channel=Message.SMS, direction=Message.OUT,
-                body=f"{description} Pay here: {created['url']} (sent to ******{phone[-4:]})",
+                body=f"{description}{texts.pay_note(created['url'])} (sent to ******{phone[-4:]})",
             )
         invoice.refresh_from_db()
         return Response(InvoiceSerializer(invoice).data, status=201)

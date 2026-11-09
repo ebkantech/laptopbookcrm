@@ -3,6 +3,7 @@ import { AlertCircle, CheckCircle2, Clock3, FileCheck2, LoaderCircle, XCircle } 
 
 import { api } from "../lib/api";
 import { C, F, money } from "../lib/theme";
+import OpenPortal from "../components/approvals/OpenPortal";
 
 
 export default function RepairOrderApproval({ token }) {
@@ -67,7 +68,7 @@ export default function RepairOrderApproval({ token }) {
                 <span className="text-sm">{approval.status === "approved" ? "Your combined approval has been recorded." : approval.status === "rejected" ? "Your rejection has been recorded." : "This approval link has expired."}</span>
               </div>
             ) : (
-              <div className="mt-5 flex items-center gap-2 p-3" style={{ backgroundColor: `${C.amber}16` }}><Clock3 size={17} style={{ color: C.amber }} /><span className="text-xs">This secure link expires in 24 hours.</span></div>
+              <div className="mt-5 flex items-center gap-2 p-3" style={{ backgroundColor: `${C.amber}16` }}><Clock3 size={17} style={{ color: C.amber }} /><span className="text-xs">This secure link is valid for 24 hours{approval.expires_at && ` — until ${new Date(approval.expires_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}`}.</span></div>
             )}
 
             <div className="mt-5 space-y-4">
@@ -92,6 +93,7 @@ export default function RepairOrderApproval({ token }) {
             {!terminal && !choice && <div className="mt-6 grid gap-2 sm:grid-cols-2"><button onClick={() => setChoice("approve")} className="py-3 text-sm" style={{ backgroundColor: C.green, color: C.onAccent }}><CheckCircle2 className="mr-1 inline" size={16} /> Approve all devices</button><button onClick={() => setChoice("reject")} className="py-3 text-sm" style={{ border: `1px solid ${C.carbon}`, color: C.carbon }}><XCircle className="mr-1 inline" size={16} /> Reject order</button></div>}
             {!terminal && choice && <form onSubmit={submit} className="mt-6 p-4" style={{ border: `1px solid ${C.rule}` }}><p className="text-sm" style={{ fontWeight: 700 }}>Confirm {choice}</p>{choice === "approve" ? <label className="mt-3 flex gap-2 text-sm"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /> I reviewed every device, repair line and final cost and authorise the service centre to proceed.</label> : <textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason (optional)" rows={3} className="mt-3 w-full p-2 text-sm" style={{ border: `1px solid ${C.rule}` }} />}<div className="mt-4 flex gap-2"><button type="button" onClick={() => { setChoice(""); setConsent(false); }} className="px-4 py-2 text-sm" style={{ border: `1px solid ${C.rule}` }}>Back</button><button disabled={busy || (choice === "approve" && !consent)} className="px-4 py-2 text-sm" style={{ backgroundColor: choice === "approve" ? C.green : C.carbon, color: C.onAccent, opacity: busy ? 0.6 : 1 }}>{busy ? "Saving…" : "Confirm decision"}</button></div></form>}
             {error && <p className="mt-4 text-sm" style={{ color: C.carbon }}>{error}</p>}
+            <OpenPortal endpoint={endpoint} decided={terminal} />
           </article>
         )}
       </div>

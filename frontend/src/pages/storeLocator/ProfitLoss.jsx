@@ -358,22 +358,34 @@ function Line_({ label, value, kind, note, indent }) {
 
 /* The statement, laid out like a P&L: each line, then its subtotal. */
 function Statement({ st }) {
-  const sale = st.by_source.find((r) => r.source === "sale");
-  const partsCost = st.by_source.filter((r) => r.source !== "sale").reduce((n, r) => n + (r.cogs || 0), 0);
+  // income by what was billed: service charges are kept apart from goods
+  const kind = Object.fromEntries((st.by_kind || []).map((k) => [k.kind, k]));
+  const partsCost = kind.parts?.cogs || 0;
+  const productCost = st.cogs - partsCost; // includes restocked returns
+  const has = (k) => kind[k] && kind[k].revenue !== 0;
   return (
     <Panel icon={ReceiptText} title="Profit & Loss statement" className="sl-span-2">
       <div className="pl-statement">
         <p className="pl-sec">Revenue</p>
-        {st.by_source.map((r) => <Line_ key={r.source} indent label={SOURCE_LABEL[r.source]} value={r.billed} note={plural(r.invoices, "paid invoice")} />)}
+        {st.by_kind ? (
+          <>
+            <Line_ indent label="Product sales" value={kind.products?.revenue || 0} note="Laptops & accessories sold" />
+            <Line_ indent label="Spare parts (repair & on-site)" value={kind.parts?.revenue || 0} note="Parts fitted on jobs" />
+            <Line_ indent label="Service charges" value={kind.service?.revenue || 0} note="Labour, visit charges, on-site work — no goods cost" />
+            {has("rent") && <Line_ indent label="Rent" value={kind.rent.revenue} />}
+            {has("discounts") && <Line_ indent label="Less: discounts" value={kind.discounts.revenue} />}
+          </>
+        ) : st.by_source.map((r) => <Line_ key={r.source} indent label={SOURCE_LABEL[r.source]} value={r.billed} note={plural(r.invoices, "paid invoice")} />)}
         <Line_ indent label="Less: refunds & returns" value={-st.refunds} note={plural(st.refund_count, "refund")} />
         <Line_ kind="sub" label="Net revenue" value={st.revenue} />
         <p className="pl-sec">Cost of goods sold</p>
-        <Line_ indent label="Products sold, less restocked returns" value={-(sale?.cogs || 0)} note="Cost locked on each bill line when it was billed" />
+        <Line_ indent label="Products sold, less restocked returns" value={-productCost} note="Cost locked on each bill line when it was billed" />
         <Line_ indent label="Spare parts on repair & on-site jobs" value={partsCost ? -partsCost : "None entered"} note="Part costs, and “Our cost” typed on repair lines" />
         <Line_ kind="total" label="Gross profit" value={st.gross_profit} note={`Gross margin ${pctText(st.gross_margin_pct)}`} />
-        {sale && sale.revenue !== 0 && (
-          <Line_ indent label="of which product sales" value={sale.gross_profit} note={`Margin ${pctText(sale.gross_margin_pct)}`} />
-        )}
+        {has("products") && <Line_ indent label="of which products" value={kind.products.gross_profit} note={`Margin ${pctText(kind.products.gross_margin_pct)}`} />}
+        {has("parts") && <Line_ indent label="of which spare parts" value={kind.parts.gross_profit} note={`Margin ${pctText(kind.parts.gross_margin_pct)}`} />}
+        {has("service") && <Line_ indent label="of which service charges" value={kind.service.gross_profit} note="All profit — staff wages are expenses below" />}
+        {has("rent") && <Line_ indent label="of which rent" value={kind.rent.gross_profit} />}
         <p className="pl-sec">Expenses</p>
         <Line_ indent label="Operating expenses" value={st.operating_expenses === null ? "Unavailable" : -st.operating_expenses} note="Rent, salaries, utilities…" />
         <Line_ indent label="Other expenses" value={st.other_expenses === null ? "Unavailable" : -st.other_expenses}

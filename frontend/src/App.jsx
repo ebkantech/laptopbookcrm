@@ -1,4 +1,5 @@
 import SubscriptionBanner from "./components/SubscriptionBanner";
+import Toaster from "./components/Toaster";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   LayoutDashboard,
@@ -501,6 +502,7 @@ function Shell() {
 
 <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
   <SubscriptionBanner />
+  <Toaster />
   {/* Non-owner accounts only reach their own store's records
       (accounts.store_scope); until the Owner assigns one, every
       store-linked list comes back empty -- say why, everywhere. */}

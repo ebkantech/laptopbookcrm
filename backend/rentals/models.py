@@ -194,6 +194,11 @@ class RentalAsset(models.Model):
     returned_to_stock_at = models.DateTimeField(null=True, blank=True)
     returned_to = models.ForeignKey("catalog.StockPoint", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     returned_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    # What the laptop cost the business (from Inventory it starts at the
+    # product's cost price), and the usual rent per month -- a new agreement
+    # starts each device's monthly fee from it. Blank = not set.
+    purchase_price = models.PositiveIntegerField(null=True, blank=True)
+    monthly_rent = models.PositiveIntegerField(null=True, blank=True)
 
     class Meta:
         ordering = ["asset_tag"]

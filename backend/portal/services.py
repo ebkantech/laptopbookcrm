@@ -44,27 +44,26 @@ def _local(dt):
     return timezone.localtime(dt).strftime("%d %b %Y, %H:%M %Z")
 
 
-def _email_body(party, code, invite, *, resent=False):
-    business = settings.BUSINESS_NAME
-    minutes = int(access.OTP_TTL.total_seconds() // 60)
-    intro = "Your new one-time verification code" if resent else "Your one-time verification code"
-    return (
-        f"Hi {party.name},\n\n"
-        f"{intro} is {code}. This code expires in {minutes} minutes and can only be used once.\n\n"
-        f"Your portal link stays valid until {_valid_until(invite)}. If the code expires, "
-        "open the same link and request a new code.\n\n"
-        f"- {business}"
+def _code_email(party, code, invite, *, resent=False):
+    """(subject, body) of the verification-code email -- wording from Settings -> Business & messages."""
+    from branding import texts
+
+    subject, body = texts.email(
+        "portal_code", customer=party.name, code=code, minutes=int(access.OTP_TTL.total_seconds() // 60),
+        valid_until=_valid_until(invite),
+        intro="Your new one-time verification code" if resent else "Your one-time verification code",
     )
+    if resent and subject.startswith("Your "):
+        subject = "Your new " + subject[len("Your "):]
+    return subject, body
+
 
 
 def invite_whatsapp_body(invite, link):
     minutes = int(access.OTP_TTL.total_seconds() // 60)
-    return (
-        f"Access your {settings.BUSINESS_NAME} portal here: {link}\n"
-        f"This link stays valid until {_valid_until(invite)}. "
-        f"Each verification code we email you expires {minutes} minutes after it is sent; "
-        "you can request a new code from the link."
-    )
+    from branding import texts
+
+    return texts.message("portal_invite", link=link, valid_until=_valid_until(invite), minutes=minutes)
 
 
 def send_invite_whatsapp(party, invite, link):
@@ -182,8 +181,7 @@ def create_portal_invite(party, issued_by):
         invite = PortalInvite(party=party, issued_by=issued_by, expires_at=expires_at)
         code = _put_new_otp(invite, now)
         invite.save()
-        subject = f"Your {settings.BUSINESS_NAME} portal verification code"
-        body = _email_body(party, code, invite)
+        subject, body = _code_email(party, code, invite)
         delivery_status = _delivery_label(send_email(party.email, subject, body)["status"])
         if delivery_status == "failed":
             # rolls back the invite, the replacement of older links and any record
@@ -239,8 +237,7 @@ def resend_otp(token):
         old_digest = invite.otp_digest
         fresh = PortalInvite(expires_at=invite.expires_at)
         code = _put_new_otp(fresh, now)
-        subject = f"Your new {settings.BUSINESS_NAME} portal verification code"
-        body = _email_body(party, code, invite, resent=True)
+        subject, body = _code_email(party, code, invite, resent=True)
         delivery_status = _delivery_label(send_email(party.email, subject, body)["status"])
         failure = None
         if delivery_status == "failed":
@@ -426,3 +423,37 @@ def revoke_open_invites(party, reason=PortalInvite.ACCESS_REVOKED):
     return PortalInvite.objects.filter(party=party, revoked_at__isnull=True, consumed_at__isnull=True).update(
         revoked_at=timezone.now(), revoked_reason=reason,
     )
+
+
+def portal_link_from_approval(party):
+    """
+    "Open my portal" on a rental / repair approval page. Holding the approval
+    link (sent to the customer's own phone) is enough to be handed the portal
+    LINK -- getting in still needs the one-time code, which only ever goes to
+    the customer's email. Reuses their open invitation, else issues one.
+
+    Returns {"url", "email"}; raises ValidationError with a customer-facing
+    reason when the portal can't be opened (no email on file, no qualifying
+    rental / open job, resend limit).
+    """
+    now = timezone.now()
+    invite = (PortalInvite.objects.filter(party=party, revoked_at__isnull=True, consumed_at__isnull=True, expires_at__gt=now)
+              .order_by("-created_at").first())
+    if invite is None or access.invite_closed_code(invite, now):
+        if not party.email:
+            raise ValidationError("Your portal sign-in code is sent by email, and we don't have your email address yet. "
+                                  "Please ask the shop to add it, then try again.")
+        try:
+            invite, _delivery = create_portal_invite(party, None)
+        except ValidationError as error:
+            message = " ".join(error.messages) if hasattr(error, "messages") else str(error)
+            if "Add an email" in message:
+                message = "Please ask the shop to add your email address, then try again."
+            elif "resend limit" in message:
+                message = "A portal link was sent several times in the last hour. Please try again a little later."
+            elif "email could not be delivered" in message:
+                message = "We couldn't email your sign-in code just now. Please try again shortly or ask the shop."
+            else:  # no approved rental / open repair job for the portal to show
+                message = "Your portal opens once your rental is approved or your repair is in progress."
+            raise ValidationError(message)
+    return {"url": f"{settings.PUBLIC_FRONTEND_URL.rstrip('/')}/portal/{invite.token}", "email": access.mask_email(party.email)}

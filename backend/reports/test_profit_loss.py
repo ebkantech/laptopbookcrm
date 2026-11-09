@@ -102,6 +102,31 @@ class ProfitLossFigureTests(ProfitLossTestBase):
         self.assertIsNone(rows["repair"]["cogs"])
         self.assertEqual(rows["rental"]["revenue"], 3000)
 
+    def test_service_income_is_kept_apart_from_goods(self):
+        # a repair with labour and a part (our cost 900): service and parts each get their own line
+        self.invoice(self.kb, date(2026, 9, 25), [
+            {"description": "Labour", "qty": 1, "price": 800},
+            {"description": "Keyboard", "qty": 1, "price": 1200, "item_kind": "part", "unit_cost": 900},
+        ], source=Invoice.REPAIR)
+        kinds = {k["kind"]: k for k in self.statement()["statement"]["by_kind"]}
+        self.assertEqual(kinds["products"]["revenue"], 130000 + 48000)
+        self.assertEqual((kinds["parts"]["revenue"], kinds["parts"]["cogs"], kinds["parts"]["gross_profit"]), (1200, 900, 300))
+        # labour + screen job + advance and its deduction; no goods cost
+        self.assertEqual((kinds["service"]["revenue"], kinds["service"]["cogs"]), (800 + 9000 + 2000 - 2000, None))
+        self.assertEqual(kinds["service"]["gross_profit"], 9800)
+        self.assertEqual(kinds["rent"]["revenue"], 3000)
+        st = self.statement()["statement"]
+        self.assertEqual(sum(k["revenue"] for k in kinds.values()), st["billed"])
+
+    def test_cash_book_names_service_and_parts_separately(self):
+        from accounting.posting import _particulars
+
+        job = self.invoice(self.kb, date(2026, 9, 25), [
+            {"description": "Labour", "qty": 1, "price": 800},
+            {"description": "Keyboard", "qty": 1, "price": 1200, "item_kind": "part", "unit_cost": 900},
+        ], source=Invoice.REPAIR)
+        self.assertIn("(service Rs 800 + parts Rs 1,200)", _particulars(job))
+
     def test_no_expense_records_is_unavailable_not_zero(self):
         data = self.statement()
         st = data["statement"]

@@ -16,6 +16,7 @@ from rest_framework.views import APIView
 from accounts.models import User
 from accounts.permissions import HasPerm
 from accounts.store_scope import StoreScope, StoreScopedMixin
+from branding import texts
 from catalog.models import Service
 from catalog.views import part_stock_prefetch
 from crmbook_backend.notify import notify_staff, send_email, send_whatsapp, whatsapp_provider
@@ -77,14 +78,25 @@ def _audit_value(value):
     return value
 
 
-def _notify_party(party, subject, text):
-    """
-    Fires the actual WhatsApp + email send for a ticket-related update,
-    on top of the Notification row each call site already creates as
-    the durable record. See crmbook_backend/notify.py.
-    """
-    send_whatsapp(party.phone, text)
-    send_email(party.email, subject, text)
+def _advance_text(invoice, pay):
+    """ "Advance invoice ... has been raised. Pay here: ..." (leading space) for the booking message."""
+    return " " + texts.message("repair_advance_raised", invoice=invoice.code, amount=invoice.total, pay_note=pay)
+
+
+def _tell(job, key, /, **values):
+    """A ticket update to the customer (Settings -> Business & messages wording), kept as Notifications."""
+    text = texts.message(key, **values)
+    subject, email_text = texts.email(key, **values)
+    Notification.objects.create(ticket=job, channel=Notification.WHATSAPP, text=text)
+    Notification.objects.create(ticket=job, channel=Notification.EMAIL, text=email_text)
+    send_whatsapp(job.party.phone, text)
+    send_email(job.party.email, subject, email_text)
+
+
+def _tell_stage(ticket, stage):
+    key = "repair_ready" if stage == RepairTicket.READY else "repair_stage_update"
+    _tell(ticket, key, ticket=ticket.code, device=f"{ticket.brand} {ticket.model_name}",
+          store=ticket.stock_point.name, stage=stage.lower())
 
 
 def _issue_link_payload(ticket, user):
@@ -335,20 +347,21 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         ticket.code = f"RPR-{1044 + ticket.pk}"
         ticket.save(update_fields=["code"])
         device = f"{ticket.brand} {ticket.model_name}"
-        wa_text = f"Ticket {ticket.code} created for your {device}. We'll keep you posted."
-        pay = ""
+        pay, advance = "", ""
         if ticket.payment == RepairTicket.ADVANCE:
             advance_invoice = raise_advance_invoice(ticket, _booking_advance(ticket.payment, typed_advance, services))
             if advance_invoice:
                 pay = pay_note(advance_invoice, self.request.user)
-                wa_text += f" Advance invoice {advance_invoice.code} for Rs {advance_invoice.total} has been raised.{pay}"
+                advance = _advance_text(advance_invoice, pay)
         self._approval = _auto_estimate(ticket, self.request.user, services, lines)
-        email_text = f"Repair ticket {ticket.code} acknowledged -- {device}, drop-off at {ticket.stock_point.name}.{pay}"
+        values = dict(ticket=ticket.code, device=device, store=ticket.stock_point.name, advance=advance, pay_note=pay)
+        wa_text = texts.message("repair_booked", **values)
+        subject, email_text = texts.email("repair_booked", **values)
         Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=wa_text)
         Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=email_text)
         log_whatsapp(ticket.party, wa_text)
         send_whatsapp(ticket.party.phone, wa_text)
-        send_email(ticket.party.email, f"Repair ticket {ticket.code} acknowledged", email_text)
+        send_email(ticket.party.email, subject, email_text)
         if self._approval:
             self._approval["whatsapp_delivery"] = send_approval_link_whatsapp(ticket, self._approval["url"], self.request.user)
         # Task 2: internal staff alert, separate from the customer sends
@@ -485,14 +498,7 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         if hold and stage == RepairTicket.READY:
             return Response({"detail": f"{hold}. The job can't be finished until it's resolved."}, status=400)
         _move(ticket, stage, request.user)
-        text = (
-            f"Your {ticket.brand} {ticket.model_name} is ready! Please collect it from {ticket.stock_point.name}."
-            if stage == RepairTicket.READY
-            else f"Update on {ticket.code}: now {stage.lower()}."
-        )
-        Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=text)
-        Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=text)
-        _notify_party(ticket.party, f"Update on {ticket.code}", text)
+        _tell_stage(ticket, stage)
         return Response(RepairTicketSerializer(self._fresh(ticket)).data)
 
     @action(detail=True, methods=["post"], url_path="set-stage")
@@ -543,14 +549,7 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         _move(ticket, target, request.user)
 
         if is_forward:
-            text = (
-                f"Your {ticket.brand} {ticket.model_name} is ready! Please collect it from {ticket.stock_point.name}."
-                if target == RepairTicket.READY
-                else f"Update on {ticket.code}: now {target.lower()}."
-            )
-            Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=text)
-            Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=text)
-            _notify_party(ticket.party, f"Update on {ticket.code}", text)
+            _tell_stage(ticket, target)
         # backward move -- an internal correction, no customer notification
         # (see design note: Notification is customer-facing contact history)
 
@@ -622,16 +621,15 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
                 ticket.save(update_fields=["status"])
 
         pay = pay_note(invoice, request.user) if amount > 0 else ""
-        if amount <= 0:
-            wa_text = f"Thank you! Your {what} is complete -- invoice {invoice.code}, nothing to pay."
-        else:
-            wa_text = f"Your {what} is ready. Invoice {invoice.code} for Rs {amount} has been raised -- please pay to collect your device.{pay}"
-        email_text = f"Invoice {invoice.code} raised at {ticket.stock_point.name} for {what}: Rs {max(amount, 0)}.{pay}"
+        key = "repair_invoice_nothing_due" if amount <= 0 else "repair_invoice"
+        values = dict(work=what, invoice=invoice.code, amount=max(amount, 0), store=ticket.stock_point.name, pay_note=pay)
+        wa_text = texts.message(key, **values)
+        subject, email_text = texts.email(key, **values)
         Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=wa_text)
         Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=email_text)
         log_whatsapp(ticket.party, wa_text)
         send_whatsapp(ticket.party.phone, wa_text)
-        send_email(ticket.party.email, f"Invoice {invoice.code}", email_text)
+        send_email(ticket.party.email, subject, email_text)
         return Response(RepairTicketSerializer(self._fresh(ticket)).data)
 
     @action(detail=True, methods=["post"])
@@ -690,13 +688,9 @@ class RepairTicketViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         ticket.status = RepairTicket.IN_PROGRESS
         ticket.save(update_fields=["status"])
 
-        if active_warranty and any(i.covered_by_warranty for i in reopen_obj.items.all()):
-            note = f"Your {ticket.brand} {ticket.model_name} is back in for a warranty-covered follow-up on {ticket.code}. No charge for the covered work."
-        else:
-            note = f"Your {ticket.brand} {ticket.model_name} is back in for further service on {ticket.code}."
-        Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=note)
-        Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=note)
-        _notify_party(ticket.party, f"{ticket.code} reopened for follow-up", note)
+        covered = active_warranty and any(i.covered_by_warranty for i in reopen_obj.items.all())
+        _tell(ticket, "repair_reopened_warranty" if covered else "repair_reopened",
+              ticket=ticket.code, device=f"{ticket.brand} {ticket.model_name}")
 
         return Response(RepairTicketSerializer(self._fresh(ticket)).data, status=201)
 
@@ -809,19 +803,20 @@ class RepairOrderViewSet(viewsets.ReadOnlyModelViewSet):
             if typed_advance is not None and built and typed_advance > sum(l["quantity"] * l["unit_price"] for l in built if l["unit_price"] is not None):
                 raise ValidationError({"advance_amount": f"The advance for {ticket.brand} {ticket.model_name} can't be more than its estimate."})
             device_label = f"{ticket.brand} {ticket.model_name}"
-            wa_text = f"Ticket {ticket.code} created for your {device_label} under order {order.code}."
-            pay = ""
+            pay, advance = "", ""
             if ticket.payment == RepairTicket.ADVANCE:
                 advance_invoice = raise_advance_invoice(ticket, _booking_advance(ticket.payment, typed_advance, services))
                 if advance_invoice:
                     pay = pay_note(advance_invoice, request.user)
-                    wa_text += f" Advance invoice {advance_invoice.code} for Rs {advance_invoice.total} has been raised.{pay}"
-            email_text = f"Repair ticket {ticket.code} acknowledged under {order.code} -- {device_label}.{pay}"
+                    advance = _advance_text(advance_invoice, pay)
+            values = dict(ticket=ticket.code, device=device_label, order=order.code, advance=advance, pay_note=pay)
+            wa_text = texts.message("repair_order_booked", **values)
+            subject, email_text = texts.email("repair_order_booked", **values)
             Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=wa_text)
             Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=email_text)
             log_whatsapp(ticket.party, wa_text)
             send_whatsapp(ticket.party.phone, wa_text)
-            send_email(ticket.party.email, f"Repair ticket {ticket.code} acknowledged", email_text)
+            send_email(ticket.party.email, subject, email_text)
             if built and request.user.has_perm_code("repairs.approve"):
                 finalize_estimate(ticket, request.user, built)
                 auto.append(ticket)

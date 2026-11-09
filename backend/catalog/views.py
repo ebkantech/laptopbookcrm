@@ -46,7 +46,15 @@ def part_stock_prefetch(scope, path="stock"):
 
 def product_queryset(user):
     scope = StoreScope(user)
-    variants = Variant.objects.prefetch_related(stock_prefetch(scope))
+    # units of each variant set aside for rent (Inventory shows "N for rent"):
+    # they've left sale stock, so they're counted separately from it
+    fleet = ~Q(rental_assets__status="retired")
+    if not scope.all:
+        fleet &= Q(rental_assets__source_stock_point_id=scope.store_id)
+    variants = Variant.objects.prefetch_related(stock_prefetch(scope)).annotate(
+        rental_units=Count("rental_assets", filter=fleet, distinct=True),
+        rented_out=Count("rental_assets", filter=fleet & Q(rental_assets__status__in=("rented", "reserved")), distinct=True),
+    )
     return Product.objects.prefetch_related(Prefetch("variants", queryset=variants))
 
 
@@ -475,6 +483,27 @@ def _resolve_variant(product, data):
     return variant, True, None
 
 
+def _record_purchase(data, user, variant, stock_point, qty, serials):
+    """Add stock with a supplier chosen -> the supplier bill, with these units on it."""
+    if not data.get("supplier"):
+        return None
+    from datetime import date
+
+    from sales.models import PAYMENT_METHODS
+
+    from .purchases import pay, record
+
+    method = data.get("paid_method") or ""
+    if method and method not in PAYMENT_METHODS:
+        raise ValidationError({"paid_method": [f"Choose one of: {', '.join(PAYMENT_METHODS)}."]})
+    purchase = record(supplier=data["supplier"], variant=variant, stock_point=stock_point, qty=qty,
+                      unit_cost=data.get("cost") or variant.cost, user=user, bill_no=data.get("bill_no", ""), serials=serials)
+    if method:  # paid in full on arrival: the money goes out of the cash / bank book now
+        pay(data["supplier"], {"amount": purchase.amount, "paid_on": date.today(), "method": method,
+                               "reference": "", "note": "Paid when the stock arrived", "purchase": purchase}, user)
+    return purchase
+
+
 class AddStockView(APIView):
     """
     One endpoint for both real-world restock flows:
@@ -578,6 +607,7 @@ class AddStockView(APIView):
         data = serializer.validated_data
         # the view's transaction: a failure anywhere leaves no product, stock or serials
         product, variant, stock, serials = new_product.create(data, request.user, stock_point)
+        _record_purchase(data, request.user, variant, stock_point, data["quantity"], serials)
         activity.note(stock, "add-stock",
                       f"Added new product {product.display_name} ({variant.spec}): {stock.quantity} unit(s) at {stock_point.name}, "
                       f"serial numbers {serials[0]}{f' … {serials[-1]}' if len(serials) > 1 else ''}",
@@ -601,6 +631,7 @@ class AddStockView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         product, variant, stock, before, created, changes, serials = new_product.add_existing(data, request.user, stock_point)
+        _record_purchase(data, request.user, variant, stock_point, data["quantity"], serials)
         what = f"new variant {variant.code} ({variant.spec}{f', {variant.colour}' if variant.colour else ''})" if created else f"{variant.code}"
         activity.note(stock, "add-stock",
                       f"Added {data['quantity']} × {product.display_name} {what} to stock at {stock_point.name}, "
@@ -660,7 +691,7 @@ class StockSerialViewSet(StoreScopedMixin, viewsets.ReadOnlyModelViewSet):
     queryset = StockSerial.objects.select_related("variant__product", "stock_point", "invoice_item__invoice__party").all()
     permission_classes = [permissions.IsAuthenticated, HasPerm]
     http_method_names = ["get", "post", "head", "options"]  # POST only for write_off; serials are made by Add stock
-    required_perms = {"list": None, "retrieve": None, "available": None, "trace": None, "write_off": "inventory.edit"}
+    required_perms = {"list": None, "retrieve": None, "available": None, "find": None, "trace": None, "write_off": "inventory.edit"}
 
     @staticmethod
     def _row(s):
@@ -703,6 +734,21 @@ class StockSerialViewSet(StoreScopedMixin, viewsets.ReadOnlyModelViewSet):
         rows = serial_tracking.in_stock_qs(variant, stock_point).order_by("serial_number")
         return Response({"tracked": True, "serials": [s.serial_number for s in rows],
                          "untracked": serial_tracking.untracked_units(variant, stock_point)})
+
+    @action(detail=False, methods=["get"])
+    def find(self, request):
+        """Units on this shop's shelf whose serial number contains ?q= -- the
+        invoice's product search finds a laptop by the number on its sticker."""
+        q = (request.query_params.get("q") or "").strip()
+        stock_point = request.query_params.get("stock_point")
+        if len(q) < 3 or not (stock_point or "").isdigit():
+            return Response([])
+        if not self.store_scope.allows(int(stock_point)):
+            raise PermissionDenied("That store isn't yours.")
+        rows = (StockSerial.objects.filter(stock_point_id=stock_point, status=StockSerial.IN_STOCK, serial_number__icontains=q)
+                .select_related("variant__product").order_by("serial_number")[:8])
+        return Response([{"serial_number": s.serial_number, "variant": s.variant_id, "product": s.variant.product_id,
+                          "label": f"{s.variant.product.display_name} ({s.variant.spec})"} for s in rows])
 
     @action(detail=False, methods=["get"])
     def trace(self, request):

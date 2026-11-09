@@ -221,7 +221,9 @@ class RentalAssetSerializer(serializers.ModelSerializer):
         fields = [
             "id", "asset_tag", "serial_number", "brand", "model_name", "status", "created_at", "variant",
             "source_stock_point", "source_stock_point_name", "returned_to_stock_at", "returned_to", "returned_to_name",
+            "purchase_price", "monthly_rent",
         ]
+        extra_kwargs = {"purchase_price": {"max_value": 10_000_000}, "monthly_rent": {"min_value": 1, "max_value": 1_000_000}}
         # Availability is a workflow state. It can only change when an
         # agreement is approved, rejected, cancelled, or closed.
         read_only_fields = ["status", "created_at", "variant", "source_stock_point", "returned_to_stock_at", "returned_to"]
@@ -413,3 +415,6 @@ class AssetFromInventorySerializer(serializers.Serializer):
     stock = serializers.PrimaryKeyRelatedField(queryset=Stock.objects.select_related("variant__product", "stock_point"))
     serial_number = serializers.CharField(max_length=80, trim_whitespace=True)
     asset_tag = serializers.CharField(max_length=48, required=False, allow_blank=True, trim_whitespace=True)
+    # optional: blank purchase price = the product's cost price in Inventory
+    purchase_price = serializers.IntegerField(required=False, allow_null=True, min_value=0, max_value=10_000_000)
+    monthly_rent = serializers.IntegerField(required=False, allow_null=True, min_value=1, max_value=1_000_000)

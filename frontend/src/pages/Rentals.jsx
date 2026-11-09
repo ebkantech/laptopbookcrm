@@ -641,7 +641,7 @@ export default function Rentals() {
           onCreated={(issue) => { patchRental(raisingFor, issue); setRaisingFor(null); }} />
       )}
       {showDevices && <RentalDevicesModal assets={assets} canManage={can("rentals.manage")} onClose={() => setShowDevices(false)}
-        onChanged={(updated) => setAssets((list) => list.map((a) => (a.id === updated.id ? updated : a)))} />}
+        onChanged={(updated) => setAssets((list) => (list.some((a) => a.id === updated.id) ? list.map((a) => (a.id === updated.id ? updated : a)) : [...list, updated]))} />}
       {chatWith && <PartyChatModal partyId={chatWith.id} partyName={chatWith.name} onClose={() => setChatWith(null)} />}
       {rentalAction && <RentalActionModal {...rentalAction} onClose={() => setRentalAction(null)} onCompleted={(updated) => { setRentals((current) => current.map((item) => item.id === updated.id ? updated : item)); setRentalAction(null); api.getAll("/rental-assets/").then(setAssets); }} />}
       {creating && <RentalAgreementModal parties={parties} initialAssets={assets} initialParty={renewing?.party ?? ""} renewing={renewing} canAddCustomer={can("parties.manage")} onCustomerCreated={(created) => setParties((current) => [...current, created])} onClose={() => { setCreating(false); setRenewing(null); }} onCreated={(created) => { setRentals((current) => [created, ...current]); setCreating(false); setRenewing(null); setHandoverFor(created.id); api.getAll("/rental-assets/").then(setAssets); }} />}

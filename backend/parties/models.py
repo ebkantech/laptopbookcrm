@@ -3,9 +3,10 @@ from django.conf import settings
 
 
 class Party(models.Model):
-    """A customer, dealer, or rental account -- everything the CRM sells to."""
-    RETAIL, DEALER, RENTAL = "Retail", "Dealer", "Rental"
-    TYPE_CHOICES = [(RETAIL, "Retail"), (DEALER, "Dealer"), (RENTAL, "Rental")]
+    """A customer, dealer, or rental account -- everything the CRM sells to --
+    or a supplier the business buys stock from (catalog.Purchase)."""
+    RETAIL, DEALER, RENTAL, SUPPLIER = "Retail", "Dealer", "Rental", "Supplier"
+    TYPE_CHOICES = [(RETAIL, "Retail"), (DEALER, "Dealer"), (RENTAL, "Rental"), (SUPPLIER, "Supplier")]
     INDIVIDUAL, BUSINESS, DEALER_CUSTOMER = "individual", "business", "dealer"
     CUSTOMER_CLASSIFICATION_CHOICES = [
         (INDIVIDUAL, "Individual"),

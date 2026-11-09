@@ -181,10 +181,9 @@ def _agreement_label(rental):
 def approval_link_message(rental, approval_url):
     """The customer-facing text for an approval link -- shared by the
     manual wa.me link and the WhatsApp API send so both say the same."""
-    return (
-        f"Hello {rental.party.name}, please review your rental agreement {_agreement_label(rental)}. "
-        f"This secure link is valid for 24 hours: {approval_url}"
-    )
+    from branding import texts
+
+    return texts.message("rental_approval_link", customer=rental.party.name, agreement=_agreement_label(rental), link=approval_url)
 
 
 def send_approval_link_whatsapp(rental, approval_url, user):

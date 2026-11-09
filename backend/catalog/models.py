@@ -37,7 +37,9 @@ class Product(models.Model):
     # Set by Inventory -> Add stock -> New product (catalog.new_product);
     # blank on products created before categories existed.
     # db_default: rows inserted by code that predates these columns still get a value
-    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, blank=True, db_index=True, default="", db_default="")
+    # a ProductCategory key -- the list is edited at run time (Inventory ->
+    # Add stock -> Edit categories); CATEGORY_CHOICES are only the starting six
+    category = models.CharField(max_length=20, blank=True, db_index=True, default="", db_default="")
     brand = models.CharField(max_length=40, blank=True)
     model_name = models.CharField(max_length=80)
     processor = models.CharField(max_length=40, blank=True)
@@ -162,6 +164,9 @@ class StockSerial(models.Model):
     # the sale line it went out on (kept after a return, for the history)
     invoice_item = models.ForeignKey("sales.InvoiceItem", on_delete=models.SET_NULL, null=True, blank=True, related_name="serials")
     sold_at = models.DateTimeField(null=True, blank=True)
+    # which supplier bill this unit came on (set when stock is added with a
+    # supplier, or tagged later for stock already held) -- profit per supplier
+    purchase = models.ForeignKey("catalog.Purchase", on_delete=models.SET_NULL, null=True, blank=True, related_name="units")
 
     class Meta:
         ordering = ["received_at", "id"]
@@ -184,3 +189,102 @@ class SerialEvent(models.Model):
 
     class Meta:
         ordering = ["at", "id"]
+
+
+class Purchase(models.Model):
+    """
+    Stock bought from a supplier: one bill line -- who, what, how many and
+    at what price per unit. Recorded with Inventory -> Add stock, or added
+    afterwards for stock already held ("tagged"). The units it covers point
+    back to it (StockSerial.purchase), so each sale shows which supplier the
+    unit came from and what it really earned. A purchase history only: what
+    is owed to / paid to suppliers isn't tracked here.
+    """
+    supplier = models.ForeignKey("parties.Party", on_delete=models.PROTECT, related_name="purchases")
+    variant = models.ForeignKey(Variant, on_delete=models.PROTECT, related_name="purchases")
+    stock_point = models.ForeignKey(StockPoint, on_delete=models.PROTECT, related_name="purchases")
+    qty = models.PositiveIntegerField()
+    unit_cost = models.PositiveIntegerField(help_text="Price paid per unit, in rupees.")
+    bill_no = models.CharField(max_length=60, blank=True)
+    purchased_on = models.DateField()
+    # True when added later for stock that was already on the shelf / sold
+    tagged = models.BooleanField(default=False)
+    # Settled before it was recorded here (usually old stock tagged later):
+    # it adds nothing to what the supplier is owed
+    already_paid = models.BooleanField(default=False)
+    note = models.CharField(max_length=200, blank=True)
+    recorded_by = models.ForeignKey("accounts.User", on_delete=models.PROTECT, related_name="purchases_recorded")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-purchased_on", "-id"]
+
+    @property
+    def amount(self):
+        return self.qty * self.unit_cost
+
+    def __str__(self):
+        return f"{self.qty} x {self.variant.code} from {self.supplier.name}"
+
+
+class ProductCategory(models.Model):
+    """
+    A product category on Inventory -> Add stock (Laptop, Charger, ... or
+    anything the business adds, e.g. "Office chair"), with the details its
+    form asks for. Edited at run time by an Admin: rename it, add / remove /
+    rename fields, make a field required (*) or a fixed choice.
+
+    `key` never changes once created: products store it (Product.category),
+    and each field's `key` is what a product's specs are saved under, so
+    renaming a category or a field never loses what was recorded.
+
+    fields: [{"key", "label", "type": "text"|"choice"|"long", "required",
+              "options": [...], "suggest": [...], "placeholder", "summary"}]
+    `summary` fields make up the variant's spec line ("16GB / 512GB SSD").
+    """
+    ICONS = ["laptop", "plug", "hard-drive", "memory", "headphones", "package", "monitor", "printer", "smartphone",
+             "keyboard", "mouse", "cable", "armchair", "box", "tag", "wrench"]
+
+    key = models.SlugField(max_length=20, unique=True)
+    name = models.CharField(max_length=40)
+    icon = models.CharField(max_length=20, default="package")
+    position = models.PositiveSmallIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    name_label = models.CharField(max_length=40, default="Model / product name")
+    brand_required = models.BooleanField(default=True)
+    show_condition = models.BooleanField(default=False)
+    code_prefix = models.CharField(max_length=10, default="VC-ACC")
+    fields = models.JSONField(default=list, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["position", "id"]
+        verbose_name_plural = "product categories"
+
+    def __str__(self):
+        return self.name
+
+
+class SupplierPayment(models.Model):
+    """
+    Money paid to a supplier against their bills (catalog.Purchase): one
+    cash-book or bank-book "out" entry, posted when it's recorded and never
+    edited -- so the cash / bank balance and what the supplier is owed
+    always agree. Paying more than is owed leaves an advance with them.
+    """
+    supplier = models.ForeignKey("parties.Party", on_delete=models.PROTECT, related_name="supplier_payments")
+    amount = models.PositiveIntegerField()
+    paid_on = models.DateField()
+    method = models.CharField(max_length=40)
+    reference = models.CharField(max_length=80, blank=True, help_text="UTR / cheque no. / receipt")
+    note = models.CharField(max_length=200, blank=True)
+    # the bill it was for, when it was for one in particular
+    purchase = models.ForeignKey(Purchase, on_delete=models.SET_NULL, null=True, blank=True, related_name="payments")
+    by = models.ForeignKey("accounts.User", on_delete=models.PROTECT, related_name="supplier_payments")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["paid_on", "id"]
+
+    def __str__(self):
+        return f"₹{self.amount} to {self.supplier.name} on {self.paid_on}"

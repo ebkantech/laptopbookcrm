@@ -6,7 +6,6 @@ ever uses records that person may see in their own store.
 """
 import json
 
-from django.conf import settings
 from django.db.models import Exists, OuterRef
 
 from accounts.store_scope import StoreScope
@@ -61,10 +60,17 @@ def draft(request, message):
     collected, sources = facts(request, message.party)
     content = (f"<customer_message channel=\"{message.channel}\">\n{message.body}\n</customer_message>\n"
                f"<crm_facts>\n{json.dumps(collected, default=str)[:redact.MAX_CHARS]}\n</crm_facts>\n"
-               f"Business name: {settings.BUSINESS_NAME}")
+               f"Business name: {_business_name()}")
     result = llm.complete(prompts.DRAFT_SYSTEM, [{"role": "user", "content": content}], max_tokens=400)
     body = llm.text_of(result)
     if not body:
         raise llm.LLMError("The AI service returned an empty draft. Try again.")
     ReplyDraft.objects.filter(message=message, status=ReplyDraft.PENDING).delete()
     return ReplyDraft.objects.create(party=message.party, message=message, body=body, sources=sources, created_by=request.user)
+
+
+def _business_name():
+    """Settings -> Business & messages, else .env BUSINESS_NAME."""
+    from branding import texts
+
+    return texts.business().name

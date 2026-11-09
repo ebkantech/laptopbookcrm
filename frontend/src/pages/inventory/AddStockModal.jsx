@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
-  Boxes, CircleHelp, HardDrive, Headphones, Laptop, MemoryStick, Package, PackageCheck, PackagePlus, Plug, Plus,
-  Save, Search, Store,
+  Boxes, CircleHelp, PackageCheck, PackagePlus, PencilLine, Plus, Save, Search, Store,
 } from "lucide-react";
 import { api } from "../../lib/api";
-import { money } from "../../lib/theme";
+import { loadSuppliers } from "../../components/parties/suppliers";
+import { CategoryContext, categoryRegistry, loadCategories, useCategories } from "./categories";
+import CategoryEditor from "./CategoryEditor";
+import { useSession } from "../../context/SessionContext";
+import { isAdminLevel } from "../../lib/accessLevel";
+import { money, todayISO } from "../../lib/theme";
+import { phoneError } from "../../lib/phone";
 import { Alert, Dialog, Field } from "../settings/StaffUi";
 import "../settings/staff.css";
 import "./addStock.css";
@@ -23,56 +28,6 @@ import "./addStock.css";
  * colour becomes a new variant of that product, never a relabelled old one.
  */
 
-const CATEGORIES = [
-  { id: "laptop", label: "Laptop", icon: Laptop },
-  { id: "charger", label: "Charger", icon: Plug },
-  { id: "ssd", label: "SSD", icon: HardDrive },
-  { id: "ram", label: "RAM", icon: MemoryStick },
-  { id: "accessories", label: "Accessories", icon: Headphones },
-  { id: "other", label: "Other", icon: Package },
-];
-const CATEGORY_LABEL = Object.fromEntries(CATEGORIES.map((c) => [c.id, c.label]));
-
-// Mirrors catalog.new_product.CATEGORY_FIELDS. `options`: a fixed choice;
-// `suggest`: common values offered while typing, any text allowed.
-const SPEC_FIELDS = {
-  laptop: [
-    { key: "processor", label: "Processor", required: true, placeholder: "e.g. Intel Core i5-1235U" },
-    { key: "generation", label: "Generation", placeholder: "e.g. 12th Gen" },
-    { key: "ram", label: "RAM", required: true, suggest: ["4GB", "8GB", "16GB", "32GB"] },
-    { key: "storage", label: "Storage", required: true, placeholder: "e.g. 512GB SSD" },
-    { key: "screen_size", label: "Screen size", suggest: ['13.3"', '14"', '15.6"', '16"'] },
-  ],
-  charger: [
-    { key: "wattage", label: "Wattage", required: true, suggest: ["45W", "65W", "90W", "130W"] },
-    { key: "connector_type", label: "Connector type", required: true, suggest: ["USB-C", "Barrel 4.5mm", "Barrel 7.4mm", "MagSafe"] },
-    { key: "output_voltage", label: "Output voltage", placeholder: "e.g. 19.5V" },
-    { key: "compatibility", label: "Compatibility", placeholder: "e.g. Dell Latitude, Inspiron", wide: true },
-  ],
-  ssd: [
-    { key: "capacity", label: "Capacity", required: true, suggest: ["256GB", "512GB", "1TB", "2TB"] },
-    { key: "interface", label: "Interface", required: true, options: ["SATA", "NVMe"] },
-    { key: "form_factor", label: "Form factor", suggest: ['2.5"', "M.2 2280", "M.2 2242"] },
-  ],
-  ram: [
-    { key: "capacity", label: "Capacity", required: true, suggest: ["4GB", "8GB", "16GB", "32GB"] },
-    { key: "ddr_type", label: "DDR type", required: true, suggest: ["DDR3", "DDR3L", "DDR4", "DDR5"] },
-    { key: "speed", label: "Speed", suggest: ["2400MHz", "2666MHz", "3200MHz", "4800MHz"] },
-    { key: "form_factor", label: "Form factor", suggest: ["SO-DIMM", "DIMM"] },
-  ],
-  accessories: [
-    { key: "accessory_type", label: "Accessory type", required: true, suggest: ["Mouse", "Keyboard", "Bag", "Headphones", "Cable", "Adapter"] },
-    { key: "warranty", label: "Warranty", placeholder: "e.g. 6 months" },
-    { key: "other_specs", label: "Other specifications", textarea: true, wide: true },
-  ],
-  other: [
-    { key: "variant_size", label: "Variant / size" },
-    { key: "unit", label: "Unit", required: true, suggest: ["Piece", "Box", "Pack", "Set", "Metre"] },
-    { key: "custom_specs", label: "Custom specifications", textarea: true, wide: true },
-  ],
-};
-const NAME_LABEL = { accessories: "Product name", other: "Product name" };
-const BRAND_OPTIONAL = new Set(["other"]);
 const NOT_SPECIFIED = "Not specified";
 
 const digits = (v) => v.replace(/\D/g, "").slice(0, 9);
@@ -101,6 +56,106 @@ function F({ label, required, error, hint, wide, children }) {
         {children(id, error)}
       </Field>
     </div>
+  );
+}
+
+/* Who the stock was bought from (a Supplier in Parties) and their bill number:
+   optional, but it's what the supplier profit comparison is built on. */
+function SupplierInputs({ supplier, billNo, onSupplier, onBillNo, error, paidMethod = "", onPaidMethod }) {
+  const { can } = useSession();
+  const canAdd = can("parties.manage");
+  const [suppliers, setSuppliers] = useState(null);
+  // "+ New supplier": a small form right here, so a new supplier doesn't mean leaving Add stock
+  const [adding, setAdding] = useState(null); // { name, phone, city, gstin }
+  const [addErrors, setAddErrors] = useState({});
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { loadSuppliers().then(setSuppliers, () => setSuppliers([])); }, []);
+
+  const choose = (value) => {
+    if (value === "__new") {
+      setAdding({ name: "", phone: "", city: "", gstin: "" });
+      setAddErrors({});
+      return;
+    }
+    onSupplier(value);
+  };
+  const saveSupplier = async () => {
+    const e = {};
+    if (!adding.name.trim()) e.name = "Enter the supplier's name.";
+    const badPhone = phoneError(adding.phone);
+    if (badPhone) e.phone = badPhone;
+    if (!adding.city.trim()) e.city = "Enter the supplier's city.";
+    if (Object.keys(e).length) return setAddErrors(e);
+    setSaving(true);
+    try {
+      const created = await api.post("/parties/", {
+        name: adding.name.trim(), type: "Supplier", phone: adding.phone.trim(), city: adding.city.trim(), gstin: adding.gstin.trim().toUpperCase(),
+        customer_classification: "business", joined: todayISO(),
+      });
+      setSuppliers(await loadSuppliers(true));
+      onSupplier(String(created.id));
+      setAdding(null);
+    } catch (err) {
+      const b = err.body || {};
+      setAddErrors(Object.fromEntries(Object.entries(b).map(([k, v]) => [k, [].concat(v).join(" ")])));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const noneYet = suppliers && !suppliers.length;
+  return (
+    <>
+      <F label="Bought from (supplier)" error={error}
+        hint={noneYet ? (canAdd ? "No suppliers yet — choose “+ New supplier”" : "No suppliers yet — ask an Admin to add one in Parties") : "Optional — needed to compare suppliers' profit"}>
+        {(id) => (
+          <select id={id} className="st-input" value={adding ? "__new" : supplier} onChange={(e) => choose(e.target.value)}>
+            <option value="">{suppliers ? "Not recorded" : "Loading…"}</option>
+            {(suppliers || []).map((p) => <option key={p.id} value={p.id}>{p.name}{p.city ? ` · ${p.city}` : ""}</option>)}
+            {canAdd && <option value="__new">+ New supplier…</option>}
+          </select>
+        )}
+      </F>
+      <F label="Supplier bill no." hint="Optional">
+        {(id) => <input id={id} className="st-input" value={billNo} maxLength={60} onChange={(e) => onBillNo(e.target.value)} placeholder="e.g. INV/2026/0412" />}
+      </F>
+      {supplier && onPaidMethod && (
+        <F label="Payment to supplier" wide hint={paidMethod ? "Paid in full now — taken out of the cash / bank book" : "Bought on credit — shows as owed on the supplier's ledger until you pay them"}>
+          {(id) => (
+            <select id={id} className="st-input" value={paidMethod} onChange={(e) => onPaidMethod(e.target.value)}>
+              <option value="">On credit — pay later</option>
+              {["Cash", "UPI", "Bank transfer", "Cheque", "Card", "Other"].map((m) => <option key={m} value={m}>Paid now by {m}</option>)}
+            </select>
+          )}
+        </F>
+      )}
+      {adding && (
+        <div className="as-wide as-new-supplier" role="group" aria-label="New supplier">
+          <p className="st-label">New supplier — saved in Parties with type Supplier</p>
+          <div className="as-grid">
+            <F label="Supplier name" required error={addErrors.name}>
+              {(id, err) => <input id={id} className="st-input" value={adding.name} maxLength={120} autoFocus aria-invalid={!!err}
+                onChange={(e) => setAdding({ ...adding, name: e.target.value })} placeholder="e.g. Alpha Traders" />}
+            </F>
+            <F label="Mobile" required error={addErrors.phone}>
+              {(id, err) => <input id={id} className="st-input" value={adding.phone} inputMode="tel" maxLength={20} aria-invalid={!!err}
+                onChange={(e) => setAdding({ ...adding, phone: e.target.value })} placeholder="98xxxxxxxx" />}
+            </F>
+            <F label="City" required error={addErrors.city}>
+              {(id) => <input id={id} className="st-input" value={adding.city} maxLength={60} onChange={(e) => setAdding({ ...adding, city: e.target.value })} />}
+            </F>
+            <F label="GSTIN" hint="Optional" error={addErrors.gstin}>
+              {(id) => <input id={id} className="st-input as-mono" value={adding.gstin} maxLength={20} onChange={(e) => setAdding({ ...adding, gstin: e.target.value })} />}
+            </F>
+          </div>
+          {addErrors.detail && <p className="st-err">{addErrors.detail}</p>}
+          <div className="as-new-supplier-actions">
+            <button type="button" className="st-btn" data-variant="primary" onClick={saveSupplier} disabled={saving}>{saving ? "Saving…" : "Save supplier"}</button>
+            <button type="button" className="st-btn" onClick={() => setAdding(null)} disabled={saving}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -196,11 +251,15 @@ function HsnInput({ value, onChange, error, hint, placeholder = "e.g. 1234567890
  * New product
  * ---------------------------------------------------------------- */
 
-function NewProductForm({ stockPoints, setBusy, onAdded, registerSubmit, scrollTo }) {
+function NewProductForm({ stockPoints, setBusy, onAdded, registerSubmit, scrollTo, onEditCategories }) {
+  const cats = useCategories();
   const [category, setCategory] = useState("");
+  // the chosen category as the Admin set it up: its fields, * marks, name label...
+  const cat = cats.byKey[category];
   const [v, setV] = useState({
     brand: "", model_name: "", description: "", colour: "", hsn: "", condition: "New", specs: {},
     stock_point: stockPoints.length === 1 ? String(stockPoints[0].id) : "", quantity: "1", sell_price: "", mrp: "", cost: "", location: "",
+    supplier: "", bill_no: "", paid_method: "",
   });
   const [errors, setErrors] = useState({});
   const set = (k) => (val) => { setV((s) => ({ ...s, [k]: val })); setErrors((e) => ({ ...e, [k]: undefined })); };
@@ -215,9 +274,9 @@ function NewProductForm({ stockPoints, setBusy, onAdded, registerSubmit, scrollT
   const check = () => {
     const e = {};
     if (!category) e.category = "Choose a product category.";
-    if (category && !BRAND_OPTIONAL.has(category) && !v.brand.trim()) e.brand = "Enter the brand.";
-    if (!v.model_name.trim()) e.model_name = `Enter the ${(NAME_LABEL[category] || "model / product name").toLowerCase()}.`;
-    for (const f of SPEC_FIELDS[category] || []) {
+    if (cat && cat.brand_required && !v.brand.trim()) e.brand = "Enter the brand.";
+    if (!v.model_name.trim()) e.model_name = `Enter the ${(cat?.name_label || "model / product name").toLowerCase()}.`;
+    for (const f of cat?.specFields || []) {
       if (f.required && !(v.specs[category]?.[f.key] || "").trim()) e[`specs.${f.key}`] = `Enter the ${f.label.toLowerCase()}.`;
     }
     if (hsnInvalid(v.hsn)) e.hsn = HSN_ERROR;
@@ -239,9 +298,10 @@ function NewProductForm({ stockPoints, setBusy, onAdded, registerSubmit, scrollT
     try {
       onAdded(await api.post("/inventory/add-stock/", {
         category, brand: v.brand.trim(), model_name: v.model_name.trim(), description: v.description.trim(),
-        colour: tidyColour(v.colour), hsn: v.hsn, specs, ...(category === "laptop" ? { condition: v.condition } : {}),
+        colour: tidyColour(v.colour), hsn: v.hsn, specs, ...(cat?.show_condition ? { condition: v.condition } : {}),
         stock_point: Number(v.stock_point), quantity: qty, sell_price: Number(v.sell_price), mrp: v.mrp ? Number(v.mrp) : null,
         cost: v.cost ? Number(v.cost) : null, location: v.location.trim(),
+        supplier: v.supplier ? Number(v.supplier) : null, bill_no: v.bill_no.trim(), paid_method: v.supplier ? v.paid_method : "",
       }));
     } catch (err) {
       setErrors(errorsFrom(err));
@@ -257,14 +317,22 @@ function NewProductForm({ stockPoints, setBusy, onAdded, registerSubmit, scrollT
     <div className="as-body">
       {general.length > 0 && <Alert>{general.join(" ")}</Alert>}
       <section className="as-section" aria-labelledby="as-cat-title">
-        <h3 id="as-cat-title" className="as-section-title">Product category<span className="as-req" aria-hidden="true"> *</span></h3>
+        <div className="flex items-center justify-between gap-2">
+          <h3 id="as-cat-title" className="as-section-title">Product category<span className="as-req" aria-hidden="true"> *</span></h3>
+          {onEditCategories && (
+            <button type="button" className="st-btn" onClick={onEditCategories} title="Rename categories, change their fields and which are required">
+              <PencilLine size={14} aria-hidden="true" />Edit categories
+            </button>
+          )}
+        </div>
         <div className="as-tiles" role="radiogroup" aria-labelledby="as-cat-title" data-invalid={errors.category ? "" : undefined}>
-          {CATEGORIES.map((c) => (
-            <button key={c.id} type="button" role="radio" aria-checked={category === c.id} className="as-tile"
-              onClick={() => { setCategory(c.id); setErrors((e) => ({ ...e, category: undefined })); }}>
-              <c.icon size={22} aria-hidden="true" /><span>{c.label}</span>
+          {cats.active.map((c) => (
+            <button key={c.key} type="button" role="radio" aria-checked={category === c.key} className="as-tile"
+              onClick={() => { setCategory(c.key); setErrors((e) => ({ ...e, category: undefined })); }}>
+              <c.Icon size={22} aria-hidden="true" /><span>{c.name}</span>
             </button>
           ))}
+          {!cats.active.length && <p className="as-empty">Loading categories…</p>}
         </div>
         {errors.category && <p className="st-err">{errors.category}</p>}
       </section>
@@ -276,18 +344,18 @@ function NewProductForm({ stockPoints, setBusy, onAdded, registerSubmit, scrollT
             <p className="as-empty"><CircleHelp size={16} aria-hidden="true" />Choose a category to see its specifications.</p>
           ) : (
             <div className="as-grid">
-              <F label="Brand" required={!BRAND_OPTIONAL.has(category)} error={errors.brand} hint={BRAND_OPTIONAL.has(category) ? "Optional" : undefined}>
+              <F label="Brand" required={!!cat?.brand_required} error={errors.brand} hint={cat && !cat.brand_required ? "Optional" : undefined}>
                 {(id, err) => <input id={id} className="st-input" value={v.brand} maxLength={40} onChange={(e) => set("brand")(e.target.value)} aria-invalid={!!err} placeholder="e.g. Dell" />}
               </F>
-              <F label={NAME_LABEL[category] || "Model / product name"} required error={errors.model_name}>
+              <F label={cat?.name_label || "Model / product name"} required error={errors.model_name}>
                 {(id, err) => <input id={id} className="st-input" value={v.model_name} maxLength={80} onChange={(e) => set("model_name")(e.target.value)} aria-invalid={!!err} placeholder={category === "laptop" ? "e.g. Latitude 5440" : ""} />}
               </F>
-              {SPEC_FIELDS[category].map((f) => (
+              {(cat?.specFields || []).map((f) => (
                 <F key={`${category}-${f.key}`} label={f.label} required={f.required} error={errors[`specs.${f.key}`]} wide={f.wide}>
                   {(id, err) => <SpecInput field={f} id={id} value={v.specs[category]?.[f.key] || ""} onChange={setSpec(f.key)} error={err} />}
                 </F>
               ))}
-              {category === "laptop" && (
+              {cat?.show_condition && (
                 <F label="Condition">
                   {(id) => (
                     <select id={id} className="st-input" value={v.condition} onChange={(e) => set("condition")(e.target.value)}>
@@ -328,6 +396,8 @@ function NewProductForm({ stockPoints, setBusy, onAdded, registerSubmit, scrollT
             </F>
             <CostInput value={v.cost} onChange={set("cost")} error={errors.cost}
               hint="Recommended — needed for real profit. Left empty, profit uses an estimate until you enter it." />
+            <SupplierInputs supplier={v.supplier} billNo={v.bill_no} onSupplier={set("supplier")} onBillNo={set("bill_no")} error={errors.supplier}
+              paidMethod={v.paid_method} onPaidMethod={set("paid_method")} />
             <F label="Placed at (rack / shelf)" wide hint="Optional">
               {(id) => <input id={id} className="st-input" value={v.location} maxLength={80} onChange={(e) => set("location")(e.target.value)} placeholder="e.g. Rack A / Shelf 3" />}
             </F>
@@ -349,6 +419,7 @@ const colourText = (c) => c || NOT_SPECIFIED;
 const stockAt = (variant, slug) => variant?.stock?.find((s) => s.stock_point === slug)?.quantity ?? 0;
 
 function ProductSearch({ onPick }) {
+  const cats = useCategories();
   const [q, setQ] = useState("");
   const [state, setState] = useState({ q: null, rows: null, error: null });
   useEffect(() => {
@@ -385,7 +456,7 @@ function ProductSearch({ onPick }) {
                       <button type="button" className="as-result" onClick={() => onPick(p)}>
                         <span className="as-result-main">
                           <b>{p.display_name}</b>
-                          <span className="as-result-sub">{CATEGORY_LABEL[p.category] || "Uncategorised"} · {p.brand && p.brand !== "—" ? p.brand : "No brand"} · {p.model_name}</span>
+                          <span className="as-result-sub">{cats.byKey[p.category]?.name || "Uncategorised"} · {p.brand && p.brand !== "—" ? p.brand : "No brand"} · {p.model_name}</span>
                           <span className="as-result-sub as-mono">{p.product_code} · {p.variants.length} {p.variants.length === 1 ? "variant" : "variants"}</span>
                         </span>
                         <span className="as-result-side">
@@ -404,7 +475,8 @@ function ProductSearch({ onPick }) {
 }
 
 function ReadOnlyDetails({ product, onChange }) {
-  const fields = SPEC_FIELDS[product.category] || [];
+  const cats = useCategories();
+  const fields = cats.byKey[product.category]?.specFields || [];
   const specs = product.specs || {};
   const shown = fields.filter((f) => specs[f.key]);
   return (
@@ -419,7 +491,7 @@ function ReadOnlyDetails({ product, onChange }) {
       <dl className="as-kv">
         <div><dt>Product ID</dt><dd className="as-mono">{product.product_code}</dd></div>
         <div><dt>HSN code</dt><dd className="as-mono">{product.hsn ? `HSN ${product.hsn}` : NOT_SPECIFIED}</dd></div>
-        <div><dt>Category</dt><dd>{CATEGORY_LABEL[product.category] || "Uncategorised"}</dd></div>
+        <div><dt>Category</dt><dd>{cats.byKey[product.category]?.name || "Uncategorised"}</dd></div>
         <div><dt>Brand</dt><dd>{product.brand && product.brand !== "—" ? product.brand : NOT_SPECIFIED}</dd></div>
         <div><dt>Model / product name</dt><dd>{product.model_name}</dd></div>
         {product.condition && <div><dt>Condition</dt><dd>{product.condition}</dd></div>}
@@ -442,6 +514,9 @@ function ExistingProductForm({ stockPoints, setBusy, onAdded, registerSubmit, sc
   const [mrp, setMrp] = useState("");
   const [cost, setCost] = useState("");
   const [location, setLocation] = useState("");
+  const [supplier, setSupplier] = useState("");
+  const [billNo, setBillNo] = useState("");
+  const [paidMethod, setPaidMethod] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [hsn, setHsn] = useState("");
   const [errors, setErrors] = useState({});
@@ -509,6 +584,7 @@ function ExistingProductForm({ stockPoints, setBusy, onAdded, registerSubmit, sc
       onAdded(await api.post("/inventory/add-stock/", {
         entry: "existing", product: product.id, ...(isNew ? { new_variant: true, spec: spec.trim() } : { variant: variant.id }),
         colour: tidyColour(colour), stock_point: Number(store), quantity: qty, ...priceBody, location: location.trim(),
+        ...(supplier ? { supplier: Number(supplier), bill_no: billNo.trim(), paid_method: paidMethod } : {}),
         // what this batch cost; the server averages it with the units already in stock
         ...(cost ? { cost: Number(cost) } : {}),
         // blank keeps the product's saved HSN
@@ -604,6 +680,8 @@ function ExistingProductForm({ stockPoints, setBusy, onAdded, registerSubmit, sc
                 placeholder={product.hsn || "e.g. 1234567890"}
                 hint={product.hsn ? `Saved: HSN ${product.hsn} — leave empty to keep it` : "Optional · 10 digits, saved on the product"} />
             )}
+            <SupplierInputs supplier={supplier} billNo={billNo} onSupplier={(x) => { setSupplier(x); clear("supplier"); }} onBillNo={setBillNo} error={errors.supplier}
+              paidMethod={paidMethod} onPaidMethod={setPaidMethod} />
             <F label="Placed at (rack / shelf)" wide hint="Optional — leave blank to keep the current spot">
               {(id) => <input id={id} className="st-input" value={location} maxLength={80} onChange={(e) => { setLocation(e.target.value); }} placeholder="e.g. Rack A / Shelf 3" />}
             </F>
@@ -631,7 +709,16 @@ function ExistingProductForm({ stockPoints, setBusy, onAdded, registerSubmit, sc
  * ---------------------------------------------------------------- */
 
 export default function AddStockModal({ stockPoints, onClose, onAdded }) {
+  const { me } = useSession();
   const [entry, setEntry] = useState("new"); // new | existing
+  // product categories and their fields come from the server: an Admin edits them here
+  const [categories, setCategories] = useState([]);
+  const [editingCategories, setEditingCategories] = useState(false);
+  const [categoryError, setCategoryError] = useState("");
+  const reloadCategories = useCallback(() => loadCategories().then(setCategories, (e) => setCategoryError(e.message)), []);
+  useEffect(() => { reloadCategories(); }, [reloadCategories]);
+  const registry = useMemo(() => categoryRegistry(categories), [categories]);
+  const canEditCategories = isAdminLevel(me);
   const [busy, setBusy] = useState(false);
   const bodyRef = useRef(null);
   const submitRef = useRef(null);
@@ -651,7 +738,7 @@ export default function AddStockModal({ stockPoints, onClose, onAdded }) {
   const switchTo = (id) => {
     if (id !== entry && !busy) setEntry(id);
   };
-  const props = { stockPoints, setBusy, onAdded, registerSubmit, scrollTo };
+  const props = { stockPoints, setBusy, onAdded, registerSubmit, scrollTo, onEditCategories: canEditCategories ? () => setEditingCategories(true) : null };
 
   return (
     <Dialog size="wide" title="Add Stock" busy={busy} onClose={close} labelledBy="as-title"
@@ -676,8 +763,15 @@ export default function AddStockModal({ stockPoints, onClose, onAdded }) {
             ))}
           </div>
         </section>
-        {entry === "new" ? <NewProductForm key="new" {...props} /> : <ExistingProductForm key="existing" {...props} />}
+        {categoryError && <Alert>Categories couldn't be loaded: {categoryError}</Alert>}
+        <CategoryContext.Provider value={registry}>
+          {entry === "new" ? <NewProductForm key="new" {...props} /> : <ExistingProductForm key="existing" {...props} />}
+        </CategoryContext.Provider>
       </div>
+      {editingCategories && (
+        <CategoryEditor categories={categories} onClose={() => setEditingCategories(false)}
+          onSaved={(list) => setCategories(list)} />
+      )}
     </Dialog>
   );
 }

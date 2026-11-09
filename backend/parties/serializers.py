@@ -74,16 +74,24 @@ class PartyInvoiceSerializer(serializers.ModelSerializer):
     stock_point_name = serializers.CharField(source="stock_point.name", read_only=True)
     total = serializers.IntegerField(read_only=True)
     item_count = serializers.SerializerMethodField()
+    balance_due = serializers.IntegerField(read_only=True)
+    # "Payment link sent" is also the default status of a new unpaid invoice,
+    # so the popup needs to know whether a link really is out with the customer.
+    link_sent = serializers.SerializerMethodField()
 
     class Meta:
         model = Invoice
         fields = [
-            "id", "code", "source", "date", "status", "stock_point_name", "total",
-            "item_count", "pay_method", "recurring_interval", "due_date",
+            "id", "code", "source", "date", "status", "stock_point_name", "total", "balance_due",
+            "item_count", "pay_method", "recurring_interval", "due_date", "link_sent",
         ]
 
+    def get_link_sent(self, obj):
+        return any(link.status == "sent" for link in obj.payment_links.all())
+
     def get_item_count(self, obj):
-        return obj.items.count()
+        # products only: a discount (or a "Less: advance" line) isn't an item
+        return sum(1 for item in obj.items.all() if item.item_kind != "discount" and item.price >= 0)
 
 
 class PartyInvoiceItemSerializer(InvoiceItemSerializer):
@@ -121,13 +129,18 @@ class PartySerializer(serializers.ModelSerializer):
     name = serializers.CharField(max_length=120, allow_blank=False, trim_whitespace=True)
     type = serializers.ChoiceField(choices=Party.TYPE_CHOICES)
     phone = serializers.CharField(max_length=20, allow_blank=False, trim_whitespace=True)
-    email = serializers.EmailField(max_length=254, allow_blank=False, trim_whitespace=True)
+    # required for customers (invoices and portal links go to it); a
+    # Supplier may have none -- see validate()
+    email = serializers.EmailField(max_length=254, required=False, allow_blank=True, trim_whitespace=True)
     city = serializers.CharField(max_length=60, allow_blank=False, trim_whitespace=True)
 
     total_spent = serializers.SerializerMethodField()
     invoice_count = serializers.SerializerMethodField()
+    amount_due = serializers.SerializerMethodField()
     # customer ID on file: "verified" / "unverified" / "none" (parties.kyc)
     kyc_status = serializers.SerializerMethodField()
+    # a supplier: what we still owe them (negative = an advance with them); None for customers
+    supplier_owed = serializers.SerializerMethodField()
 
     def get_kyc_status(self, obj):
         from .kyc import kyc_status
@@ -138,18 +151,48 @@ class PartySerializer(serializers.ModelSerializer):
         model = Party
         fields = [
             "id", "name", "type", "customer_classification", "phone", "email", "gstin", "city", "joined", "kyc_status",
-            "total_spent", "invoice_count", "whatsapp_verified", "whatsapp_checked_at",
-            "portal_access_revoked_at",
+            "total_spent", "invoice_count", "amount_due", "whatsapp_verified", "whatsapp_checked_at",
+            "portal_access_revoked_at", "supplier_owed",
         ]
 
+    def to_internal_value(self, data):
+        # email is required unless the party is a Supplier -- reported together
+        # with any other missing field, as a required field would be
+        errors, attrs = {}, None
+        try:
+            attrs = super().to_internal_value(data)
+        except serializers.ValidationError as exc:
+            errors = dict(exc.detail)
+        party_type = data.get("type") or (self.instance.type if self.instance else None)
+        email = data.get("email", self.instance.email if self.instance else "")
+        checks_email = self.instance is None or not self.partial or "email" in data or "type" in data
+        if checks_email and party_type != Party.SUPPLIER and not str(email or "").strip() and "email" not in errors:
+            errors["email"] = ["This field is required."]
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
     def validate_phone(self, value):
-        digits = "".join(character for character in value if character.isdigit())
-        if not 10 <= len(digits) <= 15:
-            raise serializers.ValidationError("Enter a valid phone number with 10 to 15 digits.")
-        return value
+        from crmbook_backend.phones import clean_customer_phone
+
+        # an existing number left as it was is not re-checked, so an old
+        # record can still be edited (name, city...) without fixing it first
+        if self.instance and value == self.instance.phone:
+            return value
+        return clean_customer_phone(value)
+
+    def get_supplier_owed(self, obj):
+        if obj.type != Party.SUPPLIER:
+            return None
+        from catalog.purchases import balance
+
+        return balance(obj)[2]
 
     def get_total_spent(self, obj):
         return sum(inv.total for inv in obj.invoices.all() if not inv.is_deposit)
+
+    def get_amount_due(self, obj):
+        return sum(inv.balance_due for inv in obj.invoices.all())
 
     def get_invoice_count(self, obj):
         return obj.invoices.count()

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { MoreHorizontal, Pencil, X } from "lucide-react";
-import { C, F } from "../../lib/theme";
+import { C, F, todayISO } from "../../lib/theme";
+import { phoneError } from "../../lib/phone";
 import { api } from "../../lib/api";
 import { ErrorNote } from "../Atoms";
 
@@ -106,6 +107,10 @@ export function PartyEditModal({ party, onClose, onSaved }) {
     city: party.city || "", type: party.type || "Retail", gstin: party.gstin || "",
     customer_classification: party.customer_classification || "individual",
   });
+  // no id = a new party (Parties -> New supplier); a Supplier needs no email
+  const creating = !party.id;
+  const supplier = form.type === "Supplier";
+  const who = supplier ? "supplier" : "customer";
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -125,16 +130,18 @@ export function PartyEditModal({ party, onClose, onSaved }) {
     setError("");
     const cleaned = Object.fromEntries(Object.entries(form).map(([key, value]) => [key, value.trim()]));
     const nextErrors = {};
-    if (!cleaned.name) nextErrors.name = "Enter the customer's name.";
-    const digits = cleaned.phone.replace(/\D/g, "");
-    if (digits.length < 10 || digits.length > 15) nextErrors.phone = "Enter a valid phone number with 10 to 15 digits.";
-    if (!cleaned.email) nextErrors.email = "Enter the customer's email address.";
-    if (!cleaned.city) nextErrors.city = "Enter the customer's city.";
+    if (!cleaned.name) nextErrors.name = `Enter the ${who}'s name.`;
+    const badPhone = cleaned.phone !== (party.phone || "") || creating ? phoneError(cleaned.phone) : "";
+    if (badPhone) nextErrors.phone = badPhone;
+    if (!cleaned.email && !supplier) nextErrors.email = "Enter the customer's email address.";
+    if (!cleaned.city) nextErrors.city = `Enter the ${who}'s city.`;
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
     setBusy(true);
     try {
-      const updated = await api.patch(`/parties/${party.id}/`, cleaned);
+      const updated = creating
+        ? await api.post("/parties/", { ...cleaned, joined: todayISO() })
+        : await api.patch(`/parties/${party.id}/`, cleaned);
       onSaved(updated);
     } catch (e) {
       const body = e.body || {};
@@ -155,22 +162,22 @@ export function PartyEditModal({ party, onClose, onSaved }) {
   return <div className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-950/55 p-0 backdrop-blur-[2px] sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <form role="dialog" aria-modal="true" aria-labelledby="party-edit-title" onSubmit={submit} className="max-h-[94dvh] w-full max-w-xl overflow-y-auto rounded-t-2xl p-5 sm:rounded-2xl sm:p-6" data-panel style={{ background: C.slip }}>
       <div className="mb-5 flex items-start justify-between gap-4">
-        <div><h2 id="party-edit-title" className="text-lg font-bold" style={{ color: C.ink, fontFamily: F.display }}>Edit customer</h2><p className="mt-1 text-sm" style={{ color: C.inkSoft }}>Update {party.name}'s saved details.</p></div>
+        <div><h2 id="party-edit-title" className="text-lg font-bold" style={{ color: C.ink, fontFamily: F.display }}>{creating ? `New ${who}` : `Edit ${who}`}</h2><p className="mt-1 text-sm" style={{ color: C.inkSoft }}>{creating ? (supplier ? "Someone you buy stock from — choose them under “Bought from” when adding stock." : "Add their contact details.") : `Update ${party.name}'s saved details.`}</p></div>
         <button type="button" onClick={onClose} disabled={busy} aria-label="Close" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" style={{ color: C.inkSoft }}><X size={18} /></button>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {field("Name *", "name", { required: true, autoFocus: true })}
         {field("Mobile *", "phone", { required: true, inputMode: "tel" })}
-        {field("Email *", "email", { required: true, type: "email" })}
+        {field(supplier ? "Email (optional)" : "Email *", "email", { required: !supplier, type: "email" })}
         {field("City *", "city", { required: true })}
-        <label className="block text-sm" style={{ color: C.inkSoft }}>Type *<select value={form.type} onChange={set("type")} required className="mt-1.5 w-full rounded-lg px-3 py-2.5 text-sm" style={{ color: C.ink, background: C.slip, border: `1px solid ${C.rule}` }}><option>Retail</option><option>Dealer</option><option>Rental</option></select></label>
+        <label className="block text-sm" style={{ color: C.inkSoft }}>Type *<select value={form.type} onChange={set("type")} required className="mt-1.5 w-full rounded-lg px-3 py-2.5 text-sm" style={{ color: C.ink, background: C.slip, border: `1px solid ${C.rule}` }}><option>Retail</option><option>Dealer</option><option>Rental</option><option>Supplier</option></select></label>
         <label className="block text-sm" style={{ color: C.inkSoft }}>Customer classification<select value={form.customer_classification} onChange={set("customer_classification")} className="mt-1.5 w-full rounded-lg px-3 py-2.5 text-sm" style={{ color: C.ink, background: C.slip, border: `1px solid ${C.rule}` }}><option value="individual">Individual</option><option value="business">Business / Corporate</option><option value="dealer">Dealer</option></select></label>
         {field("GSTIN (optional)", "gstin")}
       </div>
       <ErrorNote message={error} />
       <div className="mt-6 flex flex-col-reverse justify-end gap-2 sm:flex-row">
         <button type="button" disabled={busy} onClick={onClose} className="rounded-lg px-4 py-2.5 text-sm font-semibold" style={{ color: C.inkSoft, border: `1px solid ${C.rule}` }}>Cancel</button>
-        <button type="submit" disabled={busy} className="rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60" style={{ background: C.stamp }}>{busy ? "Saving…" : "Save changes"}</button>
+        <button type="submit" disabled={busy} className="rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60" style={{ background: C.stamp }}>{busy ? "Saving…" : creating ? `Add ${who}` : "Save changes"}</button>
       </div>
     </form>
   </div>;

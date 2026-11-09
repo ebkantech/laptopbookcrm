@@ -149,10 +149,15 @@ class StoreStockRowSerializer(serializers.ModelSerializer):
 class VariantSerializer(serializers.ModelSerializer):
     stock = StockSerializer(many=True, read_only=True)
     total_stock = serializers.IntegerField(read_only=True)
+    # Units set aside for rent (out of sale stock) -- annotated by
+    # catalog.views.product_queryset; 0 where a view doesn't annotate it.
+    rental_units = serializers.IntegerField(read_only=True, default=0)
+    rented_out = serializers.IntegerField(read_only=True, default=0)
 
     class Meta:
         model = Variant
-        fields = ["id", "code", "spec", "colour", "mrp", "sell_price", "cost", "cost_estimated", "stock", "total_stock"]
+        fields = ["id", "code", "spec", "colour", "mrp", "sell_price", "cost", "cost_estimated", "stock", "total_stock",
+                  "rental_units", "rented_out"]
 
 
 class ProductSerializer(serializers.ModelSerializer):

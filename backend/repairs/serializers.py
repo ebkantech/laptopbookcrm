@@ -86,7 +86,7 @@ class StaffApprovalSerializer(serializers.Serializer):
 
 
 class PublicApprovalDecisionSerializer(serializers.Serializer):
-    decision = serializers.ChoiceField(choices=["approve", "reject"])
+    decision = serializers.ChoiceField(choices=["approve", "reject", "request_changes"])
     consent = serializers.BooleanField(required=False, default=False)
     reason = serializers.CharField(required=False, allow_blank=True, max_length=500)
 
@@ -234,6 +234,7 @@ class PublicRepairApprovalSerializer(serializers.Serializer):
             "balance_due": estimate.balance_due,
             "currency": estimate.currency,
             "terms": estimate.terms,
+            "change_request": approval.reason if approval.status == RepairApproval.CHANGES_REQUESTED else "",
         }
 
 

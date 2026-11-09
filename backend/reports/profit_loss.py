@@ -91,6 +91,18 @@ ESTIMATED = COSTED & Q(cost_estimated=True)
 RETURN_COSTED = Q(invoice_item__item_kind__in=(InvoiceItem.PRODUCT, InvoiceItem.PART), invoice_item__unit_cost__gt=0)
 COSTED_SOURCES = (Invoice.SALE, Invoice.REPAIR, Invoice.ONSITE)  # sources that can bill goods
 RELIABLE, ESTIMATED_COSTS, INCOMPLETE = "complete", "estimated", "incomplete"
+# What a line was billed for, so service income is never mixed with goods:
+# products and spare parts carry a cost; service charges (labour, visit
+# charge, on-site work) and rent don't; discounts reduce the total.
+KINDS = ("products", "parts", "service", "rent", "discounts")
+LINE_KIND = Case(
+    When(item_kind=InvoiceItem.DISCOUNT, then=Value("discounts")),
+    When(item_kind=InvoiceItem.PRODUCT, then=Value("products")),
+    When(item_kind=InvoiceItem.PART, then=Value("parts")),
+    When(invoice__source=Invoice.RENTAL, then=Value("rent")),
+    When(invoice__source=Invoice.SALE, then=Value("products")),  # a sale line not linked to a product
+    default=Value("service"),
+)
 # an expense as Profit & Loss counts it: the bill less claimable input GST
 EXPENSE_VALUE = ExpressionWrapper(
     F("amount") - Case(When(gst_claimable=True, then=F("gst_amount")), default=Value(0)), output_field=IntegerField(),
@@ -199,6 +211,7 @@ def _empty_store():
         "missing_cost_lines": 0, "missing_cost_value": 0, "unlinked_sale_value": 0, "service_value": 0,
         "outstanding": 0, "outstanding_count": 0, "cancelled": 0, "cancelled_count": 0,
         "operating_expenses": 0, "other_expenses": 0, "expense_count": 0,
+        "kind_value": {k: 0 for k in KINDS}, "kind_cost": {k: 0 for k in KINDS},
     }
 
 
@@ -247,6 +260,12 @@ def raw_figures(store_ids, start, end):
         fig["missing_cost_value"] += row["missing_value"] or 0
         fig["unlinked_sale_value"] += row["unlinked"] or 0
         fig["service_value"] += row["service"] or 0
+
+    for row in (lines.annotate(kind=LINE_KIND).values("invoice__stock_point_id", "kind").order_by()
+                .annotate(v=Sum(LINE_VALUE), cost=Sum(LINE_COST, filter=COSTED))):
+        fig = out[row["invoice__stock_point_id"]]
+        fig["kind_value"][row["kind"]] += row["v"] or 0
+        fig["kind_cost"][row["kind"]] += row["cost"] or 0
 
     for row in (RefundItem.objects.filter(RETURN_COSTED, **_settled("refund__invoice", store_ids, start, end), refund__restocked=True)
                 .values("refund__invoice__stock_point_id", "refund__invoice__source").order_by().annotate(cost=Sum(RETURN_COST))):
@@ -362,6 +381,17 @@ def statement(fig):
         "refund_count": fig["refund_count"],
         "receivables": {"amount": fig["outstanding"], "count": fig["outstanding_count"]},
         "cancelled": {"amount": fig["cancelled"], "count": fig["cancelled_count"]},
+        # income by what was billed -- service charges kept apart from goods,
+        # so a repair's labour isn't mixed into its spare parts' margin
+        "by_kind": [
+            {
+                "kind": k, "revenue": fig["kind_value"][k],
+                "cogs": fig["kind_cost"][k] if k in ("products", "parts") else None,
+                "gross_profit": fig["kind_value"][k] - fig["kind_cost"][k],
+                "gross_margin_pct": pct(fig["kind_value"][k] - fig["kind_cost"][k], fig["kind_value"][k]) if k != "discounts" else None,
+            }
+            for k in KINDS
+        ],
         "by_source": [
             {
                 "source": s, "billed": fig["billed"][s], "refunds": fig["refunds"][s], "revenue": by_source[s],

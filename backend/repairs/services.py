@@ -137,17 +137,16 @@ def finalize_estimate(ticket, user, lines, terms="", revision=False):
 @transaction.atomic
 def approval_link_message(estimate, ticket, approval_url):
     """The customer text for a link: the manual wa.me button and the API send say the same."""
-    return (
-        f"Hello {estimate.customer_name}, please review the final repair estimate for {ticket.code} "
-        f"(INR {estimate.total_amount}). This secure link is valid for 24 hours: {approval_url}"
-    )
+    from branding import texts
+
+    return texts.message("repair_approval_link", customer=estimate.customer_name, ticket=ticket.code,
+                         amount=estimate.total_amount, link=approval_url)
 
 
 def order_link_message(order, approval_url):
-    return (
-        f"Hello {order.party.name}, please review the repair estimate for order {order.code}. "
-        f"This secure link is valid for 24 hours: {approval_url}"
-    )
+    from branding import texts
+
+    return texts.message("repair_order_approval_link", customer=order.party.name, order=order.code, link=approval_url)
 
 
 def log_whatsapp(party, text):
@@ -338,15 +337,18 @@ def get_public_approval(raw_token, for_update=False):
 
 
 def customer_decide(raw_token, decision, consent=False, reason=""):
-    if decision not in ("approve", "reject"):
-        raise ValidationError({"decision": "Choose either approve or reject."})
+    if decision not in ("approve", "reject", "request_changes"):
+        raise ValidationError({"decision": "Choose approve, request changes or reject."})
     if decision == "approve" and consent is not True:
         raise ValidationError({"consent": "Confirm that you reviewed the final work and cost."})
+    if decision == "request_changes" and not (reason or "").strip():
+        raise ValidationError({"reason": "Tell the shop what you'd like changed."})
     try:
         with transaction.atomic():
             approval = get_public_approval(raw_token, for_update=True)
-            desired_status = RepairApproval.APPROVED if decision == "approve" else RepairApproval.REJECTED
-            if approval.status in (RepairApproval.APPROVED, RepairApproval.REJECTED):
+            desired_status = {"approve": RepairApproval.APPROVED, "reject": RepairApproval.REJECTED,
+                              "request_changes": RepairApproval.CHANGES_REQUESTED}[decision]
+            if approval.status in (RepairApproval.APPROVED, RepairApproval.REJECTED, RepairApproval.CHANGES_REQUESTED):
                 if approval.status == desired_status:
                     return approval
                 raise ApprovalConflict("A different final decision has already been recorded.")
@@ -361,6 +363,14 @@ def customer_decide(raw_token, decision, consent=False, reason=""):
                 raise ApprovalConflict()
             approval.status, approval.source, approval.reason, approval.decided_at = desired_status, RepairApproval.CUSTOMER, (reason or "").strip(), now
             _record_event(estimate.ticket, RepairTicketEvent.APPROVAL_DECIDED, estimate=estimate, metadata={"decision": desired_status, "source": RepairApproval.CUSTOMER})
+            if desired_status == RepairApproval.CHANGES_REQUESTED:
+                ticket = estimate.ticket
+                Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP,
+                                            text=f"Customer asked for changes to estimate v{estimate.version} for {ticket.code}: {approval.reason}")
+                _alert(_approvers_for(ticket), "repair_changes_requested", f"Customer asked for estimate changes -- {ticket.code}",
+                       f"{ticket.party.name} asked for changes to the estimate for {ticket.code} ({ticket.brand} {ticket.model_name}): "
+                       f"“{approval.reason}”. Revise the estimate and send a new approval link.")
+                return approval
             Notification.objects.create(ticket=estimate.ticket, channel=Notification.WHATSAPP, text=f"Customer {desired_status} final estimate v{estimate.version} for {estimate.ticket.code}.")
             if desired_status == RepairApproval.APPROVED:
                 ticket = estimate.ticket

@@ -44,6 +44,8 @@ import PageHeader from "../components/PageHeader";
 import RoleSwitcher from "../components/RoleSwitcher";
 import PartsToReturn from "../components/leads/PartsToReturn";
 import { useSession } from "../context/SessionContext";
+import MetricDetail from "../components/dashboard/MetricDetail";
+import ProfitLossCard from "../components/dashboard/ProfitLossCard";
 
 /* -------------------------------------------------------
    PREMIUM DASHBOARD DESIGN SYSTEM
@@ -129,9 +131,9 @@ function Pill({ color = UI.primary, children }) {
   );
 }
 
-function Panel({ children, className = "", style = {} }) {
+function Panel({ children, className = "", style = {}, ...rest }) {
   return (
-    <div className={className} style={{ ...cardStyle, ...style }}>
+    <div {...rest} className={className} style={{ ...cardStyle, ...style }}>
       {children}
     </div>
   );
@@ -217,9 +219,14 @@ function ErrorNote({ message, onRetry }) {
    KPI CARDS
 ------------------------------------------------------- */
 
-function StatCard({ label, value, sub, trend, icon: Icon, color }) {
+function StatCard({ label, value, sub, trend, icon: Icon, color, onClick }) {
+  // a card with onClick opens the records behind its figure
+  const clickable = onClick ? {
+    role: "button", tabIndex: 0, onClick, title: "Click to see the details",
+    onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } },
+  } : {};
   return (
-    <Panel className="group min-w-0 p-3.5 transition duration-200 hover:-translate-y-0.5 hover:shadow-lg sm:p-5">
+    <Panel {...clickable} className={`group min-w-0 p-3.5 transition duration-200 hover:-translate-y-0.5 hover:shadow-lg sm:p-5 ${onClick ? "cursor-pointer" : ""}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <Eyebrow>{label}</Eyebrow>
@@ -250,6 +257,11 @@ function StatCard({ label, value, sub, trend, icon: Icon, color }) {
         </div>
       )}
 
+      {onClick && (
+        <p className="mt-2 flex items-center gap-0.5 text-[11px] font-bold opacity-70 transition group-hover:opacity-100" style={{ color, ...font }}>
+          View details <ChevronRight size={12} />
+        </p>
+      )}
       <div
         className="mt-4 h-1 overflow-hidden rounded-full"
         style={{ background: `${color}12` }}
@@ -424,6 +436,8 @@ export default function Dashboard({ onGo }) {
   const [toIncomplete, setToIncomplete] = useState(false);
   const [channel, setChannel] = useState("all");
   const [refreshKey, setRefreshKey] = useState(0);
+  // the metric card whose records are open, e.g. "pending"
+  const [detail, setDetail] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -752,9 +766,11 @@ export default function Dashboard({ onGo }) {
       />
 
       <div className="mb-7 grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,150px),1fr))] sm:[grid-template-columns:repeat(auto-fill,minmax(210px,1fr))]">
+        {can("reports.profit_loss") && <ProfitLossCard filters={{ dateFrom, dateTo, channel }} onGo={onGo} />}
         {sections.sales && (
           <StatCard
             label="Paid sales revenue"
+            onClick={() => setDetail("revenue_paid")}
             value={compact(data.revenue_paid)}
             icon={Receipt}
             color={UI.primary}
@@ -763,6 +779,7 @@ export default function Dashboard({ onGo }) {
         {sections.repairs && (
           <StatCard
             label="Repair revenue"
+            onClick={() => setDetail("repair_revenue")}
             value={compact(data.repair_revenue_paid)}
             sub={`${data.repair_invoice_count} repair bills`}
             icon={Wrench}
@@ -772,6 +789,7 @@ export default function Dashboard({ onGo }) {
         {sections.sales && (
           <StatCard
             label="Pending collections"
+            onClick={() => setDetail("pending")}
             value={compact(data.pending_collections)}
             sub={`${data.open_invoice_count} invoices open`}
             trend={data.open_invoice_count ? "down" : undefined}
@@ -782,6 +800,7 @@ export default function Dashboard({ onGo }) {
         {sections.stock && (
           <StatCard
             label="Stock on hand"
+            onClick={() => setDetail("stock")}
             value={`${data.total_stock_units} units`}
             sub={`${compact(data.stock_value)} inventory at cost`}
             icon={Package}
@@ -791,6 +810,7 @@ export default function Dashboard({ onGo }) {
         {sections.stock && (
           <StatCard
             label="Low stock alerts"
+            onClick={() => setDetail("low_stock")}
             value={data.low_stock_count}
             sub="4 units or fewer"
             trend={data.low_stock_count ? "down" : undefined}
@@ -801,6 +821,7 @@ export default function Dashboard({ onGo }) {
         {sections.rentals && (
           <StatCard
             label="Rental churn risk"
+            onClick={() => setDetail("rental_risk")}
             value={data.rentals_at_risk}
             sub={`${data.rental_device_count ?? data.rental_count} devices · ${data.rental_count} agreements`}
             trend={data.rentals_at_risk ? "down" : undefined}
@@ -811,6 +832,7 @@ export default function Dashboard({ onGo }) {
         {sections.rentals && data.rentals_pending_approval > 0 && (
           <StatCard
             label="Pending rental approvals"
+            onClick={() => setDetail("rental_pending")}
             value={data.rentals_pending_approval}
             sub="Awaiting customer decision"
             trend="down"
@@ -821,6 +843,7 @@ export default function Dashboard({ onGo }) {
         {sections.repairs && data.repair_overdue_count > 0 && (
           <StatCard
             label="Overdue repairs"
+            onClick={() => setDetail("repair_overdue")}
             value={data.repair_overdue_count}
             sub="Past expected delivery date"
             trend="down"
@@ -1137,6 +1160,7 @@ export default function Dashboard({ onGo }) {
           BUSINESS OVERVIEW · LIVE API DATA
         </p>
       </div>
+      {detail && <MetricDetail metric={detail} filters={{ dateFrom, dateTo, channel }} onClose={() => setDetail(null)} onGo={onGo} />}
     </div>
   );
 }
@@ -1299,4 +1323,4 @@ function ChannelTable({ title, rows, icon: Icon, color }) {
       </div>
     </div>
   );
-}
+}

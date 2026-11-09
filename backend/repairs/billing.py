@@ -36,11 +36,15 @@ def raise_advance_invoice(ticket, amount):
     )
 
 
-def _tell(ticket, text, subject):
-    Notification.objects.create(ticket=ticket, channel=Notification.WHATSAPP, text=text)
-    Notification.objects.create(ticket=ticket, channel=Notification.EMAIL, text=text)
-    send_whatsapp(ticket.party.phone, text)
-    send_email(ticket.party.email, subject, text)
+def _tell(job, key, /, **values):
+    from branding import texts
+
+    text = texts.message(key, **values)
+    subject, email_text = texts.email(key, **values)
+    Notification.objects.create(ticket=job, channel=Notification.WHATSAPP, text=text)
+    Notification.objects.create(ticket=job, channel=Notification.EMAIL, text=email_text)
+    send_whatsapp(job.party.phone, text)
+    send_email(job.party.email, subject, email_text)
 
 
 def on_repair_advance_refunded(invoice, refund):
@@ -58,15 +62,15 @@ def on_repair_invoice_paid(invoice):
         # the advance: record it against the job, which carries on as before
         ticket.advance_paid += invoice.total
         ticket.save(update_fields=["advance_paid"])
-        _tell(ticket, f"Thank you! Advance of Rs {invoice.total} received for {ticket.code} (invoice {invoice.code}). It will be deducted from your final bill.", f"Advance received -- {invoice.code}")
+        _tell(ticket, "repair_advance_received", amount=invoice.total, ticket=ticket.code, invoice=invoice.code)
         return
     if ticket.unpaid_invoice or ticket.status == RepairTicket.DELIVERED:
         return
     ticket.status = RepairTicket.DELIVERED
     ticket.portal_until = timezone.now() + PORTAL_AFTER_PAYMENT if invoice.total > 0 else None
     ticket.save(update_fields=["status", "portal_until"])
-    text = f"Thank you! Payment received for invoice {invoice.code}. Your {ticket.brand} {ticket.model_name} ({ticket.code}) is ready to collect from {ticket.stock_point.name}."
-    _tell(ticket, text, f"Payment received -- {invoice.code}")
+    _tell(ticket, "repair_paid", invoice=invoice.code, device=f"{ticket.brand} {ticket.model_name}", ticket=ticket.code,
+          store=ticket.stock_point.name)
 
 
 def reconcile_delivery(ticket):

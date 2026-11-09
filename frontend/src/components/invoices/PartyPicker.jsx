@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Check, Plus, Search, X } from "lucide-react";
 import { C, F, todayISO } from "../../lib/theme";
 import { api } from "../../lib/api";
+import { phoneError } from "../../lib/phone";
 import { useSession } from "../../context/SessionContext";
 import { ErrorNote, Spinner } from "../Atoms";
 import { announcePartyChanged, PARTY_CHANGED_EVENT } from "../../lib/partyEvents";
@@ -90,7 +91,7 @@ export default function PartyPicker({ value, onChange }) {
         {matches.map((p) => (
           <button key={p.id} onClick={() => onChange(p.id)} className="flex w-full items-center justify-between px-3 py-1.5 text-left" style={{ borderBottom: `1px solid ${C.rule}` }}>
             <span className="truncate text-sm" style={{ fontFamily: F.body, color: C.ink }}>{p.name}</span>
-            <span className="ml-2 shrink-0 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{p.phone}</span>
+            <span className="ml-2 shrink-0 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{[p.type, p.phone].filter(Boolean).join(" · ")}</span>
           </button>
         ))}
         {!matches.length && <p className="px-3 py-2 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>No customer matches "{query}".</p>}
@@ -125,8 +126,8 @@ function NewCustomerForm({ initialName, parties, onCancel, onCreated, onUseExist
     const cleaned = Object.fromEntries(Object.entries(form).map(([k, v]) => [k, v.trim()]));
     const nextErrors = {};
     if (!cleaned.name) nextErrors.name = "Enter the customer's name.";
-    const phoneDigits = digits(cleaned.phone);
-    if (phoneDigits.length < 10 || phoneDigits.length > 15) nextErrors.phone = "Enter a valid phone number with 10 to 15 digits.";
+    const badPhone = phoneError(cleaned.phone);
+    if (badPhone) nextErrors.phone = badPhone;
     if (!cleaned.type) nextErrors.type = "Choose a customer type.";
     if (!cleaned.city) nextErrors.city = "Enter the customer's city.";
     if (!cleaned.email) nextErrors.email = "Enter the customer's email address.";

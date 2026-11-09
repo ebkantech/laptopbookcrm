@@ -89,8 +89,7 @@ def ensure_invoices(rental):
 
 def send_invoices(rental, invoices, user):
     """Tell the customer about the deposit and advance, with their payment links."""
-    from django.conf import settings
-
+    from branding import texts
     from crmbook_backend.notify import send_email, send_whatsapp
     from parties.models import Message
     from sales.payments import pay_note
@@ -100,10 +99,11 @@ def send_invoices(rental, invoices, user):
     label = rental.agreement_code or rental.product_label
     parts = [f"{'Security deposit' if invoice.is_deposit else 'Advance rent'} invoice {invoice.code}: "
              f"Rs {invoice.total}.{pay_note(invoice, user)}" for invoice in invoices]
-    text = f"Hi {rental.party.name}, for your rental {label}: {' '.join(parts)} {settings.BUSINESS_NAME}."
+    values = dict(customer=rental.party.name, agreement=label, invoices=" ".join(parts))
+    text = texts.message("rental_onboarding_invoices", **values)
     Message.objects.create(party=rental.party, channel=Message.WHATSAPP, direction=Message.OUT, body=text)
     send_whatsapp(rental.party.phone, text)
-    send_email(rental.party.email, f"Rental invoices for {label}", text)
+    send_email(rental.party.email, *texts.email("rental_onboarding_invoices", **values))
 
 
 def sync_amounts(rental):

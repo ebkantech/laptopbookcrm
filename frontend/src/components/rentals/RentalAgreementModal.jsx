@@ -74,8 +74,18 @@ export default function RentalAgreementModal({ parties, initialAssets, initialPa
   const dirty = !!renewing || !!((party && party !== String(initialParty || "")) || terms || lines.some((l) => l.asset_id || l.monthly_fee) || tenureMonths !== "1" || billingCycle !== "1" || start !== todayISO());
   const selectedCount = lines.filter((line) => line.asset_id).length;
 
+  // the device's usual rent (Rentals -> Devices) fills an empty monthly fee
+  const rentOf = (assetId, list = assets) => {
+    const rent = list.find((a) => String(a.id) === String(assetId))?.monthly_rent;
+    return rent ? String(rent) : "";
+  };
   const updateLine = (index, key, value) => {
-    setLines((current) => current.map((line, position) => position === index ? { ...line, [key]: value } : line));
+    setLines((current) => current.map((line, position) => {
+      if (position !== index) return line;
+      const next = { ...line, [key]: value };
+      if (key === "asset_id" && !line.monthly_fee) next.monthly_fee = rentOf(value);
+      return next;
+    }));
   };
 
   const selectAsset = (asset) => {
@@ -83,8 +93,9 @@ export default function RentalAgreementModal({ parties, initialAssets, initialPa
     setLines((current) => {
       if (current.some((line) => line.asset_id === String(asset.id))) return current;
       const emptyIndex = current.findIndex((line) => !line.asset_id);
-      if (emptyIndex < 0) return [...current, { asset_id: String(asset.id), monthly_fee: "" }];
-      return current.map((line, index) => index === emptyIndex ? { ...line, asset_id: String(asset.id) } : line);
+      const fee = asset.monthly_rent ? String(asset.monthly_rent) : "";
+      if (emptyIndex < 0) return [...current, { asset_id: String(asset.id), monthly_fee: fee }];
+      return current.map((line, index) => index === emptyIndex ? { ...line, asset_id: String(asset.id), monthly_fee: line.monthly_fee || fee } : line);
     });
     setAssetDraft(emptyAsset);
     setShowAssetForm(false);

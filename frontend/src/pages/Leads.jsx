@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Briefcase, MapPin, Plus } from "lucide-react";
 import { C, F, money } from "../lib/theme";
 import { api } from "../lib/api";
+import { toast } from "../lib/toast";
 import { useSession } from "../context/SessionContext";
 import { Eyebrow, ErrorNote, Pill, SearchInput, Spinner, TabBar } from "../components/Atoms";
 import PageHeader from "../components/PageHeader";
@@ -76,7 +77,7 @@ export default function Leads() {
         </div>
       )}
       {open && <LeadDetail lead={open} stockPoints={stockPoints} onChange={changed} onClose={() => { setOpen(null); load(); }} />}
-      {creating && <LeadFormModal stockPoints={stockPoints} defaultStore={me?.stock_point} onClose={() => setCreating(false)} onSaved={(l) => { setCreating(false); load(); setOpen(l); }} />}
+      {creating && <LeadFormModal stockPoints={stockPoints} defaultStore={me?.stock_point} onClose={() => setCreating(false)} onSaved={(l) => { setCreating(false); load(); setOpen(l); toast.success(`On-site job ${l.code} created`, `${l.party_name ? `For ${l.party_name}. ` : ""}${l.assigned_to_name ? `Assigned to ${l.assigned_to_name}.` : "Assign a technician when ready."}`); }} />}
     </div>
   );
 }

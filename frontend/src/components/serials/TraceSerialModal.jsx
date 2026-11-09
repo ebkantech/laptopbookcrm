@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { ScanLine, X } from "lucide-react";
+import { History, ScanLine, X } from "lucide-react";
 import { api } from "../../lib/api";
 import { C, F, fmt, money } from "../../lib/theme";
 import { ErrorNote, Pill } from "../Atoms";
 import { SERIAL_STATUS_COLOR } from "./serialStatus";
+import DeviceHistoryModal from "../rentals/DeviceHistoryModal";
 
 const when = (v) => (v ? new Date(v).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "");
 
@@ -14,6 +15,7 @@ export default function TraceSerialModal({ onClose, initial = "" }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [history, setHistory] = useState(false);
 
   const look = async (value = q) => {
     const sn = value.trim();
@@ -48,7 +50,14 @@ export default function TraceSerialModal({ onClose, initial = "" }) {
                 <p className="text-sm" style={{ fontFamily: F.body }}>{data.product} · {data.spec}{data.colour ? `, ${data.colour}` : ""}</p>
                 <p className="text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{data.product_code} · SKU {data.variant_code} · {data.stock_point}</p>
               </div>
-              <Pill color={SERIAL_STATUS_COLOR[data.status]}>{data.status_label}</Pill>
+              <span className="flex flex-col items-end gap-1.5">
+                <Pill color={SERIAL_STATUS_COLOR[data.status]}>{data.status_label}</Pill>
+                {data.rental_asset_id && (
+                  <button type="button" onClick={() => setHistory(true)} className="flex items-center gap-1 px-2 py-1 text-xs" style={{ border: `1px solid ${C.rule}`, color: C.ink, fontFamily: F.body, fontWeight: 600 }}>
+                    <History size={11} /> Device history
+                  </button>
+                )}
+              </span>
             </div>
             {data.sale && (
               <div className="p-3 text-sm" style={box}>
@@ -81,6 +90,7 @@ export default function TraceSerialModal({ onClose, initial = "" }) {
           </div>
         )}
       </div>
+      {history && data?.rental_asset_id && <DeviceHistoryModal assetId={data.rental_asset_id} onClose={() => setHistory(false)} />}
     </div>
   );
 }

@@ -520,7 +520,7 @@ class ProfitLossStoresView(APIView):
 
         def summary(statement):
             keys = ("revenue", "cogs", "gross_profit", "gross_margin_pct", "operating_expenses", "other_expenses", "expenses",
-                    "net_profit", "net_margin_pct", "transactions", "refunds", "receivables")
+                    "net_profit", "net_margin_pct", "transactions", "refunds", "receivables", "by_kind")
             return {**{k: statement[k] for k in keys}, "data_quality": statement["data_quality"]}
 
         rows = [{"store": _pl_store_info(s), **summary(profit_loss.statement(figures[s.id]))} for s in stores]

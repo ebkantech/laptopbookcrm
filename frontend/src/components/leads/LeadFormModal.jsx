@@ -56,6 +56,20 @@ export default function LeadFormModal({ lead, stockPoints, defaultStore, onClose
     setErrors((o) => ({ ...o, party: "" }));
   };
 
+  // Either pick an existing customer OR add a new one -- never both at once.
+  // Opening "New" drops the customer picked from the list (and the site
+  // contact copied from them), and hides the list until the new one is
+  // added or the form is cancelled.
+  const startNewCustomer = () => {
+    const picked = parties.find((x) => String(x.id) === String(form.party));
+    setForm((f) => ({
+      ...f, party: "",
+      contact_name: picked && f.contact_name === picked.name ? "" : f.contact_name,
+      contact_phone: picked && f.contact_phone === picked.phone ? "" : f.contact_phone,
+    }));
+    setNewCust({ name: query.trim() && !/^\d+$/.test(query.trim()) ? query.trim() : "", phone: /^\d+$/.test(query.trim()) ? query.trim() : "", email: "", city: "", errors: {} });
+  };
+
   const createCustomer = async () => {
     const found = validateCustomer({ ...newCust, gstin: "" });
     if (Object.keys(found).length) return setNewCust({ ...newCust, errors: found });
@@ -80,6 +94,7 @@ export default function LeadFormModal({ lead, stockPoints, defaultStore, onClose
   const save = async (e) => {
     e.preventDefault();
     const found = validateLeadForm(form);
+    if (found.party && newCust) found.party = "Press “Add customer” to save the new customer first.";
     setErrors(found);
     if (Object.keys(found).length) return;
     setBusy(true);
@@ -107,17 +122,20 @@ export default function LeadFormModal({ lead, stockPoints, defaultStore, onClose
       <form onSubmit={save} noValidate className="grid gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <Field label="Customer *" error={errors.party}>
+            {!newCust && <>
             <div className="mt-1 flex gap-2">
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search customer" aria-label="Search customer" className="min-w-0 flex-1 bg-transparent px-2.5 py-1 text-sm outline-none sm:max-w-[200px]" style={inputStyle(false)} />
-              <button type="button" onClick={() => setNewCust({ name: "", phone: "", email: "", city: "", errors: {} })} className="flex shrink-0 items-center gap-1 px-3 text-xs" style={{ border: `1px solid ${C.rule}`, color: C.ink }}><UserPlus size={13} /> New</button>
+              <button type="button" onClick={startNewCustomer} className="flex shrink-0 items-center gap-1 px-3 text-xs" style={{ border: `1px solid ${C.rule}`, color: C.ink }}><UserPlus size={13} /> New</button>
             </div>
             <select value={form.party} onChange={(e) => pickParty(e.target.value)} className="mt-2 w-full bg-transparent px-3 py-2 text-base outline-none sm:text-sm" style={inputStyle(errors.party)}>
               <option value="">Select customer…</option>
               {matches.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.phone}</option>)}
             </select>
+            </>}
           </Field>
           {newCust && (
-            <div className="mt-2 grid gap-2 p-3 sm:grid-cols-2" style={{ border: `1px dashed ${C.rule}` }}>
+            <div className="mt-1 grid gap-2 p-3 sm:grid-cols-2" style={{ border: `1px dashed ${C.rule}` }}>
+              <p className="text-xs sm:col-span-2" style={{ color: C.inkSoft, fontFamily: F.body, fontWeight: 700 }}>New customer — or <button type="button" onClick={() => setNewCust(null)} className="underline" style={{ color: C.blue }}>choose an existing one</button></p>
               {[["name", "Customer name", "Name *", "text"], ["phone", "Mobile number", "Mobile *", "tel"], ["email", "name@example.com", "Email *", "email"], ["city", "City", "City *", "text"]].map(([k, ph, label, type]) => (
                 <label key={k} className="block text-xs" style={{ color: C.inkSoft, fontFamily: F.body }}>{label}
                   <input value={newCust[k]} type={type} onChange={(e) => setNewCust({ ...newCust, [k]: e.target.value, errors: { ...newCust.errors, [k]: "" }, error: "" })} placeholder={ph} aria-label={`New customer ${k}`}

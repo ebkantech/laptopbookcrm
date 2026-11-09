@@ -11,6 +11,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from branding import texts
 from crmbook_backend.notify import send_email, send_whatsapp
 from parties.models import Message
 
@@ -130,15 +131,15 @@ def raise_rent_invoice(rental, *, stock_point, sent_by=None):
     sender = (sent_by.get_full_name() or sent_by.username) if sent_by else None
     label = rental.agreement_code or rental.product_label
     months = period_months(start, end)
-    text = (
-        f"Hi {rental.party.name}, your rent invoice {invoice.code} for {label} "
-        f"({start:%d %b} – {end:%d %b %Y}{f', {months} months' if months > 1 else ''}) is Rs {invoice.total}, due {start:%d %b %Y}. "
-        f"{f'Sent by {sender}, ' if sender else ''}{settings.BUSINESS_NAME}."
-        f"{pay_note(invoice, sent_by)}"
+    values = dict(
+        customer=rental.party.name, invoice=invoice.code, agreement=label, amount=invoice.total, due_date=f"{start:%d %b %Y}",
+        period=f"{start:%d %b} – {end:%d %b %Y}{f', {months} months' if months > 1 else ''}",
+        sent_by=f"Sent by {sender}, " if sender else "", pay_note=pay_note(invoice, sent_by),
     )
+    text = texts.message("rent_invoice", **values)
     Message.objects.create(party=rental.party, channel=Message.WHATSAPP, direction=Message.OUT, body=text)
     send_whatsapp(rental.party.phone, text)
-    send_email(rental.party.email, f"Rent invoice {invoice.code}", text)
+    send_email(rental.party.email, *texts.email("rent_invoice", **values))
     return invoice
 
 

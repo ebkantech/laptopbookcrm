@@ -469,7 +469,24 @@ class RentalAssetViewSet(StoreScopedMixin, viewsets.ModelViewSet):
         "create": "rentals.manage", "update": "rentals.manage",
         "partial_update": "rentals.manage", "destroy": "rentals.manage",
         "from_inventory": "rentals.manage", "return_to_inventory": "rentals.manage",
+        "history": "rentals.view",
     }
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # Inventory's product panel lists the rental units of one variant (?variant=<id>)
+        variant = self.request.query_params.get("variant")
+        if variant and variant.isdigit():
+            qs = qs.filter(variant_id=variant)
+        return qs
+
+    @action(detail=True, methods=["get"])
+    def history(self, request, pk=None):
+        """The Device button: this laptop's whole life -- every customer who
+        rented it, the problems raised, the repair jobs on its serial number."""
+        from .lifecycle import device_history
+
+        return Response(device_history(self.get_object()))
 
     @action(detail=False, methods=["post"], url_path="from-inventory")
     def from_inventory(self, request):
@@ -506,6 +523,9 @@ class RentalAssetViewSet(StoreScopedMixin, viewsets.ModelViewSet):
                 returned.status = RentalAsset.AVAILABLE
                 returned.variant, returned.source_stock_point = variant, stock.stock_point
                 returned.returned_to_stock_at = returned.returned_to = returned.returned_by = None
+                for field in ("purchase_price", "monthly_rent"):
+                    if payload.validated_data.get(field) is not None:
+                        setattr(returned, field, payload.validated_data[field])
                 returned.save()
                 serial_tracking.on_rented(variant, stock.stock_point, typed, request.user)
             return Response(RentalAssetSerializer(returned).data, status=201)
@@ -520,7 +540,10 @@ class RentalAssetViewSet(StoreScopedMixin, viewsets.ModelViewSet):
             taken = Stock.objects.filter(pk=stock.pk, quantity__gt=0).update(quantity=F("quantity") - 1)
             if not taken:
                 raise ValidationError({"stock": f"No {product.display_name} ({variant.spec}) left in stock at {stock.stock_point.name}."})
-            asset = asset_data.save(variant=variant, source_stock_point=stock.stock_point)
+            purchase = payload.validated_data.get("purchase_price")
+            asset = asset_data.save(variant=variant, source_stock_point=stock.stock_point,
+                                    purchase_price=(variant.cost or None) if purchase is None else purchase,
+                                    monthly_rent=payload.validated_data.get("monthly_rent"))
             serial_tracking.on_rented(variant, stock.stock_point, typed, request.user)
         return Response(RentalAssetSerializer(asset).data, status=201)
 

@@ -158,7 +158,7 @@ class LeadDetailSerializer(LeadListSerializer):
     quote = serializers.SerializerMethodField()
     quotes = QuoteSerializer(many=True, read_only=True)
     approvals = ApprovalSerializer(many=True, read_only=True)
-    events = EventSerializer(many=True, read_only=True)
+    events = serializers.SerializerMethodField()
     invoices = serializers.SerializerMethodField()
     actions = serializers.SerializerMethodField()
     advance_received = serializers.SerializerMethodField()
@@ -176,6 +176,23 @@ class LeadDetailSerializer(LeadListSerializer):
     def get_quote(self, obj):
         q = services.current_quote(obj)
         return QuoteSerializer(q).data if q else None
+
+    def get_events(self, obj):
+        """
+        The job's timeline. Whoever assigns jobs (leads.assign, Admins, the
+        Owner) sees all of it; a technician sees the job being created and
+        everything from its current assignment on -- not who had it before
+        or what happened while they did.
+        """
+        events = list(obj.events.select_related("actor").all())
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is not None and user.is_authenticated and not _sees_full_timeline(user):
+            assigned = [i for i, e in enumerate(events) if e.event == "assigned"]
+            if len(assigned) > 1:  # reassigned: start at the current assignment
+                start = assigned[-1]
+                events = [e for i, e in enumerate(events) if i >= start or e.event == "created"]
+        return EventSerializer(events, many=True).data
 
     def get_invoices(self, obj):
         return [_invoice_row(i) for i in obj.invoices.all().order_by("id")]
@@ -206,10 +223,9 @@ class LeadWriteSerializer(serializers.ModelSerializer):
         return value.strip()
 
     def validate_contact_phone(self, value):
-        digits = "".join(c for c in value if c.isdigit())
-        if value and not 8 <= len(digits) <= 15:
-            raise serializers.ValidationError("Enter a valid phone number.")
-        return value
+        from crmbook_backend.phones import clean_customer_phone
+
+        return clean_customer_phone(value) if (value or "").strip() else value
 
     def validate_visit_charge(self, value):
         if value > 100000:
@@ -256,3 +272,9 @@ class PublicDecisionSerializer(serializers.Serializer):
     decision = serializers.ChoiceField(choices=["approve", "reject", "request_changes"])
     consent = serializers.BooleanField(required=False, default=False)
     reason = serializers.CharField(required=False, allow_blank=True, max_length=500)
+
+
+def _sees_full_timeline(user):
+    from accounts.staff import is_staff_admin
+
+    return user.is_superuser or is_staff_admin(user) or user.has_perm_code("leads.assign")
