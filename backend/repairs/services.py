@@ -67,12 +67,18 @@ def _normalise_whatsapp_number(phone):
     return digits if 8 <= len(digits) <= 15 else ""
 
 
+def _public_frontend_url():
+    """Repair approval pages are served by the Next.js Customer Portal behind
+    PUBLIC_FRONTEND_URL. Every WhatsApp, email and wa.me link is built here."""
+    return settings.PUBLIC_FRONTEND_URL.rstrip("/")
+
+
 def build_approval_url(raw_token):
-    return f"{settings.PUBLIC_FRONTEND_URL.rstrip('/')}/repair-approval/{raw_token}"
+    return f"{_public_frontend_url()}/repair-approval/{raw_token}"
 
 
 def build_order_approval_url(raw_token):
-    return f"{settings.PUBLIC_FRONTEND_URL.rstrip('/')}/repair-order-approval/{raw_token}"
+    return f"{_public_frontend_url()}/repair-order-approval/{raw_token}"
 
 
 def build_whatsapp_url(phone, message):
@@ -234,7 +240,13 @@ def send_order_approval_link_whatsapp(order, approval_url, user):
     return _deliver_link(order.party, order.code, url, order_link_message(order, url), event, user)
 
 
+@transaction.atomic
 def issue_approval_link(ticket, user):
+    # Atomic so the ticket/estimate row locks hold until the old link is
+    # revoked and the new one saved (POST .../approval-link/ calls this with no
+    # outer transaction; callers that already have one get a savepoint). Only
+    # database writes happen here -- the WhatsApp API send is a separate step
+    # (send_approval_link_whatsapp), so no lock is held during a network call.
     ticket = RepairTicket.objects.select_for_update().select_related("party").get(pk=ticket.pk)
     estimate = _current_estimate(ticket)
     if not estimate:

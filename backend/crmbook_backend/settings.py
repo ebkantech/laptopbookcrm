@@ -216,7 +216,9 @@ CSRF_TRUSTED_ORIGINS = env_list(
 # development-only, while retaining every origin explicitly configured for
 # production (DEBUG=False) and any other environment-specific origins.
 if DEBUG:
-    local_frontend_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    # Vite CRM (5173) and the Next.js Customer Portal (3000).
+    local_frontend_origins = ["http://localhost:5173", "http://127.0.0.1:5173",
+                              "http://localhost:3000", "http://127.0.0.1:3000"]
     CORS_ALLOWED_ORIGINS = list(dict.fromkeys([*CORS_ALLOWED_ORIGINS, *local_frontend_origins]))
     CSRF_TRUSTED_ORIGINS = list(dict.fromkeys([*CSRF_TRUSTED_ORIGINS, *local_frontend_origins]))
 
@@ -262,8 +264,11 @@ WARRANTY_REPAIR_DAYS = int(os.environ.get("WARRANTY_REPAIR_DAYS", 90))
 # by default -- a superuser sees their own and non-superusers' logs only.
 ACTIVITY_LOGS_SUPERUSER_PEERS = env_bool("ACTIVITY_LOGS_SUPERUSER_PEERS", False)
 
-# Set PUBLIC_FRONTEND_URL to the HTTPS customer-facing frontend origin in production.
-PUBLIC_FRONTEND_URL = os.environ.get("PUBLIC_FRONTEND_URL", "http://localhost:5174")
+# Origin of the Next.js Customer Portal. Every customer and staff link Django
+# builds points here: /repair-approval/<token>, /repair-order-approval/<token>,
+# /lead-approval/<token>, /rental-approval/<token>, /set-password/<uid>/<token>
+# and /portal/<token>. Set it to the HTTPS portal origin in production.
+PUBLIC_FRONTEND_URL = (os.environ.get("PUBLIC_FRONTEND_URL") or "http://localhost:3000").rstrip("/")
 
 # Task 3: shared secret a WhatsApp Business API provider's delivery-status
 # webhook must present (see portal/whatsapp-webhook/) before its

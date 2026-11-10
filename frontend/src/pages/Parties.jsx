@@ -78,7 +78,7 @@ function PartyDetail({ partyId, filters, onClose }) {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="break-words" style={{ fontFamily: F.display, fontWeight: 600, fontSize: 18, color: C.ink }}>{party.name}</p>
-            <p className="mt-1 text-xs capitalize" style={{ fontFamily: F.mono, color: C.inkSoft }}>{party.type} · {party.customer_classification} · {party.city} · {party.type === "Supplier" ? "supplier" : "customer"} since {fmt(party.joined)}</p>
+            <p className="mt-1 text-xs capitalize" style={{ fontFamily: F.mono, color: C.inkSoft }}>{[party.city, `${party.type === "Supplier" ? "supplier" : "customer"} since ${fmt(party.joined)}`].filter(Boolean).join(" · ")}</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={18} style={{ color: C.inkSoft }} /></button>
         </div>
@@ -218,7 +218,7 @@ export default function Parties() {
                   {p.whatsapp_verified === false && <AlertTriangle size={12} style={{ color: C.carbon }} />}
               </p>
               <p className="truncate text-xs capitalize" style={{ fontFamily: F.mono, color: C.inkSoft }}>
-                {isSupplier(p) ? [p.city, p.phone, p.gstin].filter(Boolean).join(" · ") : `${p.type} · ${p.customer_classification} · ${p.phone}`}
+                {isSupplier(p) ? [p.city, p.phone, p.gstin].filter(Boolean).join(" · ") : p.phone}
               </p>
               </button>
               <div className="flex shrink-0 items-center gap-2">

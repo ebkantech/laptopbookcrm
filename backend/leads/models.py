@@ -124,11 +124,13 @@ class LeadQuoteLine(models.Model):
 
 class LeadApproval(models.Model):
     PENDING, APPROVED, REJECTED, EXPIRED, REVOKED = "pending", "approved", "rejected", "expired", "revoked"
+    CHANGES_REQUESTED = "changes_requested"
     CUSTOMER, ADMIN, SUPERADMIN = "customer", "admin", "superadmin"
 
     lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name="approvals")
     quote = models.ForeignKey(LeadQuote, on_delete=models.CASCADE, related_name="approvals")
-    status = models.CharField(max_length=10, default=PENDING)
+    # 20, not 10: "changes_requested" (17 chars) must fit on PostgreSQL.
+    status = models.CharField(max_length=20, default=PENDING)
     token_hash = models.CharField(max_length=64, blank=True, db_index=True)
     expires_at = models.DateTimeField(null=True, blank=True)
     source = models.CharField(max_length=12, blank=True)
