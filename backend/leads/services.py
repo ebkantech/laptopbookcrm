@@ -374,11 +374,11 @@ def customer_decide(raw, decision, consent=False, reason="", ip_address=None, us
         raise ValidationError({"reason": "Tell us what you would like changed."})
     if len(reason) > 500:
         raise ValidationError({"reason": "Keep it under 500 characters."})
-    desired = {"approve": LeadApproval.APPROVED, "reject": LeadApproval.REJECTED, "request_changes": "changes_requested"}[decision]
+    desired = {"approve": LeadApproval.APPROVED, "reject": LeadApproval.REJECTED, "request_changes": LeadApproval.CHANGES_REQUESTED}[decision]
     try:
         with transaction.atomic():
             approval = get_public_approval(raw, for_update=True)
-            if approval.status in (LeadApproval.APPROVED, LeadApproval.REJECTED, "changes_requested"):
+            if approval.status in (LeadApproval.APPROVED, LeadApproval.REJECTED, LeadApproval.CHANGES_REQUESTED):
                 if approval.status == desired:
                     return approval
                 raise LeadApprovalConflict("A different decision has already been recorded on this link.")
@@ -393,7 +393,7 @@ def customer_decide(raw, decision, consent=False, reason="", ip_address=None, us
             elif decision == "reject":
                 _reject(lead, approval, reason, ip_address, user_agent)
             else:
-                approval.status, approval.source, approval.reason = "changes_requested", LeadApproval.CUSTOMER, reason
+                approval.status, approval.source, approval.reason = LeadApproval.CHANGES_REQUESTED, LeadApproval.CUSTOMER, reason
                 approval.decided_at, approval.decided_ip, approval.decided_user_agent = timezone.now(), ip_address, (user_agent or "")[:300]
                 approval.save()
                 lead.status = Lead.DIAGNOSED

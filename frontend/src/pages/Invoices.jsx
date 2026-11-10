@@ -804,7 +804,7 @@ export default function Invoices() {
                   {inv.recurring_interval && <Pill color={C.blue}><Repeat2 size={10} />{inv.recurring_interval}</Pill>}
                 </div>
                 <p className="mt-0.5 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
-                  {inv.party_name}{inv.party_type ? ` (${inv.party_type})` : ""} · {fmt(inv.date)}{inv.reference ? ` · ${inv.reference}` : ""}
+                  {inv.party_name} · {fmt(inv.date)}{inv.reference ? ` · ${inv.reference}` : ""}
                 </p>
               </div>
               <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{inv.stock_point_name}</span>

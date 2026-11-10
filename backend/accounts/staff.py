@@ -52,7 +52,7 @@ setup_tokens = StaffPasswordSetupTokenGenerator()
 
 def setup_link(user):
     uid = urlsafe_base64_encode(force_bytes(user.pk))
-    return f"{settings.PUBLIC_FRONTEND_URL}/set-password/{uid}/{setup_tokens.make_token(user)}"
+    return f"{settings.PUBLIC_FRONTEND_URL.rstrip('/')}/set-password/{uid}/{setup_tokens.make_token(user)}"
 
 
 def email_delivery_configured():

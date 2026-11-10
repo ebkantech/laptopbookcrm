@@ -91,7 +91,7 @@ export default function PartyPicker({ value, onChange }) {
         {matches.map((p) => (
           <button key={p.id} onClick={() => onChange(p.id)} className="flex w-full items-center justify-between px-3 py-1.5 text-left" style={{ borderBottom: `1px solid ${C.rule}` }}>
             <span className="truncate text-sm" style={{ fontFamily: F.body, color: C.ink }}>{p.name}</span>
-            <span className="ml-2 shrink-0 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{[p.type, p.phone].filter(Boolean).join(" · ")}</span>
+            <span className="ml-2 shrink-0 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{p.phone}</span>
           </button>
         ))}
         {!matches.length && <p className="px-3 py-2 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>No customer matches "{query}".</p>}

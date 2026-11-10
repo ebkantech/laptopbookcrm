@@ -320,7 +320,7 @@ function PartyReport() {
             <div key={p.id} className="flex items-center justify-between py-1.5" style={{ borderBottom: `1px solid ${C.rule}` }}>
               <div className="min-w-0">
                 <p className="truncate text-sm" style={{ fontFamily: F.body, fontWeight: 600, color: C.ink }}>{p.name}</p>
-                <p className="text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{p.type} · {p.invoice_count} invoice{p.invoice_count !== 1 ? "s" : ""}</p>
+                <p className="text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{p.invoice_count} invoice{p.invoice_count !== 1 ? "s" : ""}</p>
               </div>
               <p className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: C.ink }}>{money(p.total_spent)}</p>
             </div>
