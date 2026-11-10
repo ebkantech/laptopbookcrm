@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   ArrowDownUp, Ban, ChevronLeft, ChevronRight, Download, Eye, FileText, History, ImageIcon, Paperclip, Pencil,
-  Plus, ReceiptText, RefreshCw, Search, Wallet, X,
+  Plus, ReceiptText, RefreshCw, Search, SlidersHorizontal, Wallet, X,
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { fmt, money, todayISO } from "../../lib/theme";
@@ -9,6 +9,7 @@ import { useSession } from "../../context/SessionContext";
 import { Alert, Dialog, Field } from "../settings/StaffUi";
 import ExpenseForm, { StorePicker } from "./ExpenseForm";
 import { fileSize } from "./format";
+import { PERIODS, periodRange } from "./period";
 import "../settings/staff.css";
 import "./expenses.css";
 
@@ -30,6 +31,7 @@ const SORTS = [
   { id: "-amount", label: "Highest amount" }, { id: "amount", label: "Lowest amount" }, { id: "-id", label: "Latest ID" },
 ];
 const EMPTY_FILTERS = { q: "", store: "", category: "", payment_status: "", date_from: "", date_to: "", vendor: "", state: "active", sort: "-date" };
+const PAY_CHIPS = [{ id: "", label: "All" }, { id: "unpaid", label: "To pay" }, { id: "partial", label: "Part paid" }, { id: "paid", label: "Paid" }];
 
 const storeName = (e) => e.store?.name || "Shared / head office";
 const errorText = (err) => {
@@ -367,7 +369,9 @@ export default function Expenses() {
   const [meta, setMeta] = useState(null);
   const [stores, setStores] = useState([]);
   const [setupError, setSetupError] = useState(null);
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [period, setPeriod] = useState("month");
+  const [filters, setFilters] = useState(() => ({ ...EMPTY_FILTERS, ...periodRange("month", todayISO()) }));
+  const [more, setMore] = useState(false);
   const [page, setPage] = useState(1);
   const [data, setData] = useState(null);
   const [loadError, setLoadError] = useState(null);
@@ -400,7 +404,16 @@ export default function Expenses() {
   const setF = (k) => (v) => { setFilters((f) => ({ ...f, [k]: v })); setPage(1); };
   const reload = () => setTick((t) => t + 1);
   const pages = data ? Math.max(1, Math.ceil(data.count / 50)) : 1;
-  const filtered = Object.entries(filters).some(([k, v]) => v !== EMPTY_FILTERS[k]);
+  const filtered = Object.entries(filters).some(([k, v]) => v !== EMPTY_FILTERS[k] && !(k in periodRange("month", todayISO()) && period !== "custom"));
+  const pickPeriod = (id) => {
+    setPeriod(id);
+    if (id !== "custom") { setFilters((f) => ({ ...f, ...periodRange(id, todayISO()) })); setPage(1); }
+  };
+  const moreCount = ["store", "vendor", "sort"].filter((k) => filters[k] !== EMPTY_FILTERS[k]).length + (filters.state !== "active" ? 1 : 0);
+  const clearAll = () => { setFilters({ ...EMPTY_FILTERS, ...periodRange("month", todayISO()) }); setPeriod("month"); setPage(1); };
+  const periodLabel = period === "custom"
+    ? (filters.date_from || filters.date_to ? `${filters.date_from ? fmt(filters.date_from) : "…"} – ${filters.date_to ? fmt(filters.date_to) : "today"}` : "All dates")
+    : PERIODS.find((x) => x.id === period)?.label;
 
   if (setupError) return <Alert>{setupError.status === 403 ? "Your role doesn't include expense management." : errorText(setupError)}</Alert>;
 
@@ -409,79 +422,105 @@ export default function Expenses() {
       <div className="st-head">
         <div>
           <h2 className="st-title">Expenses</h2>
-          <p className="st-desc">Store and head-office costs. Each counts in its store's Profit &amp; Loss on its expense date; payments post to the cash or bank book on the day they're paid.</p>
+          <p className="st-desc">Shop and head-office costs — rent, bills, salaries, supplies. They count in Profit &amp; Loss on the expense date; payments go to the cash or bank book.</p>
         </div>
         <div className="ex-row-btns">
           <button type="button" className="st-btn" onClick={reload}><RefreshCw size={14} aria-hidden="true" />Refresh</button>
-          <button type="button" className="st-btn" data-variant="primary" onClick={() => setAdding(true)} disabled={!meta}><Plus size={15} aria-hidden="true" />Add expenses</button>
+          <button type="button" className="st-btn" data-variant="primary" onClick={() => setAdding(true)} disabled={!meta}><Plus size={15} aria-hidden="true" />Add expense</button>
         </div>
       </div>
       {flash && <Alert tone="ok">{flash}</Alert>}
 
-      <div className="ex-filters" role="search">
-        <label className="ex-search"><Search size={15} aria-hidden="true" />
-          <input value={filters.q} onChange={(e) => setF("q")(e.target.value)} placeholder="Expense ID or bill / reference no." aria-label="Search by expense ID or reference" />
-        </label>
-        <select className="st-input" value={filters.store} onChange={(e) => setF("store")(e.target.value)} aria-label="Store">
-          <option value="">All stores</option>
-          {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          {meta?.can_record_shared && <option value="shared">Shared / head office</option>}
-        </select>
-        <select className="st-input" value={filters.category} onChange={(e) => setF("category")(e.target.value)} aria-label="Category">
-          <option value="">All categories</option>
-          {meta?.categories.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-        </select>
-        <select className="st-input" value={filters.payment_status} onChange={(e) => setF("payment_status")(e.target.value)} aria-label="Payment status">
-          <option value="">Any payment status</option>
-          {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
-        <input className="st-input" value={filters.vendor} onChange={(e) => setF("vendor")(e.target.value)} placeholder="Vendor" aria-label="Vendor" />
-        <label className="ex-date"><span>From</span><input type="date" className="st-input" value={filters.date_from} max={filters.date_to || undefined} onChange={(e) => setF("date_from")(e.target.value)} /></label>
-        <label className="ex-date"><span>To</span><input type="date" className="st-input" value={filters.date_to} min={filters.date_from || undefined} onChange={(e) => setF("date_to")(e.target.value)} /></label>
-        <select className="st-input" value={filters.state} onChange={(e) => setF("state")(e.target.value)} aria-label="Show">
-          <option value="active">Active</option><option value="cancelled">Cancelled</option><option value="all">Active and cancelled</option>
-        </select>
-        <label className="ex-sort"><ArrowDownUp size={14} aria-hidden="true" />
-          <select value={filters.sort} onChange={(e) => setF("sort")(e.target.value)} aria-label="Sort">
-            {SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+      <div className="ex-bar" role="search">
+        <div className="ex-chips" role="group" aria-label="Period">
+          {PERIODS.map((p) => <button key={p.id} type="button" aria-pressed={period === p.id} onClick={() => pickPeriod(p.id)}>{p.label}</button>)}
+        </div>
+        {period === "custom" && (
+          <div className="ex-custom">
+            <label className="ex-date"><span>From</span><input type="date" className="st-input" value={filters.date_from} max={filters.date_to || undefined} onChange={(e) => setF("date_from")(e.target.value)} /></label>
+            <label className="ex-date"><span>To</span><input type="date" className="st-input" value={filters.date_to} min={filters.date_from || undefined} onChange={(e) => setF("date_to")(e.target.value)} /></label>
+          </div>
+        )}
+        <div className="ex-bar-row">
+          <label className="ex-search"><Search size={15} aria-hidden="true" />
+            <input value={filters.q} onChange={(e) => setF("q")(e.target.value)} placeholder="Search expense ID or bill no." aria-label="Search by expense ID or reference" />
+          </label>
+          <select className="st-input" value={filters.category} onChange={(e) => setF("category")(e.target.value)} aria-label="Category">
+            <option value="">All categories</option>
+            {meta?.categories.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
           </select>
-        </label>
-        {filtered && <button type="button" className="st-btn" onClick={() => { setFilters(EMPTY_FILTERS); setPage(1); }}>Clear filters</button>}
+          <div className="ex-chips ex-chips-sm" role="group" aria-label="Payment">
+            {PAY_CHIPS.map((c) => <button key={c.id || "all"} type="button" aria-pressed={filters.payment_status === c.id} onClick={() => setF("payment_status")(c.id)}>{c.label}</button>)}
+          </div>
+          <button type="button" className="st-btn" aria-expanded={more} onClick={() => setMore((v) => !v)}>
+            <SlidersHorizontal size={14} aria-hidden="true" />More{moreCount ? ` (${moreCount})` : ""}
+          </button>
+          {filtered && <button type="button" className="st-btn" onClick={clearAll}>Clear</button>}
+        </div>
+        {more && (
+          <div className="ex-filters">
+            <select className="st-input" value={filters.store} onChange={(e) => setF("store")(e.target.value)} aria-label="Store">
+              <option value="">All stores</option>
+              {stores.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}
+              {meta?.can_record_shared && <option value="shared">Shared / head office</option>}
+            </select>
+            <input className="st-input" value={filters.vendor} onChange={(e) => setF("vendor")(e.target.value)} placeholder="Paid to / vendor" aria-label="Vendor" />
+            <select className="st-input" value={filters.state} onChange={(e) => setF("state")(e.target.value)} aria-label="Show">
+              <option value="active">Active</option><option value="cancelled">Cancelled</option><option value="all">Active and cancelled</option>
+            </select>
+            <label className="ex-sort"><ArrowDownUp size={14} aria-hidden="true" />
+              <select value={filters.sort} onChange={(e) => setF("sort")(e.target.value)} aria-label="Sort">
+                {SORTS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </label>
+          </div>
+        )}
       </div>
 
       {data && (
-        <div className="ex-totals" aria-live="polite">
-          <div><span>Expenses</span><b>{data.totals.count}</b></div>
-          <div><span>Total</span><b className="ex-mono">{money(data.totals.amount)}</b></div>
-          <div><span>Paid</span><b className="ex-mono">{money(data.totals.paid)}</b></div>
-          <div><span>Outstanding</span><b className="ex-mono" data-tone={data.totals.outstanding > 0 ? "red" : undefined}>{money(data.totals.outstanding)}</b></div>
+        <div className="ex-summary" aria-live="polite">
+          <div className="ex-totals">
+            <div><span>Spent · {periodLabel}</span><b className="ex-mono">{money(data.totals.amount)}</b><small>{data.totals.count} {data.totals.count === 1 ? "expense" : "expenses"}</small></div>
+            <div><span>Paid</span><b className="ex-mono">{money(data.totals.paid)}</b></div>
+            <div><span>Still to pay</span><b className="ex-mono" data-tone={data.totals.outstanding > 0 ? "red" : undefined}>{money(data.totals.outstanding)}</b>
+              {data.totals.outstanding > 0 && filters.payment_status !== "unpaid" && <button type="button" className="ex-link" onClick={() => setF("payment_status")("unpaid")}>Show unpaid</button>}</div>
+          </div>
+          {data.totals.by_category?.length > 0 && data.totals.amount > 0 && (
+            <div className="ex-cats" aria-label="Spending by category">
+              <span className="st-label">Where it went</span>
+              {data.totals.by_category.slice(0, 6).map((c) => (
+                <button key={c.id} type="button" className="ex-cat" aria-pressed={String(filters.category) === String(c.id)}
+                  onClick={() => setF("category")(String(filters.category) === String(c.id) ? "" : String(c.id))}>
+                  <span className="ex-cat-name">{c.label}</span>
+                  <span className="ex-cat-bar"><i style={{ width: `${Math.max(3, Math.round((c.amount / data.totals.by_category[0].amount) * 100))}%` }} /></span>
+                  <b className="ex-mono">{money(c.amount)}</b>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       {loadError ? <Alert>{errorText(loadError)}</Alert> : !data ? (
         <div className="ex-list-skel">{[0, 1, 2, 3].map((i) => <span key={i} className="st-skel" style={{ height: 52 }} />)}</div>
       ) : !data.results.length ? (
-        <div className="ex-empty"><ReceiptText size={22} aria-hidden="true" /><p>{filtered ? "No expenses match these filters." : "No expenses recorded yet."}</p>
-          {!filtered && meta && <button type="button" className="st-btn" data-variant="primary" onClick={() => setAdding(true)}><Plus size={15} aria-hidden="true" />Add expenses</button>}
+        <div className="ex-empty"><ReceiptText size={22} aria-hidden="true" /><p>{filtered ? "No expenses match these filters." : `No expenses for ${periodLabel?.toLowerCase()}.`}</p>
+          {!filtered && meta && <button type="button" className="st-btn" data-variant="primary" onClick={() => setAdding(true)}><Plus size={15} aria-hidden="true" />Add expense</button>}
         </div>
       ) : (
         <div className="ex-table" role="table" aria-label="Expenses">
           <div className="ex-tr ex-th" role="row">
-            {["Expense", "Date", "Store", "Category", "Vendor", "Amount", "Payment", "Method", "Files", "Created by"].map((h) => <span key={h} role="columnheader">{h}</span>)}
+            {["Date", "Category", "Paid to", "Store", "Amount", "Payment"].map((h) => <span key={h} role="columnheader">{h}</span>)}
           </div>
           {data.results.map((e) => (
             <button key={e.id} type="button" className="ex-tr" role="row" onClick={() => setOpenId(e.id)} data-cancelled={e.status === "cancelled" || undefined}
               aria-label={`${e.code}, ${money(e.amount)}, ${storeName(e)} — open details`}>
-              <span role="cell" className="ex-td-main"><b>{e.code}</b>{e.reference && <small>{e.reference}</small>}</span>
-              <span role="cell" data-label="Date">{fmt(e.expense_date)}</span>
+              <span role="cell" className="ex-td-main"><b>{fmt(e.expense_date)}</b><small>{e.code}</small></span>
+              <span role="cell" data-label="Category"><b className="ex-cell-strong">{e.category_label}</b>{e.attachment_count > 0 && <small className="ex-clip" title={`${e.attachment_count} file(s)`}><Paperclip size={11} aria-hidden="true" />{e.attachment_count}</small>}</span>
+              <span role="cell" data-label="Paid to" data-empty={!e.vendor || undefined}>{e.vendor || "—"}{e.reference && <small className="ex-sub">Bill {e.reference}</small>}</span>
               <span role="cell" data-label="Store">{storeName(e)}</span>
-              <span role="cell" data-label="Category">{e.category_label}</span>
-              <span role="cell" data-label="Vendor" data-empty={!e.vendor || undefined}>{e.vendor || "—"}</span>
               <span role="cell" data-label="Amount" className="ex-mono ex-r">{money(e.amount)}</span>
-              <span role="cell" data-label="Payment">{e.status === "cancelled" ? <Tag>Cancelled</Tag> : <Tag tone={STATUS_TONE[e.payment_status]}>{STATUS[e.payment_status]}</Tag>}</span>
-              <span role="cell" data-label="Method">{e.payment_method || "—"}</span>
-              <span role="cell" data-label="Files">{e.attachment_count ? <><Paperclip size={12} aria-hidden="true" /> {e.attachment_count}</> : "—"}</span>
-              <span role="cell" data-label="Created by">{e.created_by_name}</span>
+              <span role="cell" data-label="Payment">{e.status === "cancelled" ? <Tag>Cancelled</Tag> : <Tag tone={STATUS_TONE[e.payment_status]}>{STATUS[e.payment_status]}</Tag>}{e.payment_method && e.status !== "cancelled" && <small className="ex-sub">{e.payment_method}</small>}</span>
             </button>
           ))}
         </div>

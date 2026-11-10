@@ -7,8 +7,7 @@ Settings -> Business & messages.
   DELETE /api/branding/messages/<key>/          back to the standard wording
   POST   /api/branding/messages/<key>/preview/  the wording filled with sample values (not saved)
 
-Everyone signed in as staff may read; only the Owner / Super Admin or an
-Admin may change anything.
+Only the Owner / Super Admin or an Admin may see or change any of it.
 """
 import string
 
@@ -32,7 +31,7 @@ class CanEditBranding(permissions.BasePermission):
         user = request.user
         if not user or not user.is_authenticated or hasattr(user, "customer_profile"):
             return False
-        return request.method in permissions.SAFE_METHODS or can_edit(user)
+        return can_edit(user)  # staff see only their own account in Settings
 
 
 def can_edit(user):

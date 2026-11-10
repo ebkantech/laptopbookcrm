@@ -2,6 +2,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import { C, F } from "../../lib/theme";
 import { ErrorNote, Eyebrow } from "../Atoms";
+import DictateButton from "../DictateButton";
 
 export const inputStyle = (bad) => ({ border: `1px solid ${bad ? C.carbon : C.rule}`, color: C.ink, fontFamily: F.body });
 
@@ -19,7 +20,8 @@ export function Modal({ title, onClose, children, wide = false }) {
   );
 }
 
-/* A small form in a dialog. fields: [{ name, label, type, required, options, placeholder, hint }].
+/* A small form in a dialog. fields: [{ name, label, type, required, options, placeholder, hint, dictate }]
+ * (dictate: true on a textarea adds voice typing).
  * onSubmit(values) may throw -- its message is shown and the dialog stays open. */
 export default function Prompt({ title, intro, fields, submitLabel = "Save", tone = C.orange, initial = {}, onSubmit, onClose }) {
   const [values, setValues] = useState(() => Object.fromEntries(fields.map((f) => [f.name, initial[f.name] ?? (f.type === "checkbox" ? false : "")])));
@@ -46,14 +48,15 @@ export default function Prompt({ title, intro, fields, submitLabel = "Save", ton
       <form onSubmit={submit} className="space-y-3">
         {intro && <p className="text-xs" style={{ color: C.inkSoft, fontFamily: F.body }}>{intro}</p>}
         {fields.map((f) => (
-          <label key={f.name} className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
+          <div key={f.name}>
+          <label className="block text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>
             {f.type === "checkbox" ? (
               <span className="flex items-start gap-2"><input type="checkbox" checked={!!values[f.name]} onChange={(e) => set(f.name, e.target.checked)} className="mt-0.5 h-4 w-4" /><span style={{ color: C.ink }}>{f.label}</span></span>
             ) : (
               <>
                 {f.label}{f.required && " *"}
                 {f.type === "textarea" ? (
-                  <textarea value={values[f.name]} onChange={(e) => set(f.name, e.target.value)} rows={3} placeholder={f.placeholder} maxLength={f.maxLength} className="mt-1 w-full resize-none bg-transparent px-3 py-2 text-base outline-none sm:text-sm" style={inputStyle(false)} />
+                  <textarea value={values[f.name]} onChange={(e) => set(f.name, e.target.value)} rows={f.dictate ? 4 : 3} placeholder={f.placeholder} maxLength={f.maxLength} className="mt-1 w-full resize-none bg-transparent px-3 py-2 text-base outline-none sm:text-sm" style={inputStyle(false)} />
                 ) : f.type === "select" ? (
                   <select value={values[f.name]} onChange={(e) => set(f.name, e.target.value)} className="mt-1 w-full bg-transparent px-3 py-2 text-base outline-none sm:text-sm" style={inputStyle(false)}>
                     {f.options.map((o) => <option key={o.value} value={o.value} disabled={o.disabled}>{o.label}</option>)}
@@ -65,6 +68,8 @@ export default function Prompt({ title, intro, fields, submitLabel = "Save", ton
             )}
             {f.hint && <span className="mt-1 block">{f.hint}</span>}
           </label>
+          {f.dictate && f.type === "textarea" && <DictateButton value={values[f.name]} onChange={(v) => set(f.name, v)} maxLength={f.maxLength} />}
+          </div>
         ))}
         <ErrorNote message={error} />
         <button disabled={busy} className="flex min-h-[44px] w-full items-center justify-center py-2.5 text-xs uppercase" style={{ backgroundColor: tone, color: C.onAccent, fontFamily: F.body, fontWeight: 700, letterSpacing: "0.1em", opacity: busy ? 0.7 : 1 }}>{busy ? "Please wait…" : submitLabel}</button>

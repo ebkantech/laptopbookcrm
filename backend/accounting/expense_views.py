@@ -234,6 +234,12 @@ class ExpenseViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         response.data["totals"] = {
             "count": totals["count"], "amount": totals["amount"] or 0,
             "paid": totals["paid"] or 0, "outstanding": (totals["amount"] or 0) - (totals["paid"] or 0),
+            # where the money went, for the same filters (largest first)
+            "by_category": [
+                {"id": r["category_id"], "label": r["category__label"], "amount": r["amount"] or 0, "count": r["count"]}
+                for r in qs.order_by().values("category_id", "category__label")
+                .annotate(amount=Sum("amount"), count=Count("id")).order_by("-amount")
+            ],
         }
         return response
 

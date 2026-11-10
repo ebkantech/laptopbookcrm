@@ -1,4 +1,5 @@
 import { useState } from "react";
+import DictateButton from "../DictateButton";
 import { CheckCircle2, Stethoscope } from "lucide-react";
 
 import { ErrorNote, Eyebrow, Pill } from "../Atoms";
@@ -58,7 +59,8 @@ export default function DiagnosisPanel({ ticket, canWork, canApprove, onChanged 
 
       {ticket.awaiting_diagnosis && canWork && (
         <div className="mt-2 space-y-2">
-          <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} maxLength={2000} placeholder="What did you find? What needs to be done?" className="w-full px-2 py-1.5 text-sm" style={{ border: `1px solid ${C.rule}` }} aria-label="Diagnosis note" />
+          <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} maxLength={2000} placeholder="What did you find? What needs to be done? Type, or tap Speak." className="w-full px-2 py-1.5 text-sm" style={{ border: `1px solid ${C.rule}` }} aria-label="Diagnosis note" />
+          <DictateButton value={note} onChange={setNote} maxLength={2000} />
           {changing && (
             <div>
               <p className="mb-1 text-xs" style={{ color: C.inkSoft }}>Revised work &amp; price (goes to the Admin{canApprove ? "" : " for approval"}):</p>

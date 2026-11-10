@@ -17,6 +17,9 @@ def _posted_from(entry):
         return entry.invoice_payment.invoice.code
     if entry.supplier_payment_id:
         return f"Supplier: {entry.supplier_payment.supplier.name}"
+    if entry.staff_advance_id:
+        staff = entry.staff_advance.staff
+        return f"Staff advance: {staff.get_full_name() or staff.username}"
     return None
 
 

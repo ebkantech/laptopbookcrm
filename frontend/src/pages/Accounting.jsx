@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowDownCircle, ArrowUpCircle, FileText, Landmark, Plus, ReceiptText, Settings2, Wallet, X } from "lucide-react";
+import { ArrowDownCircle, ArrowUpCircle, FileText, HandCoins, Landmark, Plus, ReceiptText, Settings2, Wallet, X } from "lucide-react";
 import { C, F, fmt, money, todayISO } from "../lib/theme";
 import { api } from "../lib/api";
 import { useSession } from "../context/SessionContext";
@@ -8,6 +8,7 @@ import PageHeader from "../components/PageHeader";
 import OrderToggle from "../components/OrderToggle";
 import { orderRows, useOrder } from "../lib/order";
 import Expenses from "./accounting/Expenses";
+import StaffAdvances from "./accounting/StaffAdvances";
 
 /* Entries posted automatically from an invoice payment carry its code. */
 function InvoiceTag({ code }) {
@@ -290,7 +291,10 @@ export default function Accounting() {
     { id: "cash", label: "Cash book", icon: Wallet },
     { id: "bank", label: "Bank book", icon: Landmark },
     // Superuser and authorised Admin / Accounts only (accounting.expenses)
-    ...(me?.can_manage_expenses ? [{ id: "expenses", label: "Expenses", icon: ReceiptText }] : []),
+    ...(me?.can_manage_expenses ? [
+      { id: "expenses", label: "Expenses", icon: ReceiptText },
+      { id: "advances", label: "Staff advances", icon: HandCoins },
+    ] : []),
   ];
   return (
     <div className="flex-1 overflow-y-auto px-5 py-6 sm:px-8">
@@ -302,6 +306,7 @@ export default function Accounting() {
         {tab === "cash" && <CashBook />}
         {tab === "bank" && <BankBook />}
         {tab === "expenses" && me?.can_manage_expenses && <Expenses />}
+        {tab === "advances" && me?.can_manage_expenses && <StaffAdvances />}
       </div>
     </div>
   );

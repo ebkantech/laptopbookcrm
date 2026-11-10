@@ -19,6 +19,7 @@ LEDGER_STORE_LOOKUPS = (
     "invoice__stock_point", "refund__invoice__stock_point",
     "expense_payment__expense__stock_point", "expense_reversal__expense__stock_point",
     "supplier_payment__purchase__stock_point",
+    "staff_advance__stock_point",
 )
 MANUAL_ENTRY_DETAIL = "Manual cash and bank entries aren't tied to a store, so only the Owner can record them."
 
@@ -63,6 +64,8 @@ def _refuse_if_posted(entry):
         raise ValidationError({"detail": f"This entry is a part payment on invoice {entry.invoice_payment.invoice.code} and can't be changed here."})
     if entry.supplier_payment_id:
         raise ValidationError({"detail": f"This entry is a payment to supplier {entry.supplier_payment.supplier.name} and can't be changed here."})
+    if entry.staff_advance_id:
+        raise ValidationError({"detail": "This entry is a staff advance (Accounting → Staff advances) and can't be changed here."})
 
 
 class BankAccountViewSet(viewsets.ModelViewSet):

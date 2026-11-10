@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Copy, FileText, ImageIcon, Paperclip, Plus, Save, Trash2, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, Copy, FileText, ImageIcon, Paperclip, Plus, Save, Trash2, X } from "lucide-react";
 import { api } from "../../lib/api";
 import { money, todayISO } from "../../lib/theme";
 import { Alert, Dialog, Field } from "../settings/StaffUi";
@@ -23,7 +23,7 @@ function blankEntry(defaultStore) {
   return {
     uid: newUid(), store: defaultStore ? String(defaultStore) : "", category: "", expense_date: todayISO(), amount: "",
     gst_amount: "", gst_claimable: false, vendor: "", reference: "", description: "",
-    payment_status: "unpaid", payment_method: "", payment_date: todayISO(), paid_amount: "", payment_reference: "", files: [],
+    payment_status: "paid", payment_method: "Cash", payment_date: todayISO(), paid_amount: "", payment_reference: "", files: [],
   };
 }
 
@@ -142,6 +142,8 @@ function EntryCard({ entry, number, total, onChange, onRemove, onDuplicate, erro
   const set = (k) => (v) => onChange({ ...entry, [k]: v });
   const paid = entry.payment_status !== "unpaid";
   const count = Object.keys(errors).length;
+  const moreOpen = ["reference", "gst_amount", "description", "attachments"].some((k) => errors[k])
+    || !!(entry.reference || entry.gst_amount || entry.description || entry.files.length);
   return (
     <section ref={refEl} className="ex-card" data-invalid={count > 0 || undefined} aria-labelledby={`ex-entry-${entry.uid}`}>
       <header className="ex-card-head">
@@ -162,59 +164,51 @@ function EntryCard({ entry, number, total, onChange, onRemove, onDuplicate, erro
         </div>
       </header>
 
-      <div className="ex-grid">
+      {/* the essentials: what, how much, when, where */}
+      <div className="ex-span" role="radiogroup" aria-label={`Category of expense ${number}`}>
+        <span className="st-label">What was it for? *</span>
+        <div className="ex-catpick">
+          {meta.categories.filter((c) => c.is_active).map((c) => (
+            <button key={c.id} type="button" role="radio" aria-checked={String(entry.category) === String(c.id)} onClick={() => set("category")(String(c.id))}>{c.label}</button>
+          ))}
+        </div>
+        {errors.category && <p className="st-err">{errors.category}</p>}
+      </div>
+      <div className="ex-grid ex-grid-main">
+        <F label="Amount (₹) *" error={errors.amount} hint="Bill total, including any GST">
+          {(id, err) => <input id={id} inputMode="numeric" className="st-input ex-mono ex-amount" value={entry.amount} onChange={(e) => set("amount")(digits(e.target.value))} placeholder="0" aria-invalid={!!err} required />}
+        </F>
+        <F label="Date *" error={errors.expense_date}>
+          {(id, err) => <input id={id} type="date" className="st-input" value={entry.expense_date} max={todayISO()} onChange={(e) => set("expense_date")(e.target.value)} aria-invalid={!!err} required />}
+        </F>
         <F label="Store *" error={errors.stock_point}>
           {(id, err) => <StorePicker id={id} value={entry.store} onChange={set("store")} stores={stores} canShared={meta.can_record_shared} error={err} />}
         </F>
-        <F label="Category *" error={errors.category}>
-          {(id, err) => (
-            <select id={id} className="st-input" value={entry.category} onChange={(e) => set("category")(e.target.value)} aria-invalid={!!err} required>
-              <option value="">Choose…</option>
-              {meta.categories.filter((c) => c.is_active).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-            </select>
-          )}
-        </F>
-        <F label="Expense date *" error={errors.expense_date}>
-          {(id, err) => <input id={id} type="date" className="st-input" value={entry.expense_date} max={todayISO()} onChange={(e) => set("expense_date")(e.target.value)} aria-invalid={!!err} required />}
-        </F>
-        <F label="Amount (₹) *" error={errors.amount} hint="Bill total, including any GST">
-          {(id, err) => <input id={id} inputMode="numeric" className="st-input ex-mono" value={entry.amount} onChange={(e) => set("amount")(digits(e.target.value))} placeholder="0" aria-invalid={!!err} required />}
-        </F>
-        <F label="Paid to / vendor" error={errors.vendor}>
+        <F label="Paid to" error={errors.vendor} hint="Shop, landlord, person…">
           {(id) => <input id={id} className="st-input" value={entry.vendor} maxLength={120} onChange={(e) => set("vendor")(e.target.value)} />}
         </F>
-        <F label="Bill / reference no." error={errors.reference}>
-          {(id) => <input id={id} className="st-input" value={entry.reference} maxLength={80} onChange={(e) => set("reference")(e.target.value)} />}
-        </F>
-        <F label="GST on the bill (₹)" error={errors.gst_amount} hint="As printed on the bill — leave empty if none">
-          {(id, err) => <input id={id} inputMode="numeric" className="st-input ex-mono" value={entry.gst_amount} onChange={(e) => set("gst_amount")(digits(e.target.value))} placeholder="0" aria-invalid={!!err} />}
-        </F>
-        <div className="ex-check">
-          <label>
-            <input type="checkbox" checked={entry.gst_claimable} disabled={!(int(entry.gst_amount) > 0)} onChange={(e) => set("gst_claimable")(e.target.checked)} />
-            <span>Input GST is claimable<small>Left out of Profit &amp; Loss</small></span>
-          </label>
-        </div>
+      </div>
 
-        <div className="ex-span" role="group" aria-label={`Payment status of expense ${number}`}>
-          <span className="st-label">Payment status</span>
-          <div className="ex-seg">
-            {meta.payment_statuses.map((s) => (
-              <button key={s.id} type="button" aria-pressed={entry.payment_status === s.id} onClick={() => set("payment_status")(s.id)}>{s.label}</button>
-            ))}
-          </div>
+      {/* paid or not */}
+      <div className="ex-pay" role="group" aria-label={`Payment of expense ${number}`}>
+        <span className="st-label">Has it been paid?</span>
+        <div className="ex-seg">
+          {[{ id: "paid", label: "Yes, paid" }, { id: "unpaid", label: "Not yet" }, { id: "partial", label: "Part paid" }].map((o) => (
+            <button key={o.id} type="button" aria-pressed={entry.payment_status === o.id} onClick={() => set("payment_status")(o.id)}>{o.label}</button>
+          ))}
         </div>
         {paid && (
-          <>
-            <F label="Payment method *" error={errors.payment_method}>
-              {(id, err) => (
-                <select id={id} className="st-input" value={entry.payment_method} onChange={(e) => set("payment_method")(e.target.value)} aria-invalid={!!err}>
-                  <option value="">Choose…</option>
-                  {meta.payment_methods.map((m) => <option key={m} value={m}>{m}</option>)}
-                </select>
-              )}
-            </F>
-            <F label="Payment date *" error={errors.payment_date}>
+          <div className="ex-grid ex-grid-main">
+            <div>
+              <span className="st-label">Paid by *</span>
+              <div className="ex-catpick ex-catpick-sm" role="radiogroup" aria-label="Payment method">
+                {meta.payment_methods.map((m) => (
+                  <button key={m} type="button" role="radio" aria-checked={entry.payment_method === m} onClick={() => set("payment_method")(m)}>{m}</button>
+                ))}
+              </div>
+              {errors.payment_method && <p className="st-err">{errors.payment_method}</p>}
+            </div>
+            <F label="Paid on *" error={errors.payment_date}>
               {(id, err) => <input id={id} type="date" className="st-input" value={entry.payment_date} max={todayISO()} onChange={(e) => set("payment_date")(e.target.value)} aria-invalid={!!err} />}
             </F>
             {entry.payment_status === "partial" && (
@@ -223,16 +217,37 @@ function EntryCard({ entry, number, total, onChange, onRemove, onDuplicate, erro
                 {(id, err) => <input id={id} inputMode="numeric" className="st-input ex-mono" value={entry.paid_amount} onChange={(e) => set("paid_amount")(digits(e.target.value))} aria-invalid={!!err} />}
               </F>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* everything else, folded away until wanted */}
+      <details className="ex-more" open={moreOpen || undefined}>
+        <summary><ChevronDown size={14} aria-hidden="true" />More details <small>bill no., GST, notes, photos of the bill{entry.files.length ? ` · ${entry.files.length} attached` : ""}</small></summary>
+        <div className="ex-grid">
+          <F label="Bill / reference no." error={errors.reference}>
+            {(id) => <input id={id} className="st-input" value={entry.reference} maxLength={80} onChange={(e) => set("reference")(e.target.value)} />}
+          </F>
+          <F label="GST on the bill (₹)" error={errors.gst_amount} hint="As printed on the bill — leave empty if none">
+            {(id, err) => <input id={id} inputMode="numeric" className="st-input ex-mono" value={entry.gst_amount} onChange={(e) => set("gst_amount")(digits(e.target.value))} placeholder="0" aria-invalid={!!err} />}
+          </F>
+          <div className="ex-check">
+            <label>
+              <input type="checkbox" checked={entry.gst_claimable} disabled={!(int(entry.gst_amount) > 0)} onChange={(e) => set("gst_claimable")(e.target.checked)} />
+              <span>Input GST is claimable<small>Left out of Profit &amp; Loss</small></span>
+            </label>
+          </div>
+          {paid && (
             <F label="Payment reference" hint="UTR / UPI / cheque no.">
               {(id) => <input id={id} className="st-input" value={entry.payment_reference} maxLength={80} onChange={(e) => set("payment_reference")(e.target.value)} />}
             </F>
-          </>
-        )}
-        <F label="Description / notes" error={errors.description} wide>
-          {(id) => <textarea id={id} className="st-input ex-textarea" value={entry.description} maxLength={1000} onChange={(e) => set("description")(e.target.value)} />}
-        </F>
-        <Attachments files={entry.files} onChange={set("files")} limits={meta.limits} error={errors.attachments} number={number} />
-      </div>
+          )}
+          <F label="Notes" error={errors.description} wide>
+            {(id) => <textarea id={id} className="st-input ex-textarea" value={entry.description} maxLength={1000} onChange={(e) => set("description")(e.target.value)} />}
+          </F>
+          <Attachments files={entry.files} onChange={set("files")} limits={meta.limits} error={errors.attachments} number={number} />
+        </div>
+      </details>
     </section>
   );
 }
@@ -320,8 +335,8 @@ export default function ExpenseForm({ meta, stores, defaultStore, onClose, onSav
 
   const invalid = entries.filter((e) => errors[e.uid] && Object.keys(errors[e.uid]).length);
   return (
-    <Dialog size="wide" title="Add expenses" busy={busy} onClose={requestClose} labelledBy="ex-form-title"
-      subtitle="Each card is one expense with its own store, category and attachments. Everything is saved together, or nothing is."
+    <Dialog size="wide" title="Add expense" busy={busy} onClose={requestClose} labelledBy="ex-form-title"
+      subtitle="Pick what it was for, the amount and whether it's paid. Add more expenses to save several bills at once."
       footer={(
         <div className="ex-foot">
           <p className="ex-foot-sum" aria-live="polite">
@@ -331,7 +346,7 @@ export default function ExpenseForm({ meta, stores, defaultStore, onClose, onSav
           <div className="ex-foot-btns">
             <button type="button" className="st-btn" onClick={() => add()} disabled={busy}><Plus size={15} aria-hidden="true" />Add another expense</button>
             <button type="button" className="st-btn" data-variant="primary" onClick={save} disabled={busy}>
-              <Save size={15} aria-hidden="true" />{busy ? "Saving…" : `Save all ${entries.length > 1 ? `${entries.length} expenses` : "expenses"}`}
+              <Save size={15} aria-hidden="true" />{busy ? "Saving…" : entries.length > 1 ? `Save ${entries.length} expenses` : "Save expense"}
             </button>
           </div>
         </div>

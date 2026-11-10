@@ -111,3 +111,23 @@ class AssignmentTests(TestCase):
         self.assertEqual(self.ids(self.staff_a1), [])
         # the Admin still sees the store's jobs
         self.assertTrue({self.ticket.id, other.id} <= set(self.ids(self.admin_a)))
+
+
+class TimelineAfterReassignTests(AssignmentTests):
+    """A reassigned ticket: the new technician's timeline starts at their assignment."""
+
+    def test_new_technician_does_not_see_the_earlier_assignment(self):
+        RepairTicketEvent.objects.create(ticket=self.ticket, event_type=RepairTicketEvent.TICKET_CREATED, actor=self.admin_a)
+        self.assertEqual(self.assign(self.admin_a, self.staff_a1).status_code, 200)
+        RepairTicketEvent.objects.create(ticket=self.ticket, event_type=RepairTicketEvent.DIAGNOSIS_DONE, actor=self.staff_a1)
+        self.assertEqual(self.assign(self.admin_a, self.staff_a2).status_code, 200)
+
+        mine = client_for(self.staff_a2).get(f"/api/tickets/{self.ticket.id}/").json()["events"]
+        kinds = [e["event_type"] for e in mine]
+        self.assertEqual(kinds.count("assigned"), 1, kinds)
+        self.assertIn("ticket_created", kinds)
+        self.assertNotIn("diagnosis_done", kinds)
+        self.assertNotIn("staff-a1", str(mine))
+
+        everything = client_for(self.admin_a).get(f"/api/tickets/{self.ticket.id}/").json()["events"]
+        self.assertEqual([e["event_type"] for e in everything].count("assigned"), 2)

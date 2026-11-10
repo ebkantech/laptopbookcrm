@@ -39,6 +39,10 @@ class CashEntry(models.Model):
     supplier_payment = models.OneToOneField(
         "catalog.SupplierPayment", on_delete=models.PROTECT, null=True, blank=True, related_name="cash_entry",
     )
+    # Set when the entry is an advance paid to a staff member, or one they returned (accounting.staff_advances).
+    staff_advance = models.OneToOneField(
+        "accounting.StaffAdvanceEntry", on_delete=models.PROTECT, null=True, blank=True, related_name="cash_entry",
+    )
 
     class Meta:
         ordering = ["date", "id"]
@@ -87,6 +91,9 @@ class BankEntry(models.Model):
     )
     supplier_payment = models.OneToOneField(
         "catalog.SupplierPayment", on_delete=models.PROTECT, null=True, blank=True, related_name="bank_entry",
+    )
+    staff_advance = models.OneToOneField(
+        "accounting.StaffAdvanceEntry", on_delete=models.PROTECT, null=True, blank=True, related_name="bank_entry",
     )
 
     class Meta:
@@ -249,3 +256,39 @@ class ExpenseAttachment(models.Model):
 
     def __str__(self):
         return self.original_name
+
+
+class StaffAdvanceEntry(models.Model):
+    """
+    Money advanced to a staff member and how it came back (accounting.staff_advances).
+
+      given    -- paid to them: a cash / bank "out" entry. Not an expense: they owe it back.
+      returned -- they paid it back: a cash / bank "in" entry.
+      salary   -- kept back from their salary: becomes a Salary expense for that amount
+                  (the cash already went out when the advance was given), no new posting.
+
+    What a person still owes = given - returned - salary. Entries are never
+    edited or deleted, so the cash / bank books they posted stay as they were.
+    """
+    GIVEN, RETURNED, SALARY = "given", "returned", "salary"
+    KIND_CHOICES = [(GIVEN, "Advance given"), (RETURNED, "Paid back"), (SALARY, "Adjusted against salary")]
+
+    staff = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="advance_entries")
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES)
+    date = models.DateField()
+    amount = models.PositiveIntegerField()
+    method = models.CharField(max_length=20, blank=True, help_text="Cash / UPI / Bank transfer... (blank when adjusted against salary).")
+    reference = models.CharField(max_length=80, blank=True)
+    note = models.CharField(max_length=200, blank=True)
+    stock_point = models.ForeignKey("catalog.StockPoint", on_delete=models.PROTECT, null=True, blank=True, related_name="staff_advances")
+    expense = models.OneToOneField(Expense, on_delete=models.PROTECT, null=True, blank=True, related_name="staff_advance_entry")
+    by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="advance_entries_recorded")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["date", "id"]
+        verbose_name_plural = "staff advance entries"
+        constraints = [models.CheckConstraint(condition=models.Q(amount__gt=0), name="staff_advance_amount_positive")]
+
+    def __str__(self):
+        return f"{self.get_kind_display()} {self.amount} -- {self.staff}"

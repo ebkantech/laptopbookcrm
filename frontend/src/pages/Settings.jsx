@@ -422,19 +422,24 @@ function StaffNotifications() {
 
 export default function Settings() {
   const { can, me } = useSession();
-  const [tab, setTab] = useState(() => new URLSearchParams(window.location.search).get("tab") || "profile");
-  // Staff management: staff administrators only (roles.manage, or the
-  // Owner) -- the /users/ API enforces the same rule.
-  const staffAdmin = !!me?.sees_all_stores || can("roles.manage");
+  const [picked, setTab] = useState(() => new URLSearchParams(window.location.search).get("tab") || "profile");
+  // Staff see only their own account (profile + password). Everything about
+  // other people and the business -- staff, roles, alerts, business details,
+  // subscription -- is for staff administrators (roles.manage, the Owner, or
+  // the Super Admin); the APIs behind those tabs enforce the same rule.
+  const staffAdmin = !!me?.is_superuser || !!me?.sees_all_stores || can("roles.manage");
   const tabs = [
     { id: "profile", label: "Profile", icon: UserIcon },
     { id: "password", label: "My password", icon: KeyRound },
-    ...(staffAdmin ? [{ id: "staff", label: "Staff management", icon: Users }] : []),
-    { id: "roles", label: "Roles & access", icon: ShieldCheck },
-    { id: "notifications", label: "Staff alerts", icon: BellRing },
-    { id: "business", label: "Business & messages", icon: Building2 },
-    ...(staffAdmin ? [{ id: "subscription", label: "Subscription", icon: CreditCard }] : []),
+    ...(staffAdmin ? [
+      { id: "staff", label: "Staff management", icon: Users },
+      { id: "roles", label: "Roles & access", icon: ShieldCheck },
+      { id: "notifications", label: "Staff alerts", icon: BellRing },
+      { id: "business", label: "Business & messages", icon: Building2 },
+      { id: "subscription", label: "Subscription", icon: CreditCard },
+    ] : []),
   ];
+  const tab = tabs.some((t) => t.id === picked) ? picked : "profile";
   return (
     <div className="flex-1 overflow-y-auto px-5 py-6 sm:px-8">
       <PageHeader title="Settings" subtitle="Your account, and who else can do what" />

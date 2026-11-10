@@ -283,7 +283,7 @@ class RepairTicketSerializer(serializers.ModelSerializer):
     advance_invoice = serializers.SerializerMethodField()
     current_estimate = serializers.SerializerMethodField()
     approval_status = serializers.SerializerMethodField()
-    events = RepairTicketEventSerializer(many=True, read_only=True)
+    events = serializers.SerializerMethodField()
     order_code = serializers.CharField(source="order.code", read_only=True)
     repair_type = serializers.SerializerMethodField()
     order_id = serializers.IntegerField(read_only=True)
@@ -402,6 +402,28 @@ class RepairTicketSerializer(serializers.ModelSerializer):
         estimate = obj.current_estimate
         return RepairEstimateSerializer(estimate).data if estimate else None
 
+    def get_events(self, obj):
+        """
+        The ticket's timeline. Whoever assigns jobs (repairs.assign, Admins,
+        the Owner) sees all of it; once a ticket has been reassigned, the
+        technician sees it being booked and everything from the current
+        assignment on -- not who had it before or what happened then.
+        """
+        events = list(obj.events.all())
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is not None and user.is_authenticated and not _sees_full_timeline(user):
+            assigned = [i for i, e in enumerate(events) if e.event_type == RepairTicketEvent.ASSIGNED]
+            if len(assigned) > 1:
+                start = assigned[-1]
+                events = [e for i, e in enumerate(events) if i >= start or e.event_type == RepairTicketEvent.TICKET_CREATED]
+                data = RepairTicketEventSerializer(events, many=True).data
+                for row in data:  # nor who it was taken from
+                    if row["event_type"] == RepairTicketEvent.ASSIGNED and isinstance(row.get("metadata"), dict):
+                        row["metadata"] = {k: v for k, v in row["metadata"].items() if k != "from"}
+                return data
+        return RepairTicketEventSerializer(events, many=True).data
+
     def get_approval_status(self, obj):
         estimate = obj.current_estimate
         return estimate.approval_status if estimate else "not_sent"
@@ -455,3 +477,9 @@ class RepairOrderSerializer(serializers.ModelSerializer):
     def get_ready_for_approval(self, obj):
         tickets = list(obj.tickets.all())
         return len(tickets) >= 2 and all(ticket.current_estimate for ticket in tickets)
+
+
+def _sees_full_timeline(user):
+    from accounts.staff import is_staff_admin
+
+    return user.is_superuser or is_staff_admin(user) or user.has_perm_code("repairs.assign")

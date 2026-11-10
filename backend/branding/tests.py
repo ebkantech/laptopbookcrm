@@ -51,9 +51,8 @@ class BrandingTests(TestCase):
         standard = texts.message("repair_ready", **self._samples("repair_ready"))
         self.assertNotIn("oops", standard)
 
-    def test_staff_can_read_but_not_edit(self):
-        self.assertEqual(self.staff.get("/api/branding/").status_code, 200)
-        self.assertFalse(self.staff.get("/api/branding/").json()["can_edit"])
+    def test_staff_can_neither_read_nor_edit(self):
+        self.assertEqual(self.staff.get("/api/branding/").status_code, 403)
         self.assertEqual(self.staff.post("/api/branding/messages/repair_ready/", {"body": "x"}, format="json").status_code, 403)
         self.assertEqual(self.staff.patch("/api/branding/business/", {"name": "X"}, format="json").status_code, 403)
 
