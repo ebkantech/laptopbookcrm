@@ -186,7 +186,7 @@ export default function Parties() {
           <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
             className="flex items-center gap-2 rounded-t-lg px-4 py-2 text-sm"
             style={{ fontFamily: F.body, fontWeight: 700, color: tab === id ? C.stamp : C.inkSoft,
-              borderBottom: `2px solid ${tab === id ? C.stamp : "transparent"}`, backgroundColor: tab === id ? `${C.stamp}0D` : "transparent" }}>
+              borderBottom: `2px solid ${tab === id ? C.stamp : "transparent"}`, backgroundColor: tab === id ? `color-mix(in srgb, ${C.stamp} 5%, transparent)` : "transparent" }}>
             {id === "suppliers" ? <Truck size={14} /> : <Users size={14} />}{label}
             <span className="rounded-full px-1.5 text-[11px]" style={{ backgroundColor: tab === id ? C.stamp : C.rule, color: tab === id ? C.onAccent : C.inkSoft }}>{n}</span>
           </button>

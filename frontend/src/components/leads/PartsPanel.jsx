@@ -26,7 +26,7 @@ export default function PartsPanel({ lead, onIssue, onReturn, onWriteOff }) {
       </div>
       {parts.length === 0 && <p className="mt-1 text-xs" style={{ color: C.inkSoft }}>Nothing issued. Parts taken out for this job are recorded in the technician's name, so the stock count stays right.</p>}
       {parts.map((p) => (
-        <div key={p.id} className="mt-1 px-3 py-2 text-sm" style={{ backgroundColor: p.due_now ? `${C.carbon}12` : C.slip2, border: p.due_now ? `1px solid ${C.carbon}` : "none" }}>
+        <div key={p.id} className="mt-1 px-3 py-2 text-sm" style={{ backgroundColor: p.due_now ? `color-mix(in srgb, ${C.carbon} 7%, transparent)` : C.slip2, border: p.due_now ? `1px solid ${C.carbon}` : "none" }}>
           <div className="flex items-start justify-between gap-3">
             <span className="min-w-0 break-words">{p.description}<span className="block text-xs" style={{ color: C.inkSoft }}>{p.technician_name}</span></span>
             <span className="shrink-0 text-right text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>

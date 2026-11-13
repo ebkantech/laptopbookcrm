@@ -168,7 +168,9 @@ class NotificationRuleViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"])
     def events(self, request):
-        return Response([{"key": key, "label": label} for key, label in NotificationRule.EVENT_CHOICES])
+        # lead_assigned / lead_progress go straight to one person (notify_user), so there's no role rule to set
+        direct = {"lead_assigned", "lead_progress"}
+        return Response([{"key": key, "label": label} for key, label in NotificationRule.EVENT_CHOICES if key not in direct])
 
 
 class StaffNotificationViewSet(viewsets.ReadOnlyModelViewSet):

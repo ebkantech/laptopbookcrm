@@ -277,6 +277,25 @@ def notify_staff(event_key: str, subject: str, body: str) -> None:
                 logger.exception("notify_staff: send failed event=%s user=%s", event_key, user.pk)
 
 
+def notify_user(user, event_key: str, subject: str, body: str, whatsapp: bool = True) -> None:
+    """
+    An alert for ONE person (not a role): the header bell (StaffNotification)
+    and, when they have a phone on file, WhatsApp. Used where the right
+    person is known -- the technician a job was given to, or the Admin who
+    gave it. Never raises, like notify_staff().
+    """
+    from accounts.models import StaffNotification
+
+    if user is None or not getattr(user, "is_active", False):
+        return
+    try:
+        StaffNotification.objects.create(user=user, event_key=event_key, subject=subject[:200], body=body)
+        if whatsapp and getattr(user, "phone", ""):
+            send_whatsapp(user.phone, f"{subject}\n{body}")
+    except Exception:
+        logger.exception("notify_user: send failed event=%s user=%s", event_key, getattr(user, "pk", None))
+
+
 def _send_whatsapp_console(to: str, body: str, template: dict | None = None) -> dict:
     # print(), not just logger.info() -- guaranteed to reach the
     # runserver terminal regardless of any logging configuration

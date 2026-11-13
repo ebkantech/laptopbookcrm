@@ -204,7 +204,7 @@ export default function Warranty() {
       />
 
       {flash && (
-        <div role="status" className="mt-3 flex items-center gap-2 rounded-xl px-3 py-2" style={{ backgroundColor: `${C.green}14`, border: `1px solid ${C.green}55` }}>
+        <div role="status" className="mt-3 flex items-center gap-2 rounded-xl px-3 py-2" style={{ backgroundColor: `color-mix(in srgb, ${C.green} 8%, transparent)`, border: `1px solid color-mix(in srgb, ${C.green} 33%, transparent)` }}>
           <ShieldCheck size={13} style={{ color: C.green }} />
           <span className="text-xs" style={{ fontFamily: F.body, color: C.ink }}>{flash}</span>
         </div>

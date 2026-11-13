@@ -13,7 +13,7 @@ import StaffAdvances from "./accounting/StaffAdvances";
 /* Entries posted automatically from an invoice payment carry its code. */
 function InvoiceTag({ code }) {
   if (!code) return null;
-  return <span className="ml-1.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px]" style={{ fontFamily: F.mono, fontWeight: 600, color: C.stamp, backgroundColor: `${C.stamp}14` }}><FileText size={9} />{code}</span>;
+  return <span className="ml-1.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px]" style={{ fontFamily: F.mono, fontWeight: 600, color: C.stamp, backgroundColor: `color-mix(in srgb, ${C.stamp} 8%, transparent)` }}><FileText size={9} />{code}</span>;
 }
 
 function NewCashEntry({ onClose, onAdd }) {

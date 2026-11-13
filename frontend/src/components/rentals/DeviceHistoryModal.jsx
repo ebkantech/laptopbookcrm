@@ -79,7 +79,7 @@ export default function DeviceHistoryModal({ assetId, onClose }) {
             <div className="mt-4 flex flex-wrap gap-1.5" role="tablist">
               {tabs.map(([id, text]) => (
                 <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className="rounded-full px-3 py-1 text-xs"
-                  style={{ fontFamily: F.body, fontWeight: 600, border: `1px solid ${tab === id ? C.stamp : C.rule}`, color: tab === id ? C.stamp : C.inkSoft, backgroundColor: tab === id ? `${C.stamp}12` : "transparent" }}>
+                  style={{ fontFamily: F.body, fontWeight: 600, border: `1px solid ${tab === id ? C.stamp : C.rule}`, color: tab === id ? C.stamp : C.inkSoft, backgroundColor: tab === id ? `color-mix(in srgb, ${C.stamp} 7%, transparent)` : "transparent" }}>
                   {text}
                 </button>
               ))}

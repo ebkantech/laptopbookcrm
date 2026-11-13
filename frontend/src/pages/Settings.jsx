@@ -20,7 +20,7 @@ function Profile() {
     <div>
       <div data-panel className="p-5" style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip }}>
         <div className="flex items-start gap-4">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center" style={{ borderRadius: 999, backgroundColor: `${C.stamp}17`, border: `1px solid ${C.stamp}` }}>
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center" style={{ borderRadius: 999, backgroundColor: `color-mix(in srgb, ${C.stamp} 9%, transparent)`, border: `1px solid ${C.stamp}` }}>
             <UserIcon size={22} style={{ color: C.stamp }} />
           </div>
           <div className="min-w-0">
@@ -237,7 +237,7 @@ function RolesAccess({ onManageStaff }) {
                               aria-pressed={has}
                               aria-label={`${has ? "Remove" : "Grant"} ${p.codename} for ${r.label}`}
                               className="inline-flex h-6 w-6 items-center justify-center disabled:opacity-50"
-                              style={{ borderRadius: 4, border: `1px solid ${has ? C.green : C.rule}`, backgroundColor: has ? `${C.green}18` : "transparent" }}
+                              style={{ borderRadius: 4, border: `1px solid ${has ? C.green : C.rule}`, backgroundColor: has ? `color-mix(in srgb, ${C.green} 9%, transparent)` : "transparent" }}
                             >
                               {has && <Check size={12} style={{ color: C.green }} />}
                             </button>
@@ -268,7 +268,7 @@ function RolesAccess({ onManageStaff }) {
                 onChange={(e) => setNewLabel(e.target.value)}
                 placeholder="Role name, e.g. Store Supervisor"
                 className="mt-2 w-full max-w-xs px-3 py-2 text-sm outline-none"
-                style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}`, backgroundColor: "#fff" }}
+                style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.rule}`, backgroundColor: C.slip }}
               />
               <p className="mt-1 text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>slug: {slugify(newLabel) || "—"}</p>
               <div className="mt-3 flex flex-wrap gap-2">
@@ -281,7 +281,7 @@ function RolesAccess({ onManageStaff }) {
                       onClick={() => setNewPerms((cur) => (checked ? cur.filter((c) => c !== p.codename) : [...cur, p.codename]))}
                       aria-pressed={checked}
                       className="rounded-full px-2.5 py-1 text-xs"
-                      style={{ fontFamily: F.body, fontWeight: 600, border: `1px solid ${checked ? C.green : C.rule}`, color: checked ? C.green : C.inkSoft, backgroundColor: checked ? `${C.green}12` : "transparent" }}
+                      style={{ fontFamily: F.body, fontWeight: 600, border: `1px solid ${checked ? C.green : C.rule}`, color: checked ? C.green : C.inkSoft, backgroundColor: checked ? `color-mix(in srgb, ${C.green} 7%, transparent)` : "transparent" }}
                     >
                       {p.codename}
                     </button>
@@ -384,7 +384,7 @@ function StaffNotifications() {
                         onClick={() => toggle(ev.key, r, "via_inapp")}
                         aria-pressed={inappOn}
                         className="flex items-center rounded-full px-2.5 py-1 text-[10px] disabled:opacity-50"
-                        style={{ fontFamily: F.body, fontWeight: 700, border: `1px solid ${inappOn ? C.green : C.rule}`, color: inappOn ? C.green : C.inkSoft, backgroundColor: inappOn ? `${C.green}14` : "transparent" }}
+                        style={{ fontFamily: F.body, fontWeight: 700, border: `1px solid ${inappOn ? C.green : C.rule}`, color: inappOn ? C.green : C.inkSoft, backgroundColor: inappOn ? `color-mix(in srgb, ${C.green} 8%, transparent)` : "transparent" }}
                       >
                         <BellRing size={10} style={{ marginRight: 3 }} />Bell
                       </button>
@@ -394,7 +394,7 @@ function StaffNotifications() {
                         onClick={() => toggle(ev.key, r, "via_email")}
                         aria-pressed={emailOn}
                         className="flex items-center rounded-full px-2.5 py-1 text-[10px] disabled:opacity-50"
-                        style={{ fontFamily: F.body, fontWeight: 700, border: `1px solid ${emailOn ? C.green : C.rule}`, color: emailOn ? C.green : C.inkSoft, backgroundColor: emailOn ? `${C.green}14` : "transparent" }}
+                        style={{ fontFamily: F.body, fontWeight: 700, border: `1px solid ${emailOn ? C.green : C.rule}`, color: emailOn ? C.green : C.inkSoft, backgroundColor: emailOn ? `color-mix(in srgb, ${C.green} 8%, transparent)` : "transparent" }}
                       >
                         <Mail size={10} style={{ marginRight: 3 }} />Email
                       </button>
@@ -404,7 +404,7 @@ function StaffNotifications() {
                         onClick={() => toggle(ev.key, r, "via_whatsapp")}
                         aria-pressed={waOn}
                         className="flex items-center rounded-full px-2.5 py-1 text-[10px] disabled:opacity-50"
-                        style={{ fontFamily: F.body, fontWeight: 700, border: `1px solid ${waOn ? C.green : C.rule}`, color: waOn ? C.green : C.inkSoft, backgroundColor: waOn ? `${C.green}14` : "transparent" }}
+                        style={{ fontFamily: F.body, fontWeight: 700, border: `1px solid ${waOn ? C.green : C.rule}`, color: waOn ? C.green : C.inkSoft, backgroundColor: waOn ? `color-mix(in srgb, ${C.green} 8%, transparent)` : "transparent" }}
                       >
                         <Phone size={10} style={{ marginRight: 3 }} />WhatsApp
                       </button>

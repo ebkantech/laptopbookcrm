@@ -64,3 +64,41 @@ class MetricDetailTests(TestCase):
         self.assertEqual(self.detail(staff, "revenue_paid", channel="np")["count"], 1)  # pinned to Karol Bagh
         self.assertEqual(staff.get("/api/dashboard/detail/rental_risk/").status_code, 403)
         self.assertEqual(staff.get("/api/dashboard/detail/nonsense/").status_code, 404)
+
+
+class MetricDetailPagingTests(MetricDetailTests):
+    """Big lists come a page at a time; count and total still cover everything."""
+
+    def test_paid_sales_are_paged_and_totalled_in_the_database(self):
+        for _ in range(7):
+            self.sale(self.kb)
+        first = self.detail(self.owner, "revenue_paid", page_size=3)
+        self.assertEqual((first["count"], first["pages"], first["page_number"], len(first["rows"])), (7, 3, 1, 3))
+        self.assertEqual(first["total"]["value"], 7 * 40000)
+        last = self.detail(self.owner, "revenue_paid", page_size=3, page=3)
+        self.assertEqual(len(last["rows"]), 1)
+        codes = {r["code"] for p in (1, 2, 3) for r in self.detail(self.owner, "revenue_paid", page_size=3, page=p)["rows"]}
+        self.assertEqual(len(codes), 7)
+        # out of range / nonsense values fall back safely
+        self.assertEqual(self.detail(self.owner, "revenue_paid", page_size=3, page=99)["page_number"], 3)
+        self.assertEqual(self.detail(self.owner, "revenue_paid", page_size="x")["page_size"], 50)
+        self.assertEqual(self.detail(self.owner, "revenue_paid", page_size=10000)["page_size"], 200)
+
+    def test_pending_lists_each_customer_once_with_a_reminder(self):
+        from parties.models import Party
+        other = Party.objects.create(name="Second Buyer", type=Party.RETAIL, phone="9811122233", joined=date(2026, 1, 1))
+        self.sale(self.kb, status=Invoice.LINK_SENT)
+        self.sale(self.np, status=Invoice.LINK_SENT)
+        create_invoice(lines=[{"variant": self.v, "qty": 1, "price": 5000}], party=other, stock_point=self.kb,
+                       date=date.today(), status=Invoice.LINK_SENT, source=Invoice.SALE)
+        summary = self.owner.get("/api/dashboard/summary/").json()
+        data = self.detail(self.owner, "pending")
+        self.assertEqual(data["count"], 2)
+        self.assertEqual(data["total"]["value"], summary["pending_collections"])
+        top = data["rows"][0]
+        self.assertEqual((top["customer"], top["phone"], top["invoice_count"], top["amount"]), ("Buyer", "9876543211", 2, 80000))
+        reminder = top["copy"][0]["text"]
+        self.assertIn("Buyer", reminder)
+        self.assertIn("80,000", reminder)
+        self.assertEqual(top["copy"][1]["text"], "9876543211")
+        self.assertEqual(self.detail(self.owner, "pending", page_size=1, page=2)["rows"][0]["customer"], "Second Buyer")

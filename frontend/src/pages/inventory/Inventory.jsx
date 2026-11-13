@@ -540,7 +540,7 @@ export default function Inventory() {
       </header>
 
       {flash && (
-        <div role="status" className="mx-[1rem] mb-1 flex items-center gap-2 rounded-xl px-3 py-2 sm:mx-[2rem]" style={{ backgroundColor: `${C.green}14`, border: `1px solid ${C.green}55` }}>
+        <div role="status" className="mx-[1rem] mb-1 flex items-center gap-2 rounded-xl px-3 py-2 sm:mx-[2rem]" style={{ backgroundColor: `color-mix(in srgb, ${C.green} 8%, transparent)`, border: `1px solid color-mix(in srgb, ${C.green} 33%, transparent)` }}>
           <Check size={13} style={{ color: C.green }} />
           <span className="text-xs" style={{ fontFamily: F.body, color: C.ink }}>{flash}</span>
         </div>
@@ -591,7 +591,7 @@ export default function Inventory() {
             );
           })}
           {!products.length && (
-            <div className="flex flex-col items-center gap-2 rounded-2xl px-4 py-12 text-center" style={{ border: `1px dashed ${C.ruleStrong}`, backgroundColor: `${C.slip}99` }}>
+            <div className="flex flex-col items-center gap-2 rounded-2xl px-4 py-12 text-center" style={{ border: `1px dashed ${C.ruleStrong}`, backgroundColor: `color-mix(in srgb, ${C.slip} 60%, transparent)` }}>
               <Search size={22} style={{ color: C.inkSoft }} />
               <p className="text-sm" style={{ fontFamily: F.body, fontWeight: 600, color: C.ink }}>No products match that search</p>
               <p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Try a brand, model, product ID or variant code.</p>

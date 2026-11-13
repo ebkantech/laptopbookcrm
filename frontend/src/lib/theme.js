@@ -1,67 +1,76 @@
 /*
- * VantageCRM 26X -- Refined Modern Professional theme. A cool, quiet
- * working surface and a focused cobalt accent give the existing product
- * a clearer enterprise identity while preserving its page structure.
+ * Vantage2x -- enterprise suite visual identity.
  *
- * The same values are exposed as CSS custom properties (--cb-*) at the
- * top of src/index.css for stylesheet rules -- keep the two in sync.
+ * Every colour here is a CSS custom property defined in src/index.css
+ * (light values on :root, dark values on :root[data-theme="dark"]), so the
+ * inline styles across the app follow the active theme automatically.
+ * Tints are written color-mix(in srgb, <token> N%, transparent) -- never
+ * `color-mix(in srgb, ${C.x} 33%, transparent)`, which only works with literal hex values.
  *
- * `frontend/src/lib/pilotTheme.js` re-exports this file: it was the
- * scratch file used to design this palette against a single pilot page
- * before rolling it out here. Kept as a re-export (not deleted) so any
- * file still importing from it keeps working without a further change.
+ * `frontend/src/lib/pilotTheme.js` re-exports this file.
  */
-export const APP_NAME = "VantageCRM";
-export const APP_VERSION = "26X";
+export const APP_NAME = "Vantage2x";
+export const APP_VERSION = "Enterprise Suite";
 export const APP_FULL_NAME = `${APP_NAME} ${APP_VERSION}`;
 
-export const C = {
-  ink: "#172033",
-  inkSoft: "#667085",
-  paper: "#F4F6F9",
-  slip: "#FFFFFF",         // card / panel surface -- clean white, one step up from paper
-  slip2: "#F8FAFC",
-  deep: "#172033",
-  rule: "#E3E8F0",
-  ruleStrong: "#CBD3E1",
-  stamp: "#3157D5",
-  carbon: "#C83C4A",
-  green: "#16845B",
-  amber: "#B7791F",
-  blue: "#1686A8",
-  orange: "#3157D5",
-  onAccent: "#FFFFFF",
-  onAccentLight: "#172033",
+const v = (name) => `var(--${name})`;
 
-  // Sidebar-only tokens -- the sidebar is its own dark surface sitting
-  // next to an otherwise light app, so it needs its own text/accent
-  // scale rather than reusing ink/inkSoft (tuned for light backgrounds).
-  sidebarActive: "#3157D5",
-  sidebarActiveText: "#FFFFFF",
-  sidebarText: "#C9D1E0",
-  sidebarTextDim: "#929DB1",
-  sidebarHover: "#252D3C",
+export const C = {
+  ink: v("cb-ink"),
+  inkSoft: v("cb-ink-soft"),
+  inkFaint: v("cb-ink-faint"),
+  paper: v("cb-paper"),
+  slip: v("cb-surface"),        // card / panel surface
+  slip2: v("cb-inset"),         // a step in from the surface
+  deep: v("cb-deep"),
+  rule: v("cb-rule"),
+  ruleStrong: v("cb-rule-strong"),
+  stamp: v("cb-accent"),        // interface accent: royal blue (light) / soft blue (dark)
+  orange: v("cb-accent"),       // historic name for the same accent
+  carbon: v("cb-red"),          // coral -- warnings, defects, money owed
+  green: v("cb-green"),         // teal -- positive progress, paid
+  amber: v("cb-amber"),         // amber -- attention
+  blue: v("cb-blue"),           // ultraviolet -- secondary / analytics
+  violet: v("cb-violet"),
+  onAccent: v("cb-on-accent"),
+  onAccentLight: v("cb-ink"),
+  cta: v("cb-cta"),             // solar amber -- the one important action
+  onCta: v("cb-on-cta"),
+
+  // navigation surface (deep navy)
+  nav: v("cb-nav-bg"),
+  navInk: v("cb-nav-ink"),
+  navInkSoft: v("cb-nav-ink-soft"),
+  navLine: v("cb-nav-line"),
+  navHover: v("cb-nav-hover"),
+  sidebarActive: v("v-amber"),
+  sidebarActiveText: v("cb-on-cta"),
+  sidebarText: v("cb-nav-ink"),
+  sidebarTextDim: v("cb-nav-ink-soft"),
+  sidebarHover: v("cb-nav-hover"),
 };
+
+/** A see-through version of a colour token: tint(C.green, 8) */
+export const tint = (color, percent) => `color-mix(in srgb, ${color} ${percent}%, transparent)`;
 
 export const F = {
-  display: "'Archivo', 'Inter Tight', ui-sans-serif, system-ui, sans-serif",
-  body: "'Public Sans', ui-sans-serif, system-ui, sans-serif",
-  mono: "'IBM Plex Mono', ui-monospace, monospace",
+  display: "var(--cb-font-display)",
+  editorial: "var(--cb-font-editorial)",
+  body: "var(--cb-font-body)",
+  mono: "var(--cb-font-mono)",
 };
 
-// Reusable "heavy" surface styles for the key screens -- a clean border
-// plus a soft, understated shadow (this theme reads as a paper ledger,
-// not a live-tracking dashboard -- no glowing neon shadows).
+// Surface styles for the key screens -- hairline border, soft shadow.
 export const heavyPanel = {
   border: `1px solid ${C.rule}`,
   backgroundColor: C.slip,
-  boxShadow: "0 1px 2px rgba(35,40,31,0.04), 0 10px 24px rgba(35,40,31,0.06)",
+  boxShadow: "var(--cb-shadow-2)",
 };
 
 export const heavyPanelAccent = (color = C.orange) => ({
-  border: `1px solid ${color}55`,
+  border: `1px solid ${tint(color, 33)}`,
   backgroundColor: C.slip,
-  boxShadow: "0 1px 2px rgba(35,40,31,0.04), 0 10px 24px rgba(35,40,31,0.06)",
+  boxShadow: "var(--cb-shadow-2)",
 });
 
 export const money = (n) =>

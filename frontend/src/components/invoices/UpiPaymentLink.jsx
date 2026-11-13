@@ -5,7 +5,7 @@ import { api } from "../../lib/api";
 import { useSession } from "../../context/SessionContext";
 import { ErrorNote, Eyebrow, Pill } from "../Atoms";
 
-const LINK_STATUS_COLOR = { sent: "#F5A623", paid: "#36D399", cancelled: "#8A8F98", failed: "#FB5B5B" };
+const LINK_STATUS_COLOR = { sent: C.amber, paid: C.green, cancelled: C.inkSoft, failed: C.carbon };
 const spaced = (p) => (p && p.length === 10 ? `${p.slice(0, 5)} ${p.slice(5)}` : p);
 
 /*

@@ -59,7 +59,7 @@ function LinkVersion({ approval }) {
   const cr = approval.change_request;
   const responded = approval.decided_at && ["approved", "rejected", "changes_requested"].includes(approval.status);
   return (
-    <div className="rounded-xl p-3" style={{ border: `1px solid ${cr?.open ? `${C.stamp}66` : C.rule}`, backgroundColor: C.slip }}>
+    <div className="rounded-xl p-3" style={{ border: `1px solid ${cr?.open ? `color-mix(in srgb, ${C.stamp} 40%, transparent)` : C.rule}`, backgroundColor: C.slip }}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm" style={{ fontFamily: F.body, fontWeight: 700, color: C.ink }}>
           Link v{approval.version}
@@ -137,7 +137,7 @@ export default function ApprovalHistoryModal({ rentalId, canManage, onClose, onG
           {data && (
             <>
               {open && (
-                <section className="rounded-xl p-3 sm:p-4" style={{ border: `1px solid ${C.stamp}55`, backgroundColor: `${C.stamp}0d` }}>
+                <section className="rounded-xl p-3 sm:p-4" style={{ border: `1px solid color-mix(in srgb, ${C.stamp} 33%, transparent)`, backgroundColor: `color-mix(in srgb, ${C.stamp} 5%, transparent)` }}>
                   <p className="flex items-center gap-1.5 text-sm" style={{ fontFamily: F.body, fontWeight: 700, color: C.stamp }}>
                     <MessageSquareText size={15} /> Customer requested changes on link v{open.version}
                   </p>
@@ -171,7 +171,7 @@ export default function ApprovalHistoryModal({ rentalId, canManage, onClose, onG
                     return (
                       <li key={event.id} className="relative flex gap-3 pb-4">
                         {!last && <span aria-hidden className="absolute left-[13px] top-7 bottom-0 w-px" style={{ backgroundColor: C.rule }} />}
-                        <span className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: `${d.color}16`, color: d.color }}><Icon size={14} /></span>
+                        <span className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: `color-mix(in srgb, ${d.color} 9%, transparent)`, color: d.color }}><Icon size={14} /></span>
                         <div className="min-w-0 flex-1 pt-0.5">
                           <p className="text-sm" style={{ fontFamily: F.body, fontWeight: 600, color: C.ink }}>{d.title}</p>
                           <p className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>

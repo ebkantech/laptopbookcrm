@@ -170,7 +170,7 @@ function ApprovalLinkPanel({ link, onDismiss }) {
   };
   const btn = "flex min-h-[40px] items-center justify-center gap-1.5 rounded-full px-4 text-xs";
   return (
-    <section role="status" aria-label="Approval link" className="mt-4 rounded-xl p-3 sm:p-4" style={{ border: `1px solid ${C.green}55`, backgroundColor: `${C.green}0d` }}>
+    <section role="status" aria-label="Approval link" className="mt-4 rounded-xl p-3 sm:p-4" style={{ border: `1px solid color-mix(in srgb, ${C.green} 33%, transparent)`, backgroundColor: `color-mix(in srgb, ${C.green} 5%, transparent)` }}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="flex flex-wrap items-center gap-1.5 text-sm" style={{ fontFamily: F.body, fontWeight: 700, color: C.ink }}>
@@ -244,7 +244,7 @@ function DecisionFilterButton({ filter, count, selected, onClick }) {
         color: selected ? C.onAccent : C.ink,
         backgroundColor: selected ? color : C.slip,
         border: `1px solid ${selected ? color : C.rule}`,
-        boxShadow: selected ? `0 1px 2px ${color}40` : "none",
+        boxShadow: selected ? `0 1px 2px color-mix(in srgb, ${color} 25%, transparent)` : "none",
       }}>
       <Icon size={13} style={{ color: selected ? C.onAccent : color }} />
       <span className="hidden whitespace-nowrap @3xl:inline">{label}</span>
@@ -500,7 +500,7 @@ export default function Rentals() {
 
       <ErrorNote message={actionError} />
       {showLedger && <RentLedger clients={[...new Map(rentals.map((r) => [r.party, { id: r.party, name: r.party_name }])).values()].sort((a, b) => a.name.localeCompare(b.name))} onClose={() => setShowLedger(false)} />}
-      {flash && <div role="status" className="mt-4 flex items-center gap-2 rounded-xl p-3" style={{ border: `1px solid ${C.green}55`, backgroundColor: `${C.green}10` }}><ShieldCheck size={14} style={{ color: C.green }} /><span className="text-xs" style={{ fontFamily: F.body, color: C.ink }}>{flash}</span></div>}
+      {flash && <div role="status" className="mt-4 flex items-center gap-2 rounded-xl p-3" style={{ border: `1px solid color-mix(in srgb, ${C.green} 33%, transparent)`, backgroundColor: `color-mix(in srgb, ${C.green} 6%, transparent)` }}><ShieldCheck size={14} style={{ color: C.green }} /><span className="text-xs" style={{ fontFamily: F.body, color: C.ink }}>{flash}</span></div>}
       {approvalLink && <ApprovalLinkPanel link={approvalLink} onDismiss={() => setApprovalLink(null)} />}
 
       <div className={`mt-6 space-y-3${showLedger ? " hidden" : ""}`}>
@@ -529,7 +529,7 @@ export default function Rentals() {
               </div>
 
               {r.open_change_request && (
-                <button type="button" onClick={() => setHistoryFor(r.id)} className="mt-3 block w-full rounded-xl px-3 py-2.5 text-left" style={{ border: `1px solid ${C.stamp}55`, backgroundColor: `${C.stamp}0d`, fontFamily: F.body }}>
+                <button type="button" onClick={() => setHistoryFor(r.id)} className="mt-3 block w-full rounded-xl px-3 py-2.5 text-left" style={{ border: `1px solid color-mix(in srgb, ${C.stamp} 33%, transparent)`, backgroundColor: `color-mix(in srgb, ${C.stamp} 5%, transparent)`, fontFamily: F.body }}>
                   <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs" style={{ color: C.stamp, fontWeight: 700 }}>
                     <MessageSquareText size={13} /> Customer requested changes (link v{r.open_change_request.version})
                     <span style={{ fontWeight: 400, color: C.inkSoft }}>{fmtDateTime(r.open_change_request.requested_at)} · awaiting staff</span>
@@ -539,7 +539,7 @@ export default function Rentals() {
               )}
 
               {/* next payment -- called out on its own row so it can't be missed */}
-              {!historyOnly && <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl px-3 py-2" style={{ backgroundColor: r.next_payment_overdue ? `${C.carbon}14` : C.slip2, border: `1px solid ${r.next_payment_overdue ? `${C.carbon}66` : C.rule}` }}>
+              {!historyOnly && <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl px-3 py-2" style={{ backgroundColor: r.next_payment_overdue ? `color-mix(in srgb, ${C.carbon} 8%, transparent)` : C.slip2, border: `1px solid ${r.next_payment_overdue ? `color-mix(in srgb, ${C.carbon} 40%, transparent)` : C.rule}` }}>
                 <Clock3 size={13} style={{ color: r.next_payment_overdue ? C.carbon : C.inkSoft }} />
                 <span className="text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>{r.next_payment_date ? "Next recurring payment due" : "Tenure fully paid"}</span>
                 {r.next_payment_date && <span className="text-sm" style={{ fontFamily: F.mono, fontWeight: 700, color: r.next_payment_overdue ? C.carbon : C.ink }}>{fmt(r.next_payment_date)}</span>}
@@ -564,7 +564,7 @@ export default function Rentals() {
                 const pending = r.lines.filter((l) => l.handover_issues?.length).length;
                 return (
                   <button type="button" onClick={() => setHandoverFor(r.id)} className="mt-3 flex w-full flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-xs"
-                    style={{ border: `1px solid ${pending ? `${C.amber}88` : `${C.green}66`}`, backgroundColor: pending ? `${C.amber}10` : `${C.green}10`, fontFamily: F.body, color: C.ink }}>
+                    style={{ border: `1px solid ${pending ? `color-mix(in srgb, ${C.amber} 53%, transparent)` : `color-mix(in srgb, ${C.green} 40%, transparent)`}`, backgroundColor: pending ? `color-mix(in srgb, ${C.amber} 6%, transparent)` : `color-mix(in srgb, ${C.green} 6%, transparent)`, fontFamily: F.body, color: C.ink }}>
                     <span className="flex items-center gap-1.5"><Camera size={13} style={{ color: pending ? C.amber : C.green }} />
                       <b>Device handover & warranty</b> — condition, photos, accessories
                     </span>

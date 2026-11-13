@@ -61,7 +61,7 @@ function ServiceChecklist({ services, stockPointSlug, brand, selected, onToggle 
               const elsewhere = part && stockHere === 0 ? part.stock.filter((st) => st.stock_point !== stockPointSlug && st.quantity > 0) : [];
               const compatIssue = part && brand !== "Apple" && !part.compatible_brands.includes(brand);
               return (
-                <div key={s.id} data-panel className="px-3 py-2" style={{ border: `1px solid ${on ? C.stamp : C.rule}`, backgroundColor: on ? `${C.stamp}14` : C.slip2 }}>
+                <div key={s.id} data-panel className="px-3 py-2" style={{ border: `1px solid ${on ? C.stamp : C.rule}`, backgroundColor: on ? `color-mix(in srgb, ${C.stamp} 8%, transparent)` : C.slip2 }}>
                   <button onClick={() => onToggle(s.id)} className="flex w-full items-center justify-between text-left">
                     <span className="flex items-center gap-2 text-sm" style={{ fontFamily: F.body, color: C.ink }}>
                       <span className="flex h-4 w-4 items-center justify-center" style={{ border: `1px solid ${on ? C.stamp : C.rule}`, backgroundColor: on ? C.stamp : "transparent" }}>{on && <Check size={11} style={{ color: C.onAccent }} />}</span>
@@ -128,7 +128,7 @@ function QuickAddParty({ onClose, onAdded }) {
   };
 
   return (
-    <div className="mt-2 p-3" data-panel style={{ border: `1px solid ${C.stamp}`, backgroundColor: `${C.stamp}0A` }}>
+    <div className="mt-2 p-3" data-panel style={{ border: `1px solid ${C.stamp}`, backgroundColor: `color-mix(in srgb, ${C.stamp} 4%, transparent)` }}>
       <div className="flex items-center justify-between">
         <Eyebrow>New customer</Eyebrow>
         <button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={14} style={{ color: C.inkSoft }} /></button>
@@ -384,12 +384,12 @@ function ReopenModal({ ticket, services, onClose, onReopened }) {
         </div>
 
         {ticket.warranty_active ? (
-          <div className="mt-3 flex items-center gap-2 px-3 py-2" style={{ backgroundColor: `${C.green}14`, border: `1px solid ${C.green}` }}>
+          <div className="mt-3 flex items-center gap-2 px-3 py-2" style={{ backgroundColor: `color-mix(in srgb, ${C.green} 8%, transparent)`, border: `1px solid ${C.green}` }}>
             <PackageCheck size={13} style={{ color: C.green }} />
             <span className="text-xs" style={{ fontFamily: F.body, color: C.ink }}>Active repair warranty until {ticket.warranty_end_date} -- a recurrence of an originally-repaired service will suggest \u20b90.</span>
           </div>
         ) : (
-          <div className="mt-3 flex items-center gap-2 px-3 py-2" style={{ backgroundColor: `${C.amber}14`, border: `1px solid ${C.amber}` }}>
+          <div className="mt-3 flex items-center gap-2 px-3 py-2" style={{ backgroundColor: `color-mix(in srgb, ${C.amber} 8%, transparent)`, border: `1px solid ${C.amber}` }}>
             <span className="text-xs" style={{ fontFamily: F.body, color: C.ink }}>No active repair warranty on this ticket -- all services will be charged at full price.</span>
           </div>
         )}
@@ -404,7 +404,7 @@ function ReopenModal({ ticket, services, onClose, onReopened }) {
             const on = !!selected[s.id]?.checked;
             const recurrence = originalServiceIds.has(s.id);
             return (
-              <div key={s.id} data-panel className="px-3 py-2" style={{ border: `1px solid ${on ? C.stamp : C.rule}`, backgroundColor: on ? `${C.stamp}14` : C.slip2 }}>
+              <div key={s.id} data-panel className="px-3 py-2" style={{ border: `1px solid ${on ? C.stamp : C.rule}`, backgroundColor: on ? `color-mix(in srgb, ${C.stamp} 8%, transparent)` : C.slip2 }}>
                 <button onClick={() => toggle(s)} className="flex w-full items-center justify-between text-left">
                   <span className="flex items-center gap-2 text-sm" style={{ fontFamily: F.body, color: C.ink }}>
                     <span className="flex h-4 w-4 items-center justify-center" style={{ border: `1px solid ${on ? C.stamp : C.rule}`, backgroundColor: on ? C.stamp : "transparent" }}>{on && <Check size={11} style={{ color: C.onAccent }} />}</span>
@@ -459,7 +459,7 @@ function RepairInvoiceRow({ label, invoice }) {
   const paid = invoice.status === "Paid";
   const color = paid ? C.green : C.amber;
   return (
-    <div className="mt-2 flex items-center justify-between px-3 py-2.5" style={{ backgroundColor: `${color}17`, border: `1px solid ${color}` }}>
+    <div className="mt-2 flex items-center justify-between px-3 py-2.5" style={{ backgroundColor: `color-mix(in srgb, ${color} 9%, transparent)`, border: `1px solid ${color}` }}>
       <span className="flex items-center gap-1.5 text-sm" style={{ fontFamily: F.body, color: C.ink }}><PackageCheck size={14} style={{ color }} />{label}</span>
       <Pill color={color}>{paid ? (invoice.pay_method === "No charge" ? "No charge" : "Paid") : invoice.status === "Overdue" ? "Overdue" : "Awaiting payment"}</Pill>
     </div>
@@ -605,7 +605,7 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
         />
 
         {activeReopen && (
-          <div className="mt-3 p-3" data-panel style={{ border: `1px solid ${C.amber}`, backgroundColor: `${C.amber}0A` }}>
+          <div className="mt-3 p-3" data-panel style={{ border: `1px solid ${C.amber}`, backgroundColor: `color-mix(in srgb, ${C.amber} 4%, transparent)` }}>
             <Eyebrow>Follow-up visit in progress</Eyebrow>
             <p className="mt-1 text-sm" style={{ fontFamily: F.body, color: C.ink }}>{activeReopen.issue}</p>
             <div className="mt-2 space-y-1">
@@ -675,7 +675,7 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
               </>
             )}
             {canWork && nextStage === "In progress" && ticket.awaiting_diagnosis && (
-              <div className="mt-4 p-3" style={{ border: `1px dashed ${C.amber}`, backgroundColor: `${C.amber}0D` }}>
+              <div className="mt-4 p-3" style={{ border: `1px dashed ${C.amber}`, backgroundColor: `color-mix(in srgb, ${C.amber} 5%, transparent)` }}>
                 <p className="text-xs" style={{ fontFamily: F.body, color: C.ink }}>Work can't start yet — waiting for {ticket.assigned_to_name}'s diagnosis.</p>
                 {can("repairs.assign") && (
                   <div className="mt-2 flex flex-wrap gap-2">
@@ -687,7 +687,7 @@ function TicketDetail({ ticketId, onClose, onChanged }) {
               </div>
             )}
             {canWork && !ticket.assigned_to && (
-              <p className="mt-4 p-3 text-xs" style={{ fontFamily: F.body, color: C.ink, border: `1px dashed ${C.amber}`, backgroundColor: `${C.amber}0D` }}>
+              <p className="mt-4 p-3 text-xs" style={{ fontFamily: F.body, color: C.ink, border: `1px dashed ${C.amber}`, backgroundColor: `color-mix(in srgb, ${C.amber} 5%, transparent)` }}>
                 Assign this job to a staff member first. It can't move on until then.
               </p>
             )}
@@ -927,7 +927,7 @@ export default function Repairs() {
       </div>
 
       {flash && (
-        <div className="mt-3 flex items-center gap-2 px-3 py-2" style={{ backgroundColor: `${C.carbon}14`, border: `1px solid ${C.carbon}` }}>
+        <div className="mt-3 flex items-center gap-2 px-3 py-2" style={{ backgroundColor: `color-mix(in srgb, ${C.carbon} 8%, transparent)`, border: `1px solid ${C.carbon}` }}>
           <X size={13} style={{ color: C.carbon }} />
           <span className="text-xs" style={{ fontFamily: F.body, color: C.ink }}>{flash}</span>
         </div>

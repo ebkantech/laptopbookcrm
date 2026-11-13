@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { AlertCircle, CheckCircle2, Clock3, FileCheck2, LoaderCircle, XCircle } from "lucide-react";
 
 import { api } from "../lib/api";
-import { C, F, money } from "../lib/theme";
+import { APP_NAME, C, F, money } from "../lib/theme";
 import OpenPortal from "../components/approvals/OpenPortal";
 
 
@@ -44,7 +44,7 @@ export default function RepairOrderApproval({ token }) {
     <main className="cb-shell min-h-screen px-4 py-8" style={{ color: C.ink }}>
       <div className="mx-auto max-w-3xl">
         <header className="mb-5">
-          <p className="text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 700, letterSpacing: "0.14em", color: C.orange }}>CRMBook</p>
+          <p className="text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 700, letterSpacing: "0.14em", color: C.green }}>{APP_NAME}</p>
           <h1 className="mt-1 text-xl" style={{ fontFamily: F.display, fontWeight: 700 }}>Secure bulk repair approval</h1>
         </header>
         {loading ? (
@@ -63,12 +63,12 @@ export default function RepairOrderApproval({ token }) {
             </div>
 
             {terminal ? (
-              <div className="mt-5 flex items-center gap-2 p-3" style={{ backgroundColor: approval.status === "approved" ? `${C.green}16` : `${C.carbon}12` }}>
+              <div className="mt-5 flex items-center gap-2 p-3" style={{ backgroundColor: approval.status === "approved" ? `color-mix(in srgb, ${C.green} 9%, transparent)` : `color-mix(in srgb, ${C.carbon} 7%, transparent)` }}>
                 <CheckCircle2 size={18} style={{ color: approval.status === "approved" ? C.green : C.carbon }} />
                 <span className="text-sm">{approval.status === "approved" ? "Your combined approval has been recorded." : approval.status === "rejected" ? "Your rejection has been recorded." : "This approval link has expired."}</span>
               </div>
             ) : (
-              <div className="mt-5 flex items-center gap-2 p-3" style={{ backgroundColor: `${C.amber}16` }}><Clock3 size={17} style={{ color: C.amber }} /><span className="text-xs">This secure link is valid for 24 hours{approval.expires_at && ` — until ${new Date(approval.expires_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}`}.</span></div>
+              <div className="mt-5 flex items-center gap-2 p-3" style={{ backgroundColor: `color-mix(in srgb, ${C.amber} 9%, transparent)` }}><Clock3 size={17} style={{ color: C.amber }} /><span className="text-xs">This secure link is valid for 24 hours{approval.expires_at && ` — until ${new Date(approval.expires_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}`}.</span></div>
             )}
 
             <div className="mt-5 space-y-4">

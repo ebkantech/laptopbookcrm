@@ -21,7 +21,7 @@ from django.utils import timezone
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 
 from catalog.models import Part, PartStock, Stock, Variant
-from crmbook_backend.notify import notify_staff, send_whatsapp
+from crmbook_backend.notify import notify_staff, notify_user, send_whatsapp
 from .models import Lead, LeadApproval, LeadEvent, LeadPartIssue, LeadQuote, LeadQuoteLine
 
 APPROVAL_LINK_TTL = timedelta(hours=24)
@@ -107,14 +107,33 @@ def create_lead(user, **fields):
 
 
 def _tell_technician(lead):
+    """The technician the job was just given to: bell + WhatsApp."""
     tech = lead.assigned_to
     if not tech:
         return
-    text = f"New on-site job {lead.code}: {lead.party.name}, {lead.site_address}. {lead.issue[:120]}"
-    phone = getattr(tech, "phone", "") or ""
-    if phone:
-        send_whatsapp(phone, text)
-    notify_staff("lead_assigned", f"On-site job {lead.code} assigned", text)
+    when = f" Visit: {timezone.localtime(lead.preferred_at):%d %b, %I:%M %p}." if lead.preferred_at else ""
+    notify_user(tech, "lead_assigned", f"New on-site job {lead.code} -- {lead.party.name}",
+                f"{lead.site_address}. {lead.issue[:160]}{when}")
+
+
+def assigner(lead):
+    """Who gave this job out: whoever made the latest assignment, else whoever created it."""
+    event = lead.events.filter(event="assigned").exclude(actor=None).order_by("-id").first()
+    return (event.actor if event else None) or lead.created_by
+
+
+def tell_assigner(lead, actor, headline, detail=""):
+    """
+    Progress on a job goes back to the person who gave it out (bell +
+    WhatsApp), so they don't have to keep opening it. Not when they did the
+    step themselves.
+    """
+    boss = assigner(lead)
+    if boss is None or (actor is not None and boss.pk == actor.pk):
+        return
+    tech = lead.assigned_to
+    by = f" ({tech.get_full_name() or tech.username})" if tech else ""
+    notify_user(boss, "lead_progress", f"{lead.code}{by}: {headline}", f"{lead.party.name}, {lead.site_address}. {detail}".strip())
 
 
 @transaction.atomic
@@ -148,12 +167,19 @@ def reschedule(lead, user, preferred_at, reason):
 def check_in(lead, user, lat=None, lng=None, note=""):
     lead = lock(lead)
     _require_work(user, lead)
+    # "I've reached the site" records where the engineer is and when, so only
+    # the engineer the job is assigned to can say it -- not an Admin or the
+    # Super Admin watching the job (they reassign it instead).
+    if lead.assigned_to_id != user.id:
+        who = lead.assigned_to.get_full_name() or lead.assigned_to.username if lead.assigned_to_id else "an engineer"
+        raise PermissionDenied(f"Only the engineer on this job ({who}) can mark that they've reached the site.")
     _state(lead, (Lead.ASSIGNED,), "check in")
     lead.status = Lead.VISITING
     lead.checked_in_at = timezone.now()
     lead.check_in_lat, lead.check_in_lng = lat, lng
     lead.save(update_fields=["status", "checked_in_at", "check_in_lat", "check_in_lng"])
     log(lead, "checked_in", "Reached the site" + (f" -- {note}" if note else ""), user)
+    tell_assigner(lead, user, "reached the site", (f"Note: {note}. " if note else "") + f"At {timezone.localtime(lead.checked_in_at):%I:%M %p}.")
     return lead
 
 
@@ -170,6 +196,7 @@ def diagnose(lead, user, diagnosis):
     lead.status = Lead.DIAGNOSED
     lead.save(update_fields=["diagnosis", "diagnosed_at", "status"])
     log(lead, "diagnosed", "Diagnosis recorded", user)
+    tell_assigner(lead, user, "diagnosis recorded", f"Found: {lead.diagnosis[:200]}")
     return lead
 
 
@@ -343,6 +370,10 @@ def _approve(lead, approval, source, user=None, reason="", ip=None, ua=""):
     who = "the client" if source == LeadApproval.CUSTOMER else f"{user} on the client's behalf"
     log(lead, "approved", f"Bill v{approval.quote.version} (₹{approval.quote.total}) approved by {who}" + (f" -- {reason}" if reason else ""), user)
     notify_staff("lead_approved", f"On-site bill approved -- {lead.code}", f"{lead.party.name} approved the bill for {lead.code} (₹{approval.quote.total}).")
+    tell_assigner(lead, user, "bill approved", f"₹{approval.quote.total} approved by {who}. Work can start.")
+    if lead.assigned_to_id and (user is None or user.pk != lead.assigned_to_id):
+        notify_user(lead.assigned_to, "lead_progress", f"{lead.code}: bill approved -- start the work",
+                    f"{lead.party.name} -- ₹{approval.quote.total} approved by {who}.")
 
 
 def _reject(lead, approval, reason, ip=None, ua=""):
@@ -358,6 +389,9 @@ def _reject(lead, approval, reason, ip=None, ua=""):
     lead.reject_reason = reason[:500]
     lead.save(update_fields=["status", "reject_reason"])
     log(lead, "rejected", "Client declined the bill" + (f": {reason}" if reason else ""))
+    tell_assigner(lead, None, "client declined the bill", f"Reason: {reason}" if reason else "")
+    if lead.assigned_to_id:
+        notify_user(lead.assigned_to, "lead_progress", f"{lead.code}: client declined the bill", f"Reason: {reason}" if reason else "")
     flag_returns(lead)
     invoice = raise_visit_invoice(lead)
     if not invoice:
@@ -400,6 +434,10 @@ def customer_decide(raw, decision, consent=False, reason="", ip_address=None, us
                 lead.save(update_fields=["status"])
                 log(lead, "changes_requested", f"Client asked for changes: {reason}")
                 notify_staff("lead_changes_requested", f"Client wants changes -- {lead.code}", f"{lead.party.name}: {reason}")
+                tell_assigner(lead, None, "client wants changes to the bill", f"“{reason}”")
+                if lead.assigned_to_id:
+                    notify_user(lead.assigned_to, "lead_progress", f"{lead.code}: client wants changes to the bill",
+                                f"“{reason}” -- revise the bill and send a new link.")
             approval.refresh_from_db()
             return approval
     except IntegrityError as exc:
@@ -505,6 +543,7 @@ def start_work(lead, user):
     lead.work_started_at = timezone.now()
     lead.save(update_fields=["status", "work_started_at"])
     log(lead, "work_started", "Work started", user)
+    tell_assigner(lead, user, "work started")
     return lead
 
 
@@ -605,6 +644,9 @@ def complete_work(lead, user, notes=""):
     lead.work_notes = (notes or "")[:2000]
     lead.save(update_fields=["status", "work_done_at", "work_notes"])
     log(lead, "work_done", f"Work completed; invoice {invoice.code} for ₹{invoice.total} raised", user)
+    tell_assigner(lead, user, f"work done -- bill {invoice.code} ₹{invoice.total}",
+                  (f"Notes: {lead.work_notes[:160]}. " if lead.work_notes else "")
+                  + ("Nothing to collect (covered by the advance)." if invoice.total <= 0 else "Payment to collect."))
     if invoice.total <= 0:
         invoice.status, invoice.pay_method, invoice.paid_on, invoice.settled_by = Invoice.PAID, "No charge", today, user
         invoice.save(update_fields=["status", "pay_method", "paid_on", "settled_by"])
@@ -627,6 +669,8 @@ def on_lead_invoice_paid(invoice):
         return
     if lead.status in (Lead.WORK_DONE, Lead.REJECTED, Lead.TO_STORE) and not lead.checked_out_at:
         _check_out(lead)
+    tell_assigner(lead, invoice.settled_by, f"paid ₹{invoice.total} -- job closed" if lead.status == Lead.CLOSED else f"paid ₹{invoice.total}",
+                  f"Invoice {invoice.code} via {invoice.pay_method}.")
     from branding import texts
 
     text = texts.message("onsite_paid", customer=lead.party.name, amount=invoice.total, job=lead.code, invoice=invoice.code)
@@ -704,6 +748,7 @@ def cancel(lead, user, reason, charge_visit=False):
     lead.status, lead.cancel_reason = Lead.CANCELLED, reason[:200]
     lead.save(update_fields=["status", "cancel_reason"])
     log(lead, "cancelled", f"Cancelled -- {reason}", user)
+    tell_assigner(lead, user, "cancelled", f"Reason: {reason}")
     flag_returns(lead)
     if charge_visit and lead.checked_in_at:
         raise_visit_invoice(lead)
@@ -743,6 +788,7 @@ def take_to_store(lead, user, reason, charge_visit=True):
     lead.status = Lead.TO_STORE
     lead.save(update_fields=["repair_ticket", "status"])
     log(lead, "to_store", f"Taken to the store -- repair ticket {ticket.code} opened ({reason})", user)
+    tell_assigner(lead, user, f"taken to the store -- ticket {ticket.code}", f"Reason: {reason}")
     flag_returns(lead)
     if charge_visit:
         raise_visit_invoice(lead)

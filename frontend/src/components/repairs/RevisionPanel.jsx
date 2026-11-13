@@ -63,7 +63,7 @@ export default function RevisionPanel({ ticket, services, canWork, canApprove, o
   if (!pending && !ticket.on_hold_reason && !canPropose && !past.length && !approval) return null;
 
   return (
-    <section className="mt-3 p-3" data-panel style={{ border: `1px solid ${ticket.on_hold_reason ? C.amber : C.rule}`, backgroundColor: ticket.on_hold_reason ? `${C.amber}0D` : C.slip2 }}>
+    <section className="mt-3 p-3" data-panel style={{ border: `1px solid ${ticket.on_hold_reason ? C.amber : C.rule}`, backgroundColor: ticket.on_hold_reason ? `color-mix(in srgb, ${C.amber} 5%, transparent)` : C.slip2 }}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Eyebrow>Estimate revision</Eyebrow>
         {ticket.on_hold_reason && <Pill color={C.amber}>On hold</Pill>}

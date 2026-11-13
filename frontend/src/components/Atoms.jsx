@@ -20,7 +20,7 @@ export function Pill({ color, children }) {
       className="badge inline-flex items-center gap-1 px-2 py-0.5 text-xs"
       style={{
         display: "inline-flex", alignItems: "center", gap: 4, fontFamily: F.body, fontWeight: 700,
-        color, backgroundColor: `${color}18`,
+        color, backgroundColor: `color-mix(in srgb, ${color} 9%, transparent)`,
       }}
     >
       {children}
@@ -30,16 +30,16 @@ export function Pill({ color, children }) {
 
 export function StatCard({ label, value, sub, trend, icon: Icon }) {
   return (
-    <div data-panel className="min-w-[160px] flex-1 px-4 py-4 sm:px-5" style={{ backgroundColor: C.slip }}>
+    <div data-panel data-stat className="min-w-[160px] flex-1 px-4 py-4 sm:px-5" style={{ backgroundColor: C.slip }}>
       <div className="flex items-start justify-between gap-3">
         <p className="text-[11px] uppercase" style={{ fontFamily: F.body, fontWeight: 700, letterSpacing: "0.12em", color: C.inkSoft }}>{label}</p>
         {Icon && (
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl" style={{ backgroundColor: `${C.orange}14` }}>
-            <Icon size={15} style={{ color: C.orange }} />
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: `color-mix(in srgb, ${C.violet} 10%, transparent)` }}>
+            <Icon size={15} style={{ color: C.violet }} />
           </span>
         )}
       </div>
-      <p className="mt-2 text-[26px] leading-tight tracking-tight" style={{ fontFamily: F.display, fontWeight: 800, color: C.ink }}>{value}</p>
+      <p className="mt-2 text-[30px] leading-none" style={{ fontFamily: F.editorial, fontWeight: 600, color: C.ink, letterSpacing: "-0.02em" }}>{value}</p>
       {sub && (
         <p className="mt-1.5 flex items-center gap-1 text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: trend === "down" ? C.carbon : trend === "up" ? C.green : C.inkSoft }}>
           {trend === "up" && <TrendingUp size={12} />}
@@ -78,8 +78,7 @@ export function TabBar({ tabs, value, onChange }) {
   return (
     <div
       role="tablist"
-      className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-full p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}`, boxShadow: "0 1px 2px rgba(35,40,31,0.04)" }}
+      className="v2x-tabbar inline-flex max-w-full items-center gap-0.5 overflow-x-auto p-[3px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       {tabs.map((t) => {
         const active = t.id === value;
@@ -90,12 +89,8 @@ export function TabBar({ tabs, value, onChange }) {
             onClick={() => onChange(t.id)}
             role="tab"
             aria-selected={active}
-            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs"
-            style={{
-              fontFamily: F.body, fontWeight: 700,
-              color: active ? C.onAccent : C.inkSoft,
-              backgroundColor: active ? C.orange : "transparent",
-            }}
+            className="v2x-tab flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3.5 py-1.5 text-xs"
+            style={{ fontFamily: F.body, fontWeight: 700 }}
           >
             {t.icon && <t.icon size={13} />}
             {t.label}
@@ -117,14 +112,9 @@ export function PillButton({ icon: Icon, children, primary = false, onClick, typ
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`flex min-h-9 items-center gap-1.5 rounded-full px-4 py-2 text-xs transition-shadow hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
-      style={{
-        fontFamily: F.body, fontWeight: 700,
-        color: primary ? C.onAccent : C.ink,
-        backgroundColor: primary ? C.orange : C.slip,
-        border: primary ? "none" : `1px solid ${C.rule}`,
-        boxShadow: primary ? "0 1px 2px rgba(35,40,31,0.08)" : "none",
-      }}
+      data-variant={primary ? "primary" : "secondary"}
+      className={`v2x-btn flex min-h-9 items-center gap-1.5 px-4 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
+      style={{ fontFamily: F.body, fontWeight: 700 }}
     >
       {Icon && <Icon size={13} />}
       {children}
@@ -164,7 +154,7 @@ export function SearchInput({ value, onChange, placeholder, className = "", auto
 export function ErrorNote({ message }) {
   if (!message) return null;
   return (
-    <div role="alert" className="mt-3 rounded-xl px-3 py-2 text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: C.carbon, border: `1px solid ${C.carbon}44`, backgroundColor: `${C.carbon}0D` }}>
+    <div role="alert" className="mt-3 rounded-xl px-3 py-2 text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: C.carbon, border: `1px solid color-mix(in srgb, ${C.carbon} 27%, transparent)`, backgroundColor: `color-mix(in srgb, ${C.carbon} 5%, transparent)` }}>
       {message}
     </div>
   );

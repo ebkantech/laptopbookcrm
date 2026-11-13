@@ -154,6 +154,9 @@ class NotificationRule(models.Model):
         ("payment_received", "A payment was recorded (invoice or repair bill settled)"),
         ("parts_return", "Parts you took out must be returned to the store"),
         ("lead_parts_due", "A technician hasn't returned unused parts after a job closed"),
+        # sent straight to one person, not by role (crmbook_backend.notify.notify_user)
+        ("lead_assigned", "An on-site job was given to you"),
+        ("lead_progress", "Progress on an on-site job you gave out"),
     ]
     event_key = models.CharField(max_length=40, choices=EVENT_CHOICES)
     role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="notification_rules")

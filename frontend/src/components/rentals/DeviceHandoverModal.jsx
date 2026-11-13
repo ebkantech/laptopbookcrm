@@ -209,7 +209,7 @@ function DeviceHandover({ lineId, onSaved, allLineIds }) {
       </div>
       {!editable && <p className="p-2 text-xs" style={{ backgroundColor: C.slip2, color: C.inkSoft }}>{data.waiting_reason || "Locked — this is what the customer approved."}</p>}
       {data.issues.length > 0 && (
-        <ul className="space-y-0.5 p-2 text-xs" style={{ backgroundColor: `${C.amber}12`, color: C.ink }}>
+        <ul className="space-y-0.5 p-2 text-xs" style={{ backgroundColor: `color-mix(in srgb, ${C.amber} 7%, transparent)`, color: C.ink }}>
           {data.issues.map((i) => <li key={i}>• {i}</li>)}
         </ul>
       )}

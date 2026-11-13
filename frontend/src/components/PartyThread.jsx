@@ -158,7 +158,7 @@ export function PartyThread({ partyId, messages, onChanged, onHidden, defaultCha
       <span role="status" className="text-right" style={{ fontWeight: 600 }}>{message.channel === "whatsapp" && message.delivery_status === "failed"
         ? message.delivery_error || "WhatsApp couldn't deliver this message" // "Failed" itself is the red indicator by the time
         : `${state.label}${message.delivery_status === "failed" && message.delivery_error ? `: ${message.delivery_error}` : ""}`}</span>
-      {state.retry && canManage && <button type="button" onClick={() => retrySend(message)} disabled={!!retryingId} className="rounded-full px-2 py-0.5 disabled:opacity-50" style={{ border: `1px solid ${color}66`, color, fontWeight: 700 }}>{retryingId === message.id ? "Sending…" : state.retry}</button>}
+      {state.retry && canManage && <button type="button" onClick={() => retrySend(message)} disabled={!!retryingId} className="rounded-full px-2 py-0.5 disabled:opacity-50" style={{ border: `1px solid color-mix(in srgb, ${color} 40%, transparent)`, color, fontWeight: 700 }}>{retryingId === message.id ? "Sending…" : state.retry}</button>}
     </div>;
   };
   const handleComposerKeyDown = (event) => {
@@ -197,7 +197,7 @@ export function PartyThread({ partyId, messages, onChanged, onHidden, defaultCha
 
   return <div data-panel style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip2 }}>
     <div className="flex" style={{ borderBottom: `1px solid ${C.rule}` }}>
-      {["whatsapp", "email", "portal"].map((key) => { const item = meta[key]; const active = channel === key; return <button key={key} type="button" onClick={() => { setChannel(key); setError(""); }} className="flex flex-1 items-center justify-center gap-1.5 py-2 text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: active ? item.color : C.inkSoft, backgroundColor: active ? `${item.color}17` : "transparent", borderBottom: `2px solid ${active ? item.color : "transparent"}` }}><item.icon size={13} />{{ whatsapp: "WhatsApp", email: "Email", portal: "Portal" }[key]}</button>; })}
+      {["whatsapp", "email", "portal"].map((key) => { const item = meta[key]; const active = channel === key; return <button key={key} type="button" onClick={() => { setChannel(key); setError(""); }} className="flex flex-1 items-center justify-center gap-1.5 py-2 text-xs" style={{ fontFamily: F.body, fontWeight: 600, color: active ? item.color : C.inkSoft, backgroundColor: active ? `color-mix(in srgb, ${item.color} 9%, transparent)` : "transparent", borderBottom: `2px solid ${active ? item.color : "transparent"}` }}><item.icon size={13} />{{ whatsapp: "WhatsApp", email: "Email", portal: "Portal" }[key]}</button>; })}
     </div>
     <div ref={messagesRef} className="space-y-2 px-3 py-3" style={{ maxHeight: 260, overflowY: "auto", overscrollBehavior: "contain" }}>
       {shown.map((message) => <div key={message.id} className={`group min-w-0 ${message.direction === "in" ? "pr-1 sm:pr-8" : "pl-1 text-right sm:pl-8"}`}>
@@ -217,7 +217,7 @@ export function PartyThread({ partyId, messages, onChanged, onHidden, defaultCha
           ]} /></span>}
         </div>}
         {!message.is_deleted && editingId !== message.id && quickCopies(message).length > 0 && <div className={`mt-1 flex flex-wrap gap-1 ${message.direction === "out" ? "justify-end" : "justify-start"}`}>
-          {quickCopies(message).map(({ key, label, icon: Icon, run }) => <button key={key} type="button" onClick={run} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] hover:bg-black/5" style={{ fontFamily: F.body, fontWeight: 600, color: meta[channel].color, border: `1px solid ${meta[channel].color}55` }}><Icon size={11} />{label}</button>)}
+          {quickCopies(message).map(({ key, label, icon: Icon, run }) => <button key={key} type="button" onClick={run} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] hover:bg-black/5" style={{ fontFamily: F.body, fontWeight: 600, color: meta[channel].color, border: `1px solid color-mix(in srgb, ${meta[channel].color} 33%, transparent)` }}><Icon size={11} />{label}</button>)}
         </div>}
         {deliveryLine(message)}
         <div className={`mt-0.5 flex items-center gap-1 text-[10px] ${message.direction === "out" ? "justify-end" : "justify-start"}`} style={{ fontFamily: F.mono, color: C.inkSoft }}>
@@ -241,7 +241,7 @@ export function PartyThread({ partyId, messages, onChanged, onHidden, defaultCha
     </div>}
     <div className="px-3 pb-3">
       <label className="sr-only" htmlFor={`message-draft-${partyId}`}>{channel === "whatsapp" ? "New WhatsApp message to the customer" : channel === "portal" ? "New customer portal message" : "New email CRM message"}</label>
-      <div className="flex min-w-0 items-end gap-2 rounded-full px-2 py-1.5 transition-shadow focus-within:ring-2" style={{ border: `1px solid ${C.rule}`, background: C.slip, "--tw-ring-color": `${sendColor}55` }}>
+      <div className="flex min-w-0 items-end gap-2 rounded-full px-2 py-1.5 transition-shadow focus-within:ring-2" style={{ border: `1px solid ${C.rule}`, background: C.slip, "--tw-ring-color": `color-mix(in srgb, ${sendColor} 33%, transparent)` }}>
         <textarea ref={draftRef} id={`message-draft-${partyId}`} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleComposerKeyDown} rows={1} disabled={!canManage} placeholder={channel === "email" ? "Type an email message..." : "Type a message..."} aria-describedby={!canManage ? `message-permission-${partyId}` : undefined} className="max-h-[132px] min-h-[34px] min-w-0 flex-1 resize-none appearance-none border-0 bg-transparent px-2 py-2 text-xs leading-5 outline-none shadow-none disabled:cursor-not-allowed disabled:opacity-60" style={{ fontFamily: F.body, color: C.ink, border: "none", boxShadow: "none", outline: "none", background: "transparent" }} />
         <button type="button" onClick={saveDraft} disabled={!canManage || !draft.trim() || saving} aria-label={saving ? "Sending message" : "Send message"} title="Send message" className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white transition duration-150 hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40" style={{ background: sendColor }}><Send size={15} className={saving ? "animate-pulse" : ""} /></button>
       </div>

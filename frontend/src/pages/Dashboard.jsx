@@ -65,28 +65,36 @@ const UI = {
   green: C.green,
   amber: C.amber,
   red: C.carbon,
-  plum: "#7D5A94",
+  plum: C.violet,
   navy: C.deep,
 };
 
 const cardStyle = {
   background: UI.surface,
   border: `1px solid ${UI.border}`,
-  borderRadius: 16,
-  boxShadow: "0 1px 2px rgba(35,40,31,0.04), 0 8px 24px -12px rgba(35,40,31,0.10)",
+  borderRadius: 12,
+  boxShadow: "var(--cb-shadow-2)",
 };
 
 const font = {
   fontFamily: F.body,
 };
 
+// "Good morning, Aman" -- the signed-in user's first name, by local time.
+function greeting(me) {
+  const h = new Date().getHours();
+  const part = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+  const name = (me?.first_name || "").trim();
+  return name ? `${part}, ${name}` : part;
+}
+
 function SectionTitle({ title, subtitle, action }) {
   return (
     <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
       <div>
         <h2
-          className="text-base font-bold tracking-tight"
-          style={{ color: UI.text, ...font }}
+          className="text-[19px] leading-tight"
+          style={{ color: UI.text, fontFamily: F.editorial, fontWeight: 600, letterSpacing: "-0.01em" }}
         >
           {title}
         </h2>
@@ -122,7 +130,7 @@ function Pill({ color = UI.primary, children }) {
       className="inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold"
       style={{
         color,
-        background: `${color}12`,
+        background: `color-mix(in srgb, ${color} 7%, transparent)`,
         ...font,
       }}
     >
@@ -145,7 +153,7 @@ function IconTile({ icon: Icon, color = UI.primary, size = 17 }) {
       className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
       style={{
         color,
-        background: `${color}12`,
+        background: `color-mix(in srgb, ${color} 7%, transparent)`,
       }}
     >
       <Icon size={size} strokeWidth={2} />
@@ -176,7 +184,7 @@ function Spinner({ label = "Loading dashboard..." }) {
       <span
         className="h-9 w-9 animate-spin rounded-full border-[3px]"
         style={{
-          borderColor: `${UI.primary}25`,
+          borderColor: `color-mix(in srgb, ${UI.primary} 15%, transparent)`,
           borderTopColor: UI.primary,
         }}
       />
@@ -264,7 +272,7 @@ function StatCard({ label, value, sub, trend, icon: Icon, color, onClick }) {
       )}
       <div
         className="mt-4 h-1 overflow-hidden rounded-full"
-        style={{ background: `${color}12` }}
+        style={{ background: `color-mix(in srgb, ${color} 7%, transparent)` }}
       >
         <div
           className="h-full w-1/3 rounded-full transition-all duration-500 group-hover:w-2/3"
@@ -419,7 +427,7 @@ const fmtFilterDate = (v) =>
   v ? new Date(`${v}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "";
 
 export default function Dashboard({ onGo }) {
-  const { can } = useSession();
+  const { can, me } = useSession();
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -574,12 +582,12 @@ export default function Dashboard({ onGo }) {
           <span className="h-2 w-2 rounded-full" style={{ background: UI.green }} />
           <span className="text-[10px] font-bold uppercase tracking-[0.15em]"
             style={{ color: UI.green }}>
-            Business overview
+            Command centre · {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}
           </span>
         </div>
 
         <PageHeader
-          title="Dashboard"
+          title={greeting(me)}
           subtitle={`${visibleSections.map((s) => sectionLabel[s]).join(" · ") || "No sections visible"} · Live business insights`}
           actions={
             <div className="flex items-center gap-2">
@@ -627,7 +635,7 @@ export default function Dashboard({ onGo }) {
               type="button"
               onClick={clearFilters}
               className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-bold"
-              style={{ color: UI.red, background: `${UI.red}0D` }}
+              style={{ color: UI.red, background: `color-mix(in srgb, ${UI.red} 5%, transparent)` }}
             >
               <X size={13} />
               Reset
@@ -724,7 +732,7 @@ export default function Dashboard({ onGo }) {
           <div className="flex items-end sm:col-span-2 xl:col-span-1" aria-live="polite">
             <div
               className="flex w-full items-center gap-2 rounded-xl px-3 py-3"
-              style={{ background: `${UI.primary}08`, border: `1px solid ${UI.primary}15` }}
+              style={{ background: `color-mix(in srgb, ${UI.primary} 3%, transparent)`, border: `1px solid color-mix(in srgb, ${UI.primary} 8%, transparent)` }}
             >
               <Activity size={15} style={{ color: UI.primary }} />
               <div className="min-w-0">
@@ -863,7 +871,7 @@ export default function Dashboard({ onGo }) {
                 subtitle="Paid sales, repairs and rentals · Last 6 months"
                 action={
                   <span className="rounded-lg px-2.5 py-1.5 text-[10px] font-bold"
-                    style={{ color: UI.green, background: `${UI.green}10` }}>
+                    style={{ color: UI.green, background: `color-mix(in srgb, ${UI.green} 6%, transparent)` }}>
                     Paid invoices
                   </span>
                 }
@@ -945,7 +953,7 @@ export default function Dashboard({ onGo }) {
                 subtitle="Items that need your attention"
                 action={
                   <span className="rounded-lg px-2 py-1 text-[10px] font-bold"
-                    style={{ color: UI.red, background: `${UI.red}10` }}>
+                    style={{ color: UI.red, background: `color-mix(in srgb, ${UI.red} 6%, transparent)` }}>
                     {data.low_stock_count} alerts
                   </span>
                 }
@@ -959,7 +967,7 @@ export default function Dashboard({ onGo }) {
                   >
                     <div
                       className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-                      style={{ background: `${UI.amber}14`, color: UI.amber }}
+                      style={{ background: `color-mix(in srgb, ${UI.amber} 8%, transparent)`, color: UI.amber }}
                     >
                       <Boxes size={16} />
                     </div>
@@ -1043,7 +1051,7 @@ export default function Dashboard({ onGo }) {
                   >
                     {count}
                   </p>
-                  <div className="mt-3 h-1 overflow-hidden rounded-full" style={{ background: `${color}18` }}>
+                  <div className="mt-3 h-1 overflow-hidden rounded-full" style={{ background: `color-mix(in srgb, ${color} 9%, transparent)` }}>
                     <div className="h-full w-1/2 rounded-full" style={{ background: color }} />
                   </div>
                 </div>
@@ -1092,7 +1100,7 @@ export default function Dashboard({ onGo }) {
                     >
                       <div
                         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold"
-                        style={{ background: `${color}12`, color }}
+                        style={{ background: `color-mix(in srgb, ${color} 7%, transparent)`, color }}
                       >
                         {String(r.party || "?").slice(0, 1).toUpperCase()}
                       </div>
@@ -1157,7 +1165,7 @@ export default function Dashboard({ onGo }) {
 
       <div className="pb-3 pt-7 text-center">
         <p className="text-[10px] font-medium tracking-wide" style={{ color: UI.muted }}>
-          BUSINESS OVERVIEW · LIVE API DATA
+          VANTAGE2X COMMAND CENTRE · LIVE DATA
         </p>
       </div>
       {detail && <MetricDetail metric={detail} filters={{ dateFrom, dateTo, channel }} onClose={() => setDetail(null)} onGo={onGo} />}

@@ -4,12 +4,12 @@
  * affected; colours come from the --cb-* tokens in index.css.
  * ------------------------------------------------------------------ */
 .st {
-  --st-violet: #6D5BD0;
-  --st-accent-soft: rgba(49, 87, 213, 0.08);
-  --st-amber: #B7791F;
-  --st-amber-soft: rgba(183, 121, 31, 0.12);
-  --st-red-soft: rgba(200, 60, 74, 0.1);
-  --st-green-soft: rgba(22, 132, 91, 0.1);
+  --st-violet: var(--cb-violet);
+  --st-accent-soft: color-mix(in srgb, var(--cb-accent) 8%, transparent);
+  --st-amber: var(--cb-amber);
+  --st-amber-soft: color-mix(in srgb, var(--cb-amber) 12%, transparent);
+  --st-red-soft: color-mix(in srgb, var(--cb-red) 10%, transparent);
+  --st-green-soft: color-mix(in srgb, var(--cb-green) 10%, transparent);
   container-type: inline-size;
   font-family: var(--cb-font-body);
   color: var(--cb-ink);
@@ -36,7 +36,7 @@
 }
 .st-btn:hover:not(:disabled) { border-color: var(--cb-rule-strong); background: var(--cb-inset); }
 .st-btn:disabled { opacity: 0.55; cursor: not-allowed; }
-.st-btn[data-variant="primary"] { background: var(--cb-accent); border-color: var(--cb-accent); color: #fff; }
+.st-btn[data-variant="primary"] { background: var(--cb-accent); border-color: var(--cb-accent); color: var(--cb-on-accent); }
 .st-btn[data-variant="primary"]:hover:not(:disabled) { filter: brightness(0.95); background: var(--cb-accent); }
 .st-btn[data-variant="danger"] { background: var(--cb-red); border-color: var(--cb-red); color: #fff; }
 .st-btn[data-variant="danger"]:hover:not(:disabled) { filter: brightness(0.95); background: var(--cb-red); }
@@ -62,7 +62,7 @@
 .st-badge[data-tone="amber"] { color: var(--st-amber); background: var(--st-amber-soft); }
 .st-badge[data-tone="red"] { color: var(--cb-red); background: var(--st-red-soft); }
 .st-badge[data-tone="grey"] { color: var(--cb-ink-soft); background: var(--cb-inset); box-shadow: inset 0 0 0 1px var(--cb-rule); }
-.st-badge[data-tone="violet"] { color: var(--st-violet); background: rgba(109, 91, 208, 0.1); }
+.st-badge[data-tone="violet"] { color: var(--st-violet); background: color-mix(in srgb, var(--cb-violet) 10%, transparent); }
 
 /* Summary strip ------------------------------------------------------- */
 .st-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; }
@@ -120,7 +120,7 @@ button.st-stat[aria-pressed="true"] { border-color: var(--cb-accent); box-shadow
   flex-shrink: 0; width: 2.3rem; height: 2.3rem;
   display: inline-flex; align-items: center; justify-content: center;
   border-radius: 999px; font-family: var(--cb-font-display); font-weight: 800; font-size: 12px;
-  color: var(--st-violet); background: rgba(109, 91, 208, 0.1);
+  color: var(--st-violet); background: color-mix(in srgb, var(--cb-violet) 10%, transparent);
 }
 .st-name { display: block; font-weight: 700; font-size: 13.5px; overflow-wrap: anywhere; }
 .st-sub { display: block; font-size: 12px; color: var(--cb-ink-soft); overflow-wrap: anywhere; }
@@ -146,7 +146,7 @@ button.st-stat[aria-pressed="true"] { border-color: var(--cb-accent); box-shadow
   .st-tr:not(.st-th) .st-badge > svg { display: inline; margin-right: 0.3rem; vertical-align: -1px; }
   .st-actions { flex-wrap: nowrap; }
   .st-tr + .st-tr { border-top: 1px solid var(--cb-rule); }
-  .st-tr:not(.st-th):hover { background: rgba(49, 87, 213, 0.03); }
+  .st-tr:not(.st-th):hover { background: color-mix(in srgb, var(--cb-accent) 3%, transparent); }
   .st-tr > [data-label]::before { display: none; }
   .st-th { display: grid; background: var(--cb-inset); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cb-ink-soft); padding-block: 0.7rem; }
   .st-person, .st-actions { grid-column: auto; }
@@ -159,20 +159,20 @@ button.st-stat[aria-pressed="true"] { border-color: var(--cb-accent); box-shadow
   display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.45rem;
   padding: 2.25rem 1.25rem;
   border: 1px dashed var(--cb-rule-strong); border-radius: var(--cb-radius-xl);
-  background: rgba(255, 255, 255, 0.65);
+  background: color-mix(in srgb, var(--cb-surface) 65%, transparent);
 }
 .st-state-title { font-weight: 700; font-size: 14px; }
 .st-alert {
   display: flex; align-items: flex-start; gap: 0.5rem;
   padding: 0.7rem 0.85rem; border-radius: var(--cb-radius-md);
   font-size: 12.5px; line-height: 1.5;
-  color: var(--cb-red); background: var(--st-red-soft); border: 1px solid rgba(200, 60, 74, 0.25);
+  color: var(--cb-red); background: var(--st-red-soft); border: 1px solid color-mix(in srgb, var(--cb-red) 25%, transparent);
 }
-.st-alert[data-tone="ok"] { color: var(--cb-green); background: var(--st-green-soft); border-color: rgba(22, 132, 91, 0.25); }
-.st-alert[data-tone="info"] { color: var(--cb-ink); background: var(--st-accent-soft); border-color: rgba(49, 87, 213, 0.2); }
-.st-alert[data-tone="warn"] { color: var(--cb-ink); background: var(--st-amber-soft); border-color: rgba(183, 121, 31, 0.3); }
+.st-alert[data-tone="ok"] { color: var(--cb-green); background: var(--st-green-soft); border-color: color-mix(in srgb, var(--cb-green) 25%, transparent); }
+.st-alert[data-tone="info"] { color: var(--cb-ink); background: var(--st-accent-soft); border-color: color-mix(in srgb, var(--cb-accent) 20%, transparent); }
+.st-alert[data-tone="warn"] { color: var(--cb-ink); background: var(--st-amber-soft); border-color: color-mix(in srgb, var(--cb-amber) 30%, transparent); }
 .st-alert svg { flex-shrink: 0; margin-top: 0.1rem; }
-.st-skel { display: block; border-radius: 13px; background: linear-gradient(90deg, #EDF0F5 0%, #F7F9FC 50%, #EDF0F5 100%); background-size: 200% 100%; animation: st-shimmer 1.3s ease-in-out infinite; }
+.st-skel { display: block; border-radius: 13px; background: linear-gradient(90deg, var(--cb-inset) 0%, var(--cb-surface) 50%, var(--cb-inset) 100%); background-size: 200% 100%; animation: st-shimmer 1.3s ease-in-out infinite; }
 @keyframes st-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 
 /* Dialog ----------------------------------------------------------------- */

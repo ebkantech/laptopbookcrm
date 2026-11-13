@@ -17,7 +17,7 @@ import { WARRANTY_CHOICES, blankLine, discountOff, placeVariant, variantForProdu
 import ProductSearch from "../components/invoices/ProductSearch";
 import { canRevise, revisionLines, unitsOnInvoice } from "../components/invoices/invoiceRevision";
 
-const STATUS_COLOR = { Paid: "#36D399", "Payment link sent": "#F5A623", Overdue: "#FB5B5B", Cancelled: "#8A8F98", Refunded: "#7C6FD8" };
+const STATUS_COLOR = { Paid: C.green, "Payment link sent": C.amber, Overdue: C.carbon, Cancelled: C.inkSoft, Refunded: C.violet };
 const isOutstanding = (inv) => inv.status === "Payment link sent" || inv.status === "Overdue";
 const isSettled = (inv) => inv.status === "Paid" || inv.status === "Refunded";
 // "Payment link sent" is also the default status of a brand-new unpaid
@@ -31,7 +31,7 @@ const REFERENCE_HINT = {
   UPI: "UPI transaction ID / UTR", "Bank transfer": "UTR / NEFT / IMPS reference", Card: "Card slip / approval code",
   Cheque: "Cheque number and bank", Other: "Reference", Cash: "Receipt number (optional)",
 };
-const WARRANTY_STATUS_COLOR = { Active: "#36D399", "Expiring soon": "#F5A623", Expired: "#FB5B5B" };
+const WARRANTY_STATUS_COLOR = { Active: C.green, "Expiring soon": C.amber, Expired: C.carbon };
 
 // New sale invoice, or -- given `revising` -- the same form filled from an
 // unpaid sale invoice, saved back onto it (same number; the server moves
@@ -284,7 +284,7 @@ function WarrantyCard({ invoice, warranty, onGranted }) {
   }
 
   return (
-    <div className="mt-4 p-3" data-panel style={{ border: `1px solid ${C.green}66`, backgroundColor: `${C.green}10`, boxShadow: "none" }}>
+    <div className="mt-4 p-3" data-panel style={{ border: `1px solid color-mix(in srgb, ${C.green} 40%, transparent)`, backgroundColor: `color-mix(in srgb, ${C.green} 6%, transparent)`, boxShadow: "none" }}>
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1.5 text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.08em", color: C.inkSoft }}>
           <ShieldCheck size={13} style={{ color: C.green }} /> Warranty terms & conditions
@@ -387,7 +387,7 @@ function CancelInvoice({ invoice, onChanged }) {
     }
   };
   return (
-    <div className="mt-3 p-3" style={{ border: `1px solid ${C.carbon}55`, backgroundColor: `${C.carbon}0A` }}>
+    <div className="mt-3 p-3" style={{ border: `1px solid color-mix(in srgb, ${C.carbon} 33%, transparent)`, backgroundColor: `color-mix(in srgb, ${C.carbon} 4%, transparent)` }}>
       <p className="text-xs" style={{ fontFamily: F.body, color: C.ink }}>
         Cancel {invoice.code}? {invoice.source === "sale" ? "The items go back into stock. " : ""}Any payment link sent for it stops working.
       </p>
@@ -456,7 +456,7 @@ function RefundInvoice({ invoice, onChanged }) {
   };
 
   return (
-    <div className="mt-3 p-3" style={{ border: `1px solid ${C.carbon}55`, backgroundColor: `${C.carbon}0A` }}>
+    <div className="mt-3 p-3" style={{ border: `1px solid color-mix(in srgb, ${C.carbon} 33%, transparent)`, backgroundColor: `color-mix(in srgb, ${C.carbon} 4%, transparent)` }}>
       <Eyebrow>{isSale ? "Return items & refund" : "Refund"}</Eyebrow>
       {isSale ? (
         <div className="mt-2 space-y-1.5">
@@ -774,7 +774,7 @@ export default function Invoices() {
       </div>
 
       {partyFilter && (
-        <div className="mx-5 mb-3 flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-xs sm:mx-8" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.green}`, backgroundColor: `${C.green}0D` }}>
+        <div className="mx-5 mb-3 flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-xs sm:mx-8" style={{ fontFamily: F.body, color: C.ink, border: `1px solid ${C.green}`, backgroundColor: `color-mix(in srgb, ${C.green} 5%, transparent)` }}>
           Showing {partyFilter.due ? "unpaid invoices" : "invoices"} for <b>{filteredPartyName || "this customer"}</b>. Open one to record a full or part payment.
           <button type="button" onClick={clearPartyFilter} className="ml-auto flex items-center gap-1 underline" style={{ color: C.inkSoft }}><X size={12} /> Show all invoices</button>
         </div>
@@ -816,7 +816,7 @@ export default function Invoices() {
                 </button>
               )}
               {isOutstanding(inv) && can("invoices.settle") && (
-                <button type="button" onClick={(e) => { e.stopPropagation(); setOpenInvoice(inv); }} className="flex items-center gap-1 rounded-full px-3 py-1.5 text-xs" style={{ border: `1px solid ${C.green}66`, backgroundColor: `${C.green}0D`, color: C.green, fontFamily: F.body, fontWeight: 700 }}>
+                <button type="button" onClick={(e) => { e.stopPropagation(); setOpenInvoice(inv); }} className="flex items-center gap-1 rounded-full px-3 py-1.5 text-xs" style={{ border: `1px solid color-mix(in srgb, ${C.green} 40%, transparent)`, backgroundColor: `color-mix(in srgb, ${C.green} 5%, transparent)`, color: C.green, fontFamily: F.body, fontWeight: 700 }}>
                   <IndianRupee size={11} /> Record payment
                 </button>
               )}

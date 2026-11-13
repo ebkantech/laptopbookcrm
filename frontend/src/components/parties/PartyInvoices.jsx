@@ -5,7 +5,7 @@ import { api } from "../../lib/api";
 import { useSession } from "../../context/SessionContext";
 import { Pill } from "../Atoms";
 
-const STATUS_COLOR = { Paid: C.green, "Payment link sent": C.amber, Overdue: C.carbon, Cancelled: C.inkSoft, Refunded: "#7C6FD8" };
+const STATUS_COLOR = { Paid: C.green, "Payment link sent": C.amber, Overdue: C.carbon, Cancelled: C.inkSoft, Refunded: C.violet };
 // sales.models.Invoice.OUTSTANDING -- still owed, and owed in full: settling an invoice always marks all of it paid.
 const OUTSTANDING = ["Payment link sent", "Overdue"];
 
@@ -163,7 +163,7 @@ export default function PartyInvoices({ partyId, invoices, invoiceCount, totalSp
           const owed = OUTSTANDING.includes(invoice.status);
           const color = STATUS_COLOR[invoice.status] || C.inkSoft;
           return (
-            <li key={invoice.id} className="overflow-hidden rounded-xl" style={{ backgroundColor: C.slip2, border: `1px solid ${open ? `${C.stamp}55` : "transparent"}` }}>
+            <li key={invoice.id} className="overflow-hidden rounded-xl" style={{ backgroundColor: C.slip2, border: `1px solid ${open ? `color-mix(in srgb, ${C.stamp} 33%, transparent)` : "transparent"}` }}>
               <button type="button" onClick={() => toggle(invoice.id)} aria-expanded={open} aria-controls={`party-invoice-items-${invoice.id}`}
                 className="flex w-full min-w-0 items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-black/[0.03]"
                 style={{ borderRadius: 0, backgroundColor: "transparent" }}>

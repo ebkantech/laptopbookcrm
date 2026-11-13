@@ -59,7 +59,7 @@ export default function ProfitLossCard({ filters, onGo }) {
     <>
       <button type="button" onClick={() => st && setOpen(true)} disabled={!st}
         className="group min-w-0 rounded-2xl p-3.5 text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-lg sm:col-span-2 sm:p-5"
-        style={{ background: `linear-gradient(135deg, ${C.slip} 0%, ${C.slip2} 100%)`, border: `1px solid ${C.stamp}55`,
+        style={{ background: `linear-gradient(135deg, ${C.slip} 0%, ${C.slip2} 100%)`, border: `1px solid color-mix(in srgb, ${C.stamp} 33%, transparent)`,
           boxShadow: "0 1px 2px rgba(35,40,31,0.04), 0 8px 24px -12px rgba(35,40,31,0.10)" }}
         aria-label="Profit and loss — open details">
         <div className="flex items-start justify-between gap-3">
@@ -88,7 +88,7 @@ export default function ProfitLossCard({ filters, onGo }) {
               </>
             )}
           </div>
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ background: `${C.stamp}14`, color: C.stamp }}><LineChart size={18} /></span>
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ background: `color-mix(in srgb, ${C.stamp} 8%, transparent)`, color: C.stamp }}><LineChart size={18} /></span>
         </div>
         {st && <p className="mt-3 flex items-center gap-1 text-[11px]" style={{ fontFamily: F.body, fontWeight: 700, color: C.stamp }}>See breakdown & supplier comparison <ChevronRight size={12} /></p>}
       </button>
@@ -203,7 +203,7 @@ function SupplierComparison({ compare }) {
       {compare.suppliers.length > 1 && (
         <div className="mt-2 flex flex-wrap gap-2">
           {compare.suppliers.map((s, i) => (
-            <span key={s.supplier_id} className="rounded-lg px-3 py-1.5 text-xs" style={{ fontFamily: F.body, backgroundColor: i === 0 ? `${C.green}14` : C.slip2, border: `1px solid ${i === 0 ? C.green : C.rule}`, color: C.ink }}>
+            <span key={s.supplier_id} className="rounded-lg px-3 py-1.5 text-xs" style={{ fontFamily: F.body, backgroundColor: i === 0 ? `color-mix(in srgb, ${C.green} 8%, transparent)` : C.slip2, border: `1px solid ${i === 0 ? C.green : C.rule}`, color: C.ink }}>
               {i === 0 && <Award size={12} className="mr-1 inline" style={{ color: C.green }} />}<b>{s.supplier}</b> · {s.sold}/{s.bought} sold · profit <b style={{ fontFamily: F.mono, color: tone(s.profit) }}>{money(s.profit)}</b>
             </span>
           ))}
@@ -226,7 +226,7 @@ function SupplierComparison({ compare }) {
               </thead>
               <tbody>
                 {p.suppliers.map((r) => (
-                  <tr key={r.supplier_id} style={{ borderTop: `1px solid ${C.rule}`, color: C.ink, backgroundColor: r.best ? `${C.green}0D` : undefined }}>
+                  <tr key={r.supplier_id} style={{ borderTop: `1px solid ${C.rule}`, color: C.ink, backgroundColor: r.best ? `color-mix(in srgb, ${C.green} 5%, transparent)` : undefined }}>
                     <td className="px-3 py-1.5 text-xs" style={{ fontFamily: F.body, fontWeight: 600 }}>{r.best && <Award size={11} className="mr-1 inline" style={{ color: C.green }} />}{r.supplier}</td>
                     <td className={cell} style={{ fontFamily: F.mono }}>{r.bought}</td>
                     <td className={cell} style={{ fontFamily: F.mono }}>{money(r.avg_cost)}</td>

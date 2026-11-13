@@ -96,8 +96,8 @@ def allowed_actions(lead, user):
         acts.append("assign")
     if manage and s in (Lead.NEW, Lead.ASSIGNED, Lead.VISITING, Lead.DIAGNOSED, Lead.AWAITING):
         acts += ["edit", "reschedule"]
-    if works and s == Lead.ASSIGNED:
-        acts.append("check_in")
+    if works and s == Lead.ASSIGNED and lead.assigned_to_id == user.id:
+        acts.append("check_in")  # only the assigned engineer (services.check_in)
     if works and s in (Lead.VISITING, Lead.DIAGNOSED):
         acts.append("diagnose")
     if quotes and (s in (Lead.DIAGNOSED, Lead.AWAITING, Lead.APPROVED) or (s == Lead.VISITING and lead.diagnosis)):

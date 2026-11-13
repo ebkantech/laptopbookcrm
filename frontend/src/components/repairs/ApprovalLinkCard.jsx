@@ -33,7 +33,7 @@ export default function ApprovalLinkCard({ approval, title = "Send this to the c
   };
   const cell = "flex min-h-[36px] items-center justify-center gap-1 py-2 text-xs";
   return (
-    <div className="mt-3 p-3" data-panel style={{ border: `1px solid ${C.green}`, backgroundColor: `${C.green}0D` }}>
+    <div className="mt-3 p-3" data-panel style={{ border: `1px solid ${C.green}`, backgroundColor: `color-mix(in srgb, ${C.green} 5%, transparent)` }}>
       <div className="flex items-start justify-between gap-2">
         <div>
           <Eyebrow>{title}</Eyebrow>

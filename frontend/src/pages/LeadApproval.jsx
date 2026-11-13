@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { AlertCircle, CheckCircle2, Clock3, FileCheck2, LoaderCircle, MessageSquareText, XCircle } from "lucide-react";
 
 import { api } from "../lib/api";
-import { C, F, money } from "../lib/theme";
+import { APP_NAME, C, F, money } from "../lib/theme";
 
 const MAX_MESSAGE = 500;
 
@@ -70,7 +70,7 @@ export default function LeadApproval({ token }) {
     <main className="cb-shell min-h-screen px-4 py-8" style={{ color: C.ink }}>
       <div className="mx-auto max-w-2xl">
         <header className="mb-5">
-          <p className="text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 700, letterSpacing: "0.14em", color: C.orange }}>CRMBook</p>
+          <p className="text-xs uppercase" style={{ fontFamily: F.body, fontWeight: 700, letterSpacing: "0.14em", color: C.green }}>{APP_NAME}</p>
           <h1 className="mt-1 text-xl" style={{ fontFamily: F.display, fontWeight: 700 }}>Approve your service bill</h1>
         </header>
         {loading ? (
@@ -88,11 +88,11 @@ export default function LeadApproval({ token }) {
               <FileCheck2 style={{ color: C.green }} />
             </div>
             {terminal && outcome ? (
-              <div role="status" className="mt-5 p-3" style={{ backgroundColor: `${outcome.color}14` }}>
+              <div role="status" className="mt-5 p-3" style={{ backgroundColor: `color-mix(in srgb, ${outcome.color} 8%, transparent)` }}>
                 <p className="flex items-start gap-2 text-sm"><outcome.icon size={18} className="mt-0.5 shrink-0" style={{ color: outcome.color }} /><span>{outcome.text}</span></p>
               </div>
             ) : (
-              <div className="mt-5 flex items-center gap-2 p-3" style={{ backgroundColor: `${C.amber}16` }}><Clock3 size={17} className="shrink-0" style={{ color: C.amber }} /><span className="text-xs">This secure link is valid for 24 hours{expiresAt && ` — until ${expiresAt}`}.</span></div>
+              <div className="mt-5 flex items-center gap-2 p-3" style={{ backgroundColor: `color-mix(in srgb, ${C.amber} 9%, transparent)` }}><Clock3 size={17} className="shrink-0" style={{ color: C.amber }} /><span className="text-xs">This secure link is valid for 24 hours{expiresAt && ` — until ${expiresAt}`}.</span></div>
             )}
             <dl className="mt-5 grid gap-3 sm:grid-cols-2 text-sm">
               {approval.device && <div className="p-3 rounded-xl" style={{ backgroundColor: C.slip2 }}><dt className="text-xs" style={{ color: C.inkSoft }}>Device</dt><dd className="mt-1">{approval.device}</dd></div>}

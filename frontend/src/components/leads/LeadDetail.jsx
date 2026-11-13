@@ -61,7 +61,7 @@ function PaymentModal({ lead, invoice, onClose, onDone }) {
 function LinkPanel({ info, lead, onClose }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="mt-4 p-4" style={{ border: `1px solid ${C.green}`, backgroundColor: `${C.green}0d` }}>
+    <div className="mt-4 p-4" style={{ border: `1px solid ${C.green}`, backgroundColor: `color-mix(in srgb, ${C.green} 5%, transparent)` }}>
       <p className="text-sm" style={{ fontWeight: 700 }}>Approval link ready — valid for 24 hours</p>
       <p className="mt-1 break-all text-xs" style={{ fontFamily: F.mono, color: C.inkSoft }}>{info.approval_url}</p>
       <div className="mt-3 grid gap-2 sm:grid-cols-3">
@@ -132,8 +132,8 @@ export default function LeadDetail({ lead, stockPoints, onChange, onClose }) {
         </dl>
         <p className="mt-3 whitespace-pre-line break-words p-3 text-sm" style={{ backgroundColor: C.slip2 }}><span className="block text-xs" style={{ color: C.inkSoft }}>Problem reported</span>{lead.issue}</p>
         {lead.diagnosis && <p className="mt-2 whitespace-pre-line break-words p-3 text-sm" style={{ backgroundColor: C.slip2 }}><span className="block text-xs" style={{ color: C.inkSoft }}>Diagnosis</span>{lead.diagnosis}</p>}
-        {lead.reject_reason && <p className="mt-2 break-words p-3 text-sm" style={{ backgroundColor: `${C.carbon}10` }}><span className="block text-xs" style={{ color: C.carbon }}>Client declined</span>{lead.reject_reason}</p>}
-        {lead.repair_ticket_code && <p className="mt-2 break-words p-3 text-sm" style={{ backgroundColor: `${C.stamp}12` }}><span className="block text-xs" style={{ color: C.stamp }}>Taken to the store</span>Now repair ticket <strong style={{ fontFamily: F.mono }}>{lead.repair_ticket_code}</strong> in Repairs & Service — the in-house team takes it from here.</p>}
+        {lead.reject_reason && <p className="mt-2 break-words p-3 text-sm" style={{ backgroundColor: `color-mix(in srgb, ${C.carbon} 6%, transparent)` }}><span className="block text-xs" style={{ color: C.carbon }}>Client declined</span>{lead.reject_reason}</p>}
+        {lead.repair_ticket_code && <p className="mt-2 break-words p-3 text-sm" style={{ backgroundColor: `color-mix(in srgb, ${C.stamp} 7%, transparent)` }}><span className="block text-xs" style={{ color: C.stamp }}>Taken to the store</span>Now repair ticket <strong style={{ fontFamily: F.mono }}>{lead.repair_ticket_code}</strong> in Repairs & Service — the in-house team takes it from here.</p>}
         {lead.cancel_reason && <p className="mt-2 break-words p-3 text-sm" style={{ backgroundColor: C.slip2 }}><span className="block text-xs" style={{ color: C.inkSoft }}>Cancelled</span>{lead.cancel_reason}</p>}
 
         {lead.quote && (

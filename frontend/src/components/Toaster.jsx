@@ -33,7 +33,7 @@ export default function Toaster() {
         return (
           <div key={t.id} role={t.kind === "error" ? "alert" : "status"} data-toast={t.kind}
             className="crm-toast pointer-events-auto flex w-full max-w-sm items-start gap-2.5 rounded-xl px-3.5 py-3"
-            style={{ backgroundColor: C.slip, border: `1px solid ${s.color}55`, borderLeft: `4px solid ${s.color}`, boxShadow: "0 10px 30px rgba(23,32,51,0.16)" }}>
+            style={{ backgroundColor: C.slip, border: `1px solid color-mix(in srgb, ${s.color} 33%, transparent)`, borderLeft: `4px solid ${s.color}`, boxShadow: "0 10px 30px rgba(23,32,51,0.16)" }}>
             <s.icon size={18} className="mt-0.5 shrink-0" style={{ color: s.color }} />
             <div className="min-w-0 flex-1">
               <p className="text-sm" style={{ fontFamily: F.body, fontWeight: 700, color: C.ink }}>{t.text}</p>

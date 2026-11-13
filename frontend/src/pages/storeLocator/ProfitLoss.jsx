@@ -43,7 +43,7 @@ const TX_KINDS = [
 ];
 const PAGE_SIZE = 25;
 // Revenue / cost of goods: the validated blue-amber pair; profit uses the status pair by sign.
-const SERIES = { revenue: C.stamp, cogs: C.amber, expenses: "#6D5BD0", profit: C.green, loss: C.carbon };
+const SERIES = { revenue: C.stamp, cogs: C.amber, expenses: C.violet, profit: C.green, loss: C.carbon };
 
 /* ---------------------------------------------------------------- *
  * Formatting

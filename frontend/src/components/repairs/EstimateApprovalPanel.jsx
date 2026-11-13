@@ -97,7 +97,7 @@ export default function EstimateApprovalPanel({ ticket, services, canManage, can
       </div>
 
       {status === "changes_requested" && estimate?.approval?.reason && (
-        <div role="status" className="mt-3 p-2.5 text-xs" style={{ border: `1px solid ${C.stamp}55`, backgroundColor: `${C.stamp}0D`, fontFamily: F.body, color: C.ink }}>
+        <div role="status" className="mt-3 p-2.5 text-xs" style={{ border: `1px solid color-mix(in srgb, ${C.stamp} 33%, transparent)`, backgroundColor: `color-mix(in srgb, ${C.stamp} 5%, transparent)`, fontFamily: F.body, color: C.ink }}>
           <b>The customer asked for changes:</b>
           <p className="mt-1 whitespace-pre-line break-words">“{estimate.approval.reason}”</p>
           <p className="mt-1" style={{ color: C.inkSoft }}>Revise the estimate below, then send a new approval link.</p>

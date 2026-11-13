@@ -50,7 +50,7 @@ function PortalLogin({ token, onLoggedIn }) {
         {status === "checking" && <p className="mt-4 text-sm" style={{ fontFamily: F.body, color: C.inkSoft }}>Checking your link\u2026</p>}
 
         {status === "invalid" && (
-          <div className="mt-4 px-3 py-2" style={{ backgroundColor: `${C.carbon}14`, border: `1px solid ${C.carbon}` }}>
+          <div className="mt-4 px-3 py-2" style={{ backgroundColor: `color-mix(in srgb, ${C.carbon} 8%, transparent)`, border: `1px solid ${C.carbon}` }}>
             <p className="text-sm" style={{ fontFamily: F.body, color: C.ink }}>{error || "This link is no longer valid."}</p>
             <p className="mt-1 text-xs" style={{ fontFamily: F.body, color: C.inkSoft }}>Ask a staff member to send a fresh portal link.</p>
           </div>

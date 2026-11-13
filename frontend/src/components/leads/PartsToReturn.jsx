@@ -27,7 +27,7 @@ export default function PartsToReturn({ onOpenLead, refreshKey = 0 }) {
     </li>
   );
   return (
-    <section aria-label="Parts to return" className="mt-4 p-4" style={{ border: `2px solid ${due.length ? C.carbon : C.amber}`, backgroundColor: due.length ? `${C.carbon}0f` : `${C.amber}12` }}>
+    <section aria-label="Parts to return" className="mt-4 p-4" style={{ border: `2px solid ${due.length ? C.carbon : C.amber}`, backgroundColor: due.length ? `color-mix(in srgb, ${C.carbon} 6%, transparent)` : `color-mix(in srgb, ${C.amber} 7%, transparent)` }}>
       <p className="flex items-center gap-2 text-sm" style={{ fontWeight: 700, color: due.length ? C.carbon : C.ink, fontFamily: F.body }}>
         {due.length ? <AlertTriangle size={16} /> : <PackageOpen size={16} />}
         {due.length ? `${due.length} item${due.length === 1 ? "" : "s"} to return to the store` : `${holding.length} item${holding.length === 1 ? "" : "s"} out with technicians`}

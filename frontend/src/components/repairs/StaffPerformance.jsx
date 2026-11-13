@@ -20,7 +20,7 @@ function JobTable({ jobs, open }) {
         </tr></thead>
         <tbody>
           {jobs.map((j) => (
-            <tr key={j.id} style={{ borderTop: `1px solid ${C.rule}`, backgroundColor: j.delayed ? `${C.carbon}12` : "transparent" }}>
+            <tr key={j.id} style={{ borderTop: `1px solid ${C.rule}`, backgroundColor: j.delayed ? `color-mix(in srgb, ${C.carbon} 7%, transparent)` : "transparent" }}>
               <td className="py-1.5 pr-3" style={{ fontFamily: F.mono, fontWeight: 700 }}>{j.code}<div style={{ fontFamily: F.body, fontWeight: 400, color: C.inkSoft }}>{j.party}</div></td>
               <td className="pr-3">{j.device}</td><td className="pr-3">{j.store}</td><td className="pr-3">{fmt(j.assigned_at)}</td>
               <td className="pr-3">{j.diagnosed_at ? <span title={j.diagnosis_note}>{fmt(j.diagnosed_at)}{j.hours_to_diagnose != null ? ` · ${formatHours(j.hours_to_diagnose)}` : ""}</span> : "—"}</td>
@@ -83,7 +83,7 @@ export default function StaffPerformance() {
                 const expanded = openId === r.id;
                 return (
                   <Fragment key={r.id}>
-                    <tr onClick={() => setOpenId(expanded ? null : r.id)} className="cursor-pointer" style={{ borderTop: `1px solid ${C.rule}`, backgroundColor: hasProblems(r) ? `${C.carbon}0F` : "transparent" }}>
+                    <tr onClick={() => setOpenId(expanded ? null : r.id)} className="cursor-pointer" style={{ borderTop: `1px solid ${C.rule}`, backgroundColor: hasProblems(r) ? `color-mix(in srgb, ${C.carbon} 6%, transparent)` : "transparent" }}>
                       <td className="p-2" style={{ fontWeight: 600 }}>{expanded ? <ChevronDown size={12} className="mr-1 inline" /> : <ChevronRight size={12} className="mr-1 inline" />}{r.name}<div style={{ fontWeight: 400, color: C.inkSoft }}>{r.store || "No store"}</div></td>
                       <td style={{ fontFamily: F.mono }}>{r.counts.today}</td><td style={{ fontFamily: F.mono }}>{r.counts.month}</td><td style={{ fontFamily: F.mono }}>{r.counts.year}</td>
                       <td style={{ fontFamily: F.mono }}>{r.period.done}</td>

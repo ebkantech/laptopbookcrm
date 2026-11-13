@@ -21,7 +21,7 @@ function Panel({ icon: Icon, title, note, children }) {
   return (
     <section data-panel className="p-5" style={{ border: `1px solid ${C.rule}`, backgroundColor: C.slip, borderRadius: 14 }}>
       <div className="flex items-start gap-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center" style={{ borderRadius: 999, backgroundColor: `${C.stamp}12` }}>
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center" style={{ borderRadius: 999, backgroundColor: `color-mix(in srgb, ${C.stamp} 7%, transparent)` }}>
           <Icon size={17} style={{ color: C.stamp }} />
         </span>
         <div className="min-w-0">
@@ -152,7 +152,7 @@ function PartEditor({ title, icon: Icon, value, onChange, rows, allowed, require
         {allowed.map((name) => (
           <button key={name} type="button" title={`Insert {${name}} — e.g. ${samples[name]}`} onClick={() => add(name)}
             className="rounded-full px-2 py-0.5 text-[11px]"
-            style={{ fontFamily: F.mono, color: C.stamp, backgroundColor: `${C.stamp}0F`, border: `1px solid ${C.stamp}33` }}>
+            style={{ fontFamily: F.mono, color: C.stamp, backgroundColor: `color-mix(in srgb, ${C.stamp} 6%, transparent)`, border: `1px solid color-mix(in srgb, ${C.stamp} 20%, transparent)` }}>
             {`{${name}}`}
           </button>
         ))}

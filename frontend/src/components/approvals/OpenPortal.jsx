@@ -22,7 +22,7 @@ export default function OpenPortal({ endpoint, decided }) {
     }
   };
   return (
-    <section className="mt-6 p-4 rounded-xl" style={{ border: `1px solid ${C.stamp}44`, backgroundColor: `${C.stamp}0A` }}>
+    <section className="mt-6 p-4 rounded-xl" style={{ border: `1px solid color-mix(in srgb, ${C.stamp} 27%, transparent)`, backgroundColor: `color-mix(in srgb, ${C.stamp} 4%, transparent)` }}>
       <p className="flex items-center gap-2 text-sm" style={{ fontFamily: F.body, fontWeight: 700, color: C.ink }}>
         <LayoutDashboard size={16} style={{ color: C.stamp }} /> Your customer portal
       </p>

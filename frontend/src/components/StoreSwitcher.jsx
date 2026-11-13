@@ -7,12 +7,14 @@ import { ALL_STORES, activeStoreValue, storeLabel } from "../lib/workContext";
 const SEARCH_FROM = 7; // stores listed before a search box is worth showing
 
 /*
- * The sidebar's store switcher: the store every page works in. Lists only
- * what GET /users/me/ says this account may reach (the server re-checks every
+ * The workspace selector: the store every page works in. Lists only what
+ * GET /users/me/ says this account may reach (the server re-checks every
  * request); "All Stores" only for the Owner / Super Admin. The list opens in
- * a fixed-position panel so the sidebar's own scrolling can't clip it.
+ * a fixed-position panel so the header / drawer can't clip it.
+ * `variant="drawer"` is the full-width version for the mobile drawer.
  */
-export default function StoreSwitcher({ collapsed = false }) {
+export default function StoreSwitcher({ variant = "header" }) {
+  const drawer = variant === "drawer";
   const { me, switchStore, switching } = useSession();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -76,7 +78,7 @@ export default function StoreSwitcher({ collapsed = false }) {
   const CurrentIcon = current === ALL_STORES ? Building2 : Store;
 
   return (
-    <div className={collapsed ? "mt-5 flex justify-center" : "mt-5"}>
+    <div className={drawer ? "mt-4" : "min-w-0"}>
       <button
         ref={buttonRef}
         type="button"
@@ -85,41 +87,39 @@ export default function StoreSwitcher({ collapsed = false }) {
         aria-haspopup={canSwitch ? "listbox" : undefined}
         aria-expanded={canSwitch ? open : undefined}
         aria-label={`Store: ${label}${canSwitch ? ". Change store" : ""}`}
-        title={collapsed ? `Store: ${label}` : undefined}
-        className={`flex items-center gap-2.5 rounded-xl text-left transition-colors ${canSwitch ? "hover:bg-white/[0.07]" : "cursor-default"} ${collapsed ? "h-10 w-10 justify-center" : "w-full px-3 py-2"}`}
-        style={{ backgroundColor: "rgba(255,255,255,0.045)", border: "1px solid rgba(255,255,255,0.08)", opacity: switching ? 0.7 : 1 }}
+        title={`Workspace: ${label}`}
+        className={`v2x-workspace ${canSwitch ? "" : "cursor-default"} ${drawer ? "w-full" : ""}`}
+        data-static={canSwitch ? undefined : ""}
+        style={{ opacity: switching ? 0.7 : 1 }}
       >
-        <CurrentIcon size={15} style={{ color: C.orange, flexShrink: 0 }} />
-        {!collapsed && (
-          <>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[9px] font-bold uppercase tracking-[0.18em]" style={{ color: "#858D9B" }}>Store</span>
-              <span className="block truncate text-[13px] font-semibold text-white" style={{ fontFamily: F.body }}>
-                {switching ? "Switching…" : label}
-              </span>
-            </span>
-            {canSwitch && <ChevronDown size={14} className="shrink-0 transition-transform" style={{ color: "#A5ACB9", transform: open ? "rotate(180deg)" : "none" }} />}
-          </>
-        )}
+        <CurrentIcon size={14} style={{ color: C.cta, flexShrink: 0 }} />
+        <span className="min-w-0 flex-1">
+          <span className="v2x-ws-label block text-[9px] font-bold uppercase tracking-[0.18em]" style={{ color: C.navInkSoft }}>Workspace</span>
+          <span className="block truncate text-[12.5px] font-semibold" style={{ fontFamily: F.body, color: C.navInk }}>
+            {switching ? "Switching…" : label}
+          </span>
+        </span>
+        {canSwitch && <ChevronDown size={14} className="shrink-0 transition-transform" style={{ color: C.navInkSoft, transform: open ? "rotate(180deg)" : "none" }} />}
       </button>
-      {error && !collapsed && <p role="alert" className="mt-1.5 px-1 text-[11px]" style={{ color: "#FB8A8A" }}>{error}</p>}
+      {error && <p role="alert" className={drawer ? "mt-1.5 px-1 text-[11px]" : "v2x-pop fixed right-4 top-16 z-50 px-3 py-2 text-[11px]"} style={{ color: drawer ? "#F7A398" : C.red }}>{error}</p>}
 
       {open && place && (
         <div
           ref={panelRef}
-          className="fixed z-50 overflow-hidden rounded-xl"
-          style={{ top: place.top, left: place.left, width: place.width, background: "#FFFFFF", color: "#000000", colorScheme: "light", border: "1px solid #E5E7EB", boxShadow: "0 12px 32px rgba(15,23,42,0.18), 0 2px 6px rgba(15,23,42,0.08)", fontFamily: F.body }}
+          className="v2x-pop fixed z-[60] overflow-hidden"
+          style={{ top: place.top, left: place.left, width: place.width, fontFamily: F.body }}
         >
           {options.length >= SEARCH_FROM && (
-            <label className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: "1px solid #E5E7EB" }}>
-              <Search size={13} style={{ color: "#6B7280" }} />
+            <label className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: `1px solid ${C.rule}` }}>
+              <Search size={13} style={{ color: C.inkSoft }} />
               <input
                 autoFocus
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search stores"
                 aria-label="Search stores"
-                className="w-full bg-transparent text-xs text-black outline-none placeholder:text-[#6B7280]"
+                className="w-full bg-transparent text-xs outline-none"
+                style={{ color: C.ink, border: 0, boxShadow: "none", padding: 0, minHeight: 0 }}
               />
             </label>
           )}
@@ -133,19 +133,19 @@ export default function StoreSwitcher({ collapsed = false }) {
                     type="button"
                     onClick={() => choose(o.id)}
                     autoFocus={selected && options.length < SEARCH_FROM}
-                    className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] transition-colors focus:outline-none ${selected ? "" : "hover:bg-[#F3F4F6] focus:bg-[#F3F4F6]"}`}
-                    style={{ color: "#000000", fontWeight: selected ? 700 : 500, ...(selected && { backgroundColor: `${C.orange}14`, boxShadow: `inset 3px 0 0 ${C.orange}` }) }}
+                    className="v2x-menuitem flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px]"
+                    style={{ color: C.ink, fontWeight: selected ? 700 : 500, ...(selected && { backgroundColor: `color-mix(in srgb, ${C.cta} 14%, transparent)`, boxShadow: `inset 3px 0 0 ${C.cta}` }) }}
                   >
-                    <Icon size={14} style={{ color: selected ? C.orange : "#6B7280", flexShrink: 0 }} />
+                    <Icon size={14} style={{ color: selected ? C.ink : C.inkSoft, flexShrink: 0 }} />
                     <span className="min-w-0 flex-1 truncate">{o.name}</span>
-                    {o.kind === "online" && <span className="text-[10px]" style={{ color: "#6B7280" }}>Online</span>}
-                    {o.is_active === false && <span className="text-[10px]" style={{ color: "#6B7280" }}>Inactive</span>}
-                    {selected && <Check size={13} style={{ color: C.orange, flexShrink: 0 }} />}
+                    {o.kind === "online" && <span className="text-[10px]" style={{ color: C.inkSoft }}>Online</span>}
+                    {o.is_active === false && <span className="text-[10px]" style={{ color: C.inkSoft }}>Inactive</span>}
+                    {selected && <Check size={13} style={{ color: C.green, flexShrink: 0 }} />}
                   </button>
                 </li>
               );
             })}
-            {!shown.length && <li className="px-3 py-3 text-xs" style={{ color: "#6B7280" }}>No store matches “{query}”.</li>}
+            {!shown.length && <li className="px-3 py-3 text-xs" style={{ color: C.inkSoft }}>No store matches “{query}”.</li>}
           </ul>
         </div>
       )}

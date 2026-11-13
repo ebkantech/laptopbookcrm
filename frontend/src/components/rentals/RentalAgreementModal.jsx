@@ -255,7 +255,7 @@ export default function RentalAgreementModal({ parties, initialAssets, initialPa
       <form noValidate onSubmit={submit} className="my-auto w-full max-w-2xl p-6" data-panel style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }} onClick={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between gap-3"><div><Eyebrow>New rental agreement</Eyebrow><p className="mt-1 text-xs" style={{ color: C.inkSoft }}>One device becomes Single; two or more become Bulk automatically. Next you'll record each device's condition, photos, accessories and warranty for the customer to approve.</p></div><button type="button" onClick={onClose} aria-label="Close" className="-m-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-black/5"><X size={17} /></button></div>
         {renewing && (
-          <p className="mt-3 p-2 text-xs" data-testid="renewal-note" style={{ backgroundColor: `${C.green}12`, border: `1px solid ${C.green}55`, color: C.ink }}>
+          <p className="mt-3 p-2 text-xs" data-testid="renewal-note" style={{ backgroundColor: `color-mix(in srgb, ${C.green} 7%, transparent)`, border: `1px solid color-mix(in srgb, ${C.green} 33%, transparent)`, color: C.ink }}>
             Re-agreement for {renewing.party_name}: the devices, rates, tenure and payment cycle of {renewing.agreement_code} are filled in — change anything you need.
             Saving closes {renewing.agreement_code} and hands its devices to this new agreement.
           </p>
@@ -294,7 +294,7 @@ export default function RentalAgreementModal({ parties, initialAssets, initialPa
           </label>
         </div>
         {check.warnings.length > 0 && (
-          <div role="status" className="mt-3 space-y-1 rounded-xl px-3 py-2 text-xs" style={{ border: `1px solid ${C.amber}88`, backgroundColor: `${C.amber}12`, color: C.ink }}>
+          <div role="status" className="mt-3 space-y-1 rounded-xl px-3 py-2 text-xs" style={{ border: `1px solid color-mix(in srgb, ${C.amber} 53%, transparent)`, backgroundColor: `color-mix(in srgb, ${C.amber} 7%, transparent)`, color: C.ink }}>
             {check.warnings.map((w, i) => <p key={i}>⚠ {w}</p>)}
           </div>
         )}

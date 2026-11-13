@@ -9,7 +9,8 @@ import {
   Wrench,
 } from "lucide-react";
 
-import { C, F, APP_NAME } from "../lib/theme";
+import { C, F, APP_NAME, APP_VERSION } from "../lib/theme";
+import BrandMark from "../components/shell/BrandMark";
 import { useSession } from "../context/SessionContext";
 
 // What the app actually covers -- shown beside the form on wide screens.
@@ -31,42 +32,16 @@ const MODULES = [
   },
 ];
 
-function BrandMark() {
+function Brand() {
   return (
     <div className="flex items-center gap-3">
-      <div
-        className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl"
-        style={{
-          background: `linear-gradient(145deg, ${C.orange}, #B96716)`,
-          boxShadow: `0 6px 22px ${C.orange}40`,
-        }}
-      >
-        <span
-          className="text-xl font-black"
-          style={{ color: "#171A21", fontFamily: F.display }}
-        >
-          V
-        </span>
-
-        <span
-          className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full"
-          style={{ backgroundColor: "#FFF3D8" }}
-        />
-      </div>
-
+      <BrandMark size={44} />
       <div>
-        <p
-          className="text-[17px] font-extrabold tracking-wide"
-          style={{ fontFamily: F.display, color: "#F9FAFB" }}
-        >
-          {APP_NAME}
+        <p className="text-[21px] leading-none" style={{ fontFamily: F.editorial, fontWeight: 600, color: C.navInk }}>
+          Vantage<span style={{ color: C.cta }}>2x</span>
         </p>
-
-        <p
-          className="text-[9px] font-bold uppercase tracking-[0.2em]"
-          style={{ color: "#9298A5" }}
-        >
-          Business control
+        <p className="mt-1.5 text-[9px] font-bold uppercase tracking-[0.24em]" style={{ color: C.navInkSoft }}>
+          {APP_VERSION}
         </p>
       </div>
     </div>
@@ -97,13 +72,14 @@ export default function Login() {
   };
 
   const fieldClass =
-    "mt-1.5 w-full bg-white px-3 py-2.5 text-sm outline-none transition-all duration-200 focus:border-orange-400 focus:ring-2 focus:ring-orange-400/15";
+    "mt-1.5 w-full px-3 py-2.5 text-sm outline-none transition-all duration-200";
 
   const fieldStyle = {
     fontFamily: F.body,
     color: C.ink,
     border: `1px solid ${C.rule}`,
-    borderRadius: "10px",
+    borderRadius: "8px",
+    minHeight: 44,
   };
 
   return (
@@ -112,43 +88,45 @@ export default function Login() {
       <aside
         className="relative hidden w-[44%] max-w-[560px] flex-col justify-between overflow-hidden p-10 lg:flex xl:p-14"
         style={{
-          background: "linear-gradient(160deg, #1B1F27 0%, #111318 100%)",
+          background: `radial-gradient(700px 300px at 0% 0%, color-mix(in srgb, ${C.cta} 14%, transparent), transparent 70%), radial-gradient(600px 300px at 100% 100%, color-mix(in srgb, #4F8CFF 22%, transparent), transparent 70%), linear-gradient(165deg, ${C.nav} 0%, #081634 100%)`,
         }}
       >
         <div
           className="pointer-events-none absolute -left-24 top-24 h-72 w-72 rounded-full blur-[110px]"
-          style={{ backgroundColor: `${C.orange}2A` }}
+          style={{ backgroundColor: `color-mix(in srgb, ${C.cta} 10%, transparent)` }}
         />
 
         <div
           className="pointer-events-none absolute -bottom-24 right-0 h-72 w-72 rounded-full blur-[120px]"
-          style={{ backgroundColor: `${C.green}30` }}
+          style={{ backgroundColor: "color-mix(in srgb, #4F8CFF 16%, transparent)" }}
         />
 
         <div className="relative">
-          <BrandMark />
+          <Brand />
         </div>
 
         <div className="relative">
           <h1
-            className="max-w-md text-[34px] leading-[1.1] tracking-tight xl:text-[40px]"
+            className="max-w-md text-[38px] leading-[1.05] xl:text-[46px]"
             style={{
-              fontFamily: F.display,
-              fontWeight: 800,
-              color: "#F9FAFB",
+              fontFamily: F.editorial,
+              fontWeight: 500,
+              color: C.navInk,
+              letterSpacing: "-0.02em",
             }}
           >
-            The daybook for your laptop business.
+            The daybook for your <em style={{ color: C.cta, fontStyle: "italic" }}>laptop business.</em>
           </h1>
 
           <ul className="mt-10 space-y-6">
             {MODULES.map(({ icon: Icon, title, text }) => (
               <li key={title} className="flex gap-4">
                 <span
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
                   style={{
-                    backgroundColor: `${C.orange}1F`,
-                    color: C.orange,
+                    backgroundColor: `color-mix(in srgb, ${C.cta} 12%, transparent)`,
+                    boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${C.cta} 25%, transparent)`,
+                    color: C.cta,
                   }}
                 >
                   <Icon size={18} />
@@ -160,7 +138,7 @@ export default function Login() {
                     style={{
                       fontFamily: F.body,
                       fontWeight: 700,
-                      color: "#F3F4F6",
+                      color: C.navInk,
                     }}
                   >
                     {title}
@@ -168,7 +146,7 @@ export default function Login() {
 
                   <span
                     className="mt-1 block max-w-sm text-[13px] leading-relaxed"
-                    style={{ fontFamily: F.body, color: "#9AA1AE" }}
+                    style={{ fontFamily: F.body, color: C.navInkSoft }}
                   >
                     {text}
                   </span>
@@ -180,7 +158,7 @@ export default function Login() {
 
         <p
           className="relative text-[10px] font-semibold tracking-[0.14em]"
-          style={{ color: "#6B7280" }}
+          style={{ color: C.navInkSoft }}
         >
           SALES · RENTALS · REPAIRS · ACCOUNTS
         </p>
@@ -194,11 +172,10 @@ export default function Login() {
             <div
               className="rounded-2xl px-4 py-3"
               style={{
-                background:
-                  "linear-gradient(160deg, #1B1F27 0%, #111318 100%)",
+                background: `linear-gradient(165deg, ${C.nav} 0%, #081634 100%)`,
               }}
             >
-              <BrandMark />
+              <Brand />
             </div>
           </div>
 
@@ -208,13 +185,13 @@ export default function Login() {
             className="w-full p-5 sm:p-8"
             style={{
               backgroundColor: C.slip,
-              borderRadius: "18px",
+              borderRadius: "14px",
               border: `1px solid ${C.rule}`,
-              boxShadow: "0 16px 50px rgba(20, 24, 32, 0.07)",
+              boxShadow: "var(--cb-shadow-modal)",
             }}
           >
             <div className="flex items-center gap-2">
-              <Lock size={14} style={{ color: C.stamp }} />
+              <Lock size={14} style={{ color: C.green }} />
 
               <span
                 className="text-[11px] uppercase"
@@ -222,18 +199,18 @@ export default function Login() {
                   fontFamily: F.body,
                   fontWeight: 700,
                   letterSpacing: "0.18em",
-                  color: C.orange,
+                  color: C.green,
                 }}
               >
-                CRMBook
+                Secure sign-in
               </span>
             </div>
 
             <h2
-              className="mt-3 text-2xl tracking-tight"
+              className="mt-3 text-[30px] leading-none"
               style={{
-                fontFamily: F.display,
-                fontWeight: 800,
+                fontFamily: F.editorial,
+                fontWeight: 600,
                 color: C.ink,
               }}
             >
@@ -288,7 +265,7 @@ export default function Login() {
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="current-password"
                   required
-                  className="w-full bg-white py-2.5 pl-3 pr-12 text-sm outline-none transition-all duration-200 focus:ring-2 focus:ring-orange-400/15"
+                  className="w-full py-2.5 pl-3 pr-12 text-sm outline-none transition-all duration-200"
                   style={fieldStyle}
                 />
 
@@ -298,9 +275,9 @@ export default function Login() {
                   aria-label={showPassword ? "Hide password" : "Show password"}
                   aria-pressed={showPassword}
                   title={showPassword ? "Hide password" : "Show password"}
-                  className="absolute inset-y-0 right-1 flex w-10 items-center justify-center rounded-lg transition-all duration-200 hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 active:scale-95"
+                  className="absolute inset-y-0 right-1 flex w-10 items-center justify-center rounded-lg transition-all duration-200 active:scale-95"
                   style={{
-                    color: showPassword ? C.orange : "#7B8492",
+                    color: showPassword ? C.ink : C.inkSoft,
                   }}
                 >
                   {showPassword ? (
@@ -321,8 +298,8 @@ export default function Login() {
                   fontFamily: F.body,
                   fontWeight: 600,
                   color: C.carbon,
-                  backgroundColor: `${C.carbon}0D`,
-                  border: `1px solid ${C.carbon}33`,
+                  backgroundColor: `color-mix(in srgb, ${C.carbon} 5%, transparent)`,
+                  border: `1px solid color-mix(in srgb, ${C.carbon} 20%, transparent)`,
                 }}
               >
                 {error}
@@ -333,14 +310,9 @@ export default function Login() {
             <button
               type="submit"
               disabled={busy}
-              className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm transition-all duration-200 hover:brightness-105 active:scale-[0.99] disabled:cursor-wait disabled:opacity-70"
-              style={{
-                backgroundColor: C.stamp,
-                color: C.onAccent,
-                fontFamily: F.body,
-                fontWeight: 700,
-                boxShadow: `0 6px 16px -6px ${C.stamp}99`,
-              }}
+              data-variant="primary"
+              className="v2x-btn mt-6 flex min-h-[46px] w-full items-center justify-center gap-2 py-3 text-sm active:scale-[0.99] disabled:cursor-wait disabled:opacity-70"
+              style={{ fontFamily: F.body, fontWeight: 700 }}
             >
               <LogIn size={15} />
               {busy ? "Signing in…" : "Sign in"}

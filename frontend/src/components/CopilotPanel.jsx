@@ -24,7 +24,7 @@ function ActionCard({ action, onDecided }) {
     }
   };
   return (
-    <div className="rounded-xl p-3" style={{ backgroundColor: C.slip, border: `1px solid ${action.status === "proposed" ? `${C.amber}66` : C.rule}` }}>
+    <div className="rounded-xl p-3" style={{ backgroundColor: C.slip, border: `1px solid ${action.status === "proposed" ? `color-mix(in srgb, ${C.amber} 40%, transparent)` : C.rule}` }}>
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 text-[13px]" style={{ fontWeight: 700, color: C.ink }}>{action.label}</p>
         <span className="shrink-0 text-[11px]" style={{ fontWeight: 700, color: C[state.tone] }}>{state.label}</span>
@@ -129,7 +129,7 @@ function ChatTab({ status, prefill, onPrefillUsed }) {
             </div>
           )))}
         {busy && <p className="flex items-center gap-2 text-xs" style={{ color: C.inkSoft }} role="status"><Loader2 size={13} className="animate-spin" /> Working…</p>}
-        {error && <p role="alert" className="rounded-lg px-3 py-2 text-xs" style={{ color: C.carbon, backgroundColor: `${C.carbon}10` }}>{error}</p>}
+        {error && <p role="alert" className="rounded-lg px-3 py-2 text-xs" style={{ color: C.carbon, backgroundColor: `color-mix(in srgb, ${C.carbon} 6%, transparent)` }}>{error}</p>}
         <div ref={endRef} />
       </div>
       <div className="shrink-0 p-3" style={{ borderTop: `1px solid ${C.rule}` }}>
@@ -244,7 +244,7 @@ function TasksTab({ onAsk }) {
       {tasks?.map((task) => (
         <button key={task.title} type="button" onClick={() => onAsk(task.prompt)} className="flex w-full items-center justify-between gap-2 rounded-xl p-3 text-left hover:bg-black/5" style={{ backgroundColor: C.slip, border: `1px solid ${C.rule}` }}>
           <span className="text-[13px]" style={{ fontWeight: 600, color: C.ink }}>{task.title}</span>
-          <span className="rounded-full px-2 py-0.5 text-[11px]" style={{ fontWeight: 700, color: C.stamp, backgroundColor: `${C.stamp}14` }}>{task.count}</span>
+          <span className="rounded-full px-2 py-0.5 text-[11px]" style={{ fontWeight: 700, color: C.stamp, backgroundColor: `color-mix(in srgb, ${C.stamp} 8%, transparent)` }}>{task.count}</span>
         </button>
       ))}
     </div>
@@ -311,7 +311,7 @@ export default function CopilotPanel() {
               );
             })}
           </div>
-          {status && !status.enabled && <p role="status" className="m-3 rounded-lg px-3 py-2 text-xs" style={{ color: C.ink, backgroundColor: `${C.amber}14`, border: `1px solid ${C.amber}55` }}>AI-Staff isn't set up yet. Add an AI provider key to the backend settings.</p>}
+          {status && !status.enabled && <p role="status" className="m-3 rounded-lg px-3 py-2 text-xs" style={{ color: C.ink, backgroundColor: `color-mix(in srgb, ${C.amber} 8%, transparent)`, border: `1px solid color-mix(in srgb, ${C.amber} 33%, transparent)` }}>AI-Staff isn't set up yet. Add an AI provider key to the backend settings.</p>}
           {/* kept mounted so switching tabs doesn't lose the conversation */}
           <div className={tab === "chat" ? "flex min-h-0 flex-1 flex-col" : "hidden"}><ChatTab status={status} prefill={prefill} onPrefillUsed={clearPrefill} /></div>
           {tab === "tasks" && <TasksTab onAsk={(prompt) => { setPrefill(prompt); setTab("chat"); }} />}
