@@ -122,14 +122,19 @@ def assigner(lead):
     return (event.actor if event else None) or lead.created_by
 
 
-def tell_assigner(lead, actor, headline, detail=""):
+def tell_assigner(lead, actor, headline, detail="", tech_told=False):
     """
     Progress on a job goes back to the person who gave it out (bell +
     WhatsApp), so they don't have to keep opening it. Not when they did the
-    step themselves.
+    step themselves. tech_told: the caller also sends the assigned
+    technician their own alert for this step -- then the assigner is
+    skipped when they ARE that technician (a self-assigned job), so one
+    person doesn't get two alerts for one step.
     """
     boss = assigner(lead)
     if boss is None or (actor is not None and boss.pk == actor.pk):
+        return
+    if tech_told and boss.pk == lead.assigned_to_id:
         return
     tech = lead.assigned_to
     by = f" ({tech.get_full_name() or tech.username})" if tech else ""
@@ -140,12 +145,15 @@ def tell_assigner(lead, actor, headline, detail=""):
 def assign(lead, technician, user):
     lead = lock(lead)
     _state(lead, (Lead.NEW, Lead.ASSIGNED, Lead.VISITING, Lead.DIAGNOSED, Lead.AWAITING), "assign")
+    # re-saving the same technician tells them nothing new -- no second "New on-site job" alert
+    same_tech = lead.assigned_to_id == technician.pk
     lead.assigned_to = technician
     if lead.status == Lead.NEW:
         lead.status = Lead.ASSIGNED
     lead.save(update_fields=["assigned_to", "status"])
     log(lead, "assigned", f"Assigned to {technician}", user)
-    _tell_technician(lead)
+    if not same_tech:
+        _tell_technician(lead)
     return lead
 
 
@@ -370,8 +378,9 @@ def _approve(lead, approval, source, user=None, reason="", ip=None, ua=""):
     who = "the client" if source == LeadApproval.CUSTOMER else f"{user} on the client's behalf"
     log(lead, "approved", f"Bill v{approval.quote.version} (₹{approval.quote.total}) approved by {who}" + (f" -- {reason}" if reason else ""), user)
     notify_staff("lead_approved", f"On-site bill approved -- {lead.code}", f"{lead.party.name} approved the bill for {lead.code} (₹{approval.quote.total}).")
-    tell_assigner(lead, user, "bill approved", f"₹{approval.quote.total} approved by {who}. Work can start.")
-    if lead.assigned_to_id and (user is None or user.pk != lead.assigned_to_id):
+    tech_told = bool(lead.assigned_to_id and (user is None or user.pk != lead.assigned_to_id))
+    tell_assigner(lead, user, "bill approved", f"₹{approval.quote.total} approved by {who}. Work can start.", tech_told=tech_told)
+    if tech_told:
         notify_user(lead.assigned_to, "lead_progress", f"{lead.code}: bill approved -- start the work",
                     f"{lead.party.name} -- ₹{approval.quote.total} approved by {who}.")
 
@@ -389,7 +398,7 @@ def _reject(lead, approval, reason, ip=None, ua=""):
     lead.reject_reason = reason[:500]
     lead.save(update_fields=["status", "reject_reason"])
     log(lead, "rejected", "Client declined the bill" + (f": {reason}" if reason else ""))
-    tell_assigner(lead, None, "client declined the bill", f"Reason: {reason}" if reason else "")
+    tell_assigner(lead, None, "client declined the bill", f"Reason: {reason}" if reason else "", tech_told=bool(lead.assigned_to_id))
     if lead.assigned_to_id:
         notify_user(lead.assigned_to, "lead_progress", f"{lead.code}: client declined the bill", f"Reason: {reason}" if reason else "")
     flag_returns(lead)
@@ -434,7 +443,7 @@ def customer_decide(raw, decision, consent=False, reason="", ip_address=None, us
                 lead.save(update_fields=["status"])
                 log(lead, "changes_requested", f"Client asked for changes: {reason}")
                 notify_staff("lead_changes_requested", f"Client wants changes -- {lead.code}", f"{lead.party.name}: {reason}")
-                tell_assigner(lead, None, "client wants changes to the bill", f"“{reason}”")
+                tell_assigner(lead, None, "client wants changes to the bill", f"“{reason}”", tech_told=bool(lead.assigned_to_id))
                 if lead.assigned_to_id:
                     notify_user(lead.assigned_to, "lead_progress", f"{lead.code}: client wants changes to the bill",
                                 f"“{reason}” -- revise the bill and send a new link.")

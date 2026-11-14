@@ -424,7 +424,7 @@ function ProductSearch({ onPick }) {
   const [state, setState] = useState({ q: null, rows: null, error: null });
   useEffect(() => {
     const term = q.trim();
-    if (term.length < 2) return undefined;
+    if (!term) return undefined;
     let live = true;
     const t = setTimeout(() => {
       api.get(`/products/?q=${encodeURIComponent(term)}`).then(
@@ -443,7 +443,7 @@ function ProductSearch({ onPick }) {
         <input value={q} onChange={(e) => setQ(e.target.value)} autoFocus placeholder="Search name, brand, model, SKU / product code or serial number"
           aria-label="Search the catalogue" />
       </label>
-      {term.length < 2 ? <p className="st-help">Type at least 2 characters.</p>
+      {!term ? <p className="st-help">Start typing to search the catalogue.</p>
         : !ready ? <p className="st-help">Searching…</p>
           : state.error ? <Alert>{state.error.message || "The catalogue couldn't be searched."}</Alert>
             : !state.rows.length ? <p className="as-empty"><CircleHelp size={16} aria-hidden="true" />No catalogue product matches “{term}”. Use New product to add it.</p> : (

@@ -230,6 +230,51 @@ def send_email(to: str, subject: str, body: str) -> dict:
         return {"status": "failed"}
 
 
+def _after_commit(label: str, func) -> None:
+    """
+    Run a staff alert once the surrounding database transaction COMMITS,
+    or right away when there is none (Django's on_commit() runs the
+    callback immediately outside an atomic block).
+
+    Why: notify_staff()/notify_user() are called from inside
+    @transaction.atomic service functions. Sending at call time meant a
+    WhatsApp/email could go out -- and a bell row be written -- for work
+    that was then rolled back (a later validation error, a lock conflict).
+    Deferring ties the alert to the business change actually being saved.
+
+    The callback catches everything itself, so an alert failing after the
+    commit is only logged: the already-committed business change is never
+    affected, and nothing propagates out of the commit. (Django 4.2's
+    on_commit(robust=True) would do the same; catching here keeps it
+    independent of that flag.)
+    """
+    from django.db import transaction
+
+    def run():
+        try:
+            func()
+        except Exception:
+            logger.exception("%s: alert failed after commit", label)
+
+    try:
+        transaction.on_commit(run)
+    except Exception:
+        # e.g. autocommit switched off with no atomic block -- an alert
+        # that can't even be scheduled must not break the caller either
+        logger.exception("%s: couldn't schedule the alert", label)
+
+
+def _create_inapp(user, event_key: str, subject: str, body: str) -> None:
+    """One bell row, in its own savepoint so a failed insert for this
+    recipient can't poison a surrounding transaction for the next one."""
+    from django.db import transaction
+
+    from accounts.models import StaffNotification
+
+    with transaction.atomic():
+        StaffNotification.objects.create(user=user, event_key=event_key, subject=subject, body=body)
+
+
 def notify_staff(event_key: str, subject: str, body: str) -> None:
     """
     Task 2: internal staff alerts, role-gated via
@@ -247,14 +292,22 @@ def notify_staff(event_key: str, subject: str, body: str) -> None:
     GET /my-notifications/. In-app is independent of email/WhatsApp: a
     role can be in-app-only with both those off.
 
+    Sent only after the caller's transaction commits (nothing at all if
+    it rolls back); immediately when called outside a transaction. See
+    _after_commit().
+
     Deliberately returns nothing and never raises -- a call site fires
     this as a side effect of an already-successful action (creating a
     ticket, saving feedback), and a broken/misconfigured alert must
-    never turn that into a 500. Each recipient's send is also wrapped
-    individually so one bad email/phone on file doesn't stop the rest
-    of the role from being notified.
+    never turn that into a 500. Each recipient -- and each channel for a
+    recipient -- is also wrapped individually so one bad email/phone on
+    file doesn't stop the rest of the role from being notified.
     """
-    from accounts.models import NotificationRule, StaffNotification, User
+    _after_commit(f"notify_staff event={event_key}", lambda: _notify_staff_now(event_key, subject, body))
+
+
+def _notify_staff_now(event_key: str, subject: str, body: str) -> None:
+    from accounts.models import NotificationRule, User
 
     try:
         rules = list(NotificationRule.objects.filter(event_key=event_key).select_related("role"))
@@ -265,16 +318,27 @@ def notify_staff(event_key: str, subject: str, body: str) -> None:
     for rule in rules:
         if not rule.via_email and not rule.via_whatsapp and not rule.via_inapp:
             continue
-        for user in User.objects.filter(role=rule.role):
-            try:
-                if rule.via_email and user.email:
+        try:
+            users = list(User.objects.filter(role=rule.role))
+        except Exception:
+            logger.exception("notify_staff: couldn't load recipients event=%s role=%s", event_key, rule.role_id)
+            continue
+        for user in users:
+            if rule.via_email and user.email:
+                try:
                     send_email(user.email, subject, body)
-                if rule.via_whatsapp and user.phone:
+                except Exception:
+                    logger.exception("notify_staff: email failed event=%s user=%s", event_key, user.pk)
+            if rule.via_whatsapp and user.phone:
+                try:
                     send_whatsapp(user.phone, body)
-                if rule.via_inapp:
-                    StaffNotification.objects.create(user=user, event_key=event_key, subject=subject, body=body)
-            except Exception:
-                logger.exception("notify_staff: send failed event=%s user=%s", event_key, user.pk)
+                except Exception:
+                    logger.exception("notify_staff: whatsapp failed event=%s user=%s", event_key, user.pk)
+            if rule.via_inapp:
+                try:
+                    _create_inapp(user, event_key, subject, body)
+                except Exception:
+                    logger.exception("notify_staff: in-app failed event=%s user=%s", event_key, user.pk)
 
 
 def notify_user(user, event_key: str, subject: str, body: str, whatsapp: bool = True) -> None:
@@ -282,18 +346,25 @@ def notify_user(user, event_key: str, subject: str, body: str, whatsapp: bool = 
     An alert for ONE person (not a role): the header bell (StaffNotification)
     and, when they have a phone on file, WhatsApp. Used where the right
     person is known -- the technician a job was given to, or the Admin who
-    gave it. Never raises, like notify_staff().
+    gave it. Sent after the caller's transaction commits, like
+    notify_staff(), and never raises.
     """
-    from accounts.models import StaffNotification
-
     if user is None or not getattr(user, "is_active", False):
         return
+    _after_commit(f"notify_user event={event_key}", lambda: _notify_user_now(user, event_key, subject, body, whatsapp))
+
+
+def _notify_user_now(user, event_key: str, subject: str, body: str, whatsapp: bool) -> None:
+    pk = getattr(user, "pk", None)
     try:
-        StaffNotification.objects.create(user=user, event_key=event_key, subject=subject[:200], body=body)
-        if whatsapp and getattr(user, "phone", ""):
-            send_whatsapp(user.phone, f"{subject}\n{body}")
+        _create_inapp(user, event_key, subject[:200], body)
     except Exception:
-        logger.exception("notify_user: send failed event=%s user=%s", event_key, getattr(user, "pk", None))
+        logger.exception("notify_user: in-app failed event=%s user=%s", event_key, pk)
+    if whatsapp and getattr(user, "phone", ""):
+        try:
+            send_whatsapp(user.phone, f"{subject}\n{body}")
+        except Exception:
+            logger.exception("notify_user: whatsapp failed event=%s user=%s", event_key, pk)
 
 
 def _send_whatsapp_console(to: str, body: str, template: dict | None = None) -> dict:

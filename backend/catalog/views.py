@@ -1,7 +1,8 @@
 import logging
 
 from django.db import transaction
-from django.db.models import Count, F, Prefetch, Q, Sum
+from django.db.models import CharField, Count, F, Prefetch, Q, Sum, Value
+from django.db.models.functions import Concat
 from django.shortcuts import get_object_or_404
 from rest_framework import mixins, permissions, viewsets
 from rest_framework.decorators import action
@@ -327,15 +328,21 @@ class ProductViewSet(viewsets.ModelViewSet):
             qs = qs.exclude(category=Product.LAPTOP)
         elif category:
             qs = qs.filter(category=category)
-        q = (self.request.query_params.get("q") or "").strip()
+        # runs of spaces typed or pasted in count as one, like the name on screen
+        q = " ".join((self.request.query_params.get("q") or "").split())
         if q:
             # a serial number finds its product only through the account's own store's units
             scope = StoreScope(self.request.user)
             serial = Q(variants__serials__serial_number__icontains=q)
             if not scope.all:
                 serial &= Q(variants__serials__stock_point_id=scope.store_id)
-            qs = qs.filter(
-                Q(brand__icontains=q) | Q(model_name__icontains=q)
+            # The list shows "<brand> <model>" (Product.display_name), so a
+            # name typed as shown -- "Acer Aspire 7" -- spans both fields and
+            # matched neither on its own; match the joined name as well.
+            qs = qs.annotate(
+                search_name=Concat("brand", Value(" "), "model_name", output_field=CharField()),
+            ).filter(
+                Q(search_name__icontains=q) | Q(brand__icontains=q) | Q(model_name__icontains=q)
                 | Q(product_code__icontains=q) | Q(variants__code__icontains=q) | serial
             ).distinct()
         return qs

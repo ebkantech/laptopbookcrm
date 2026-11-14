@@ -45,7 +45,7 @@ export default function RoleSwitcher({ className = "", style }) {
         className="cursor-pointer appearance-none bg-transparent pr-4 font-bold outline-none disabled:cursor-wait"
         style={{ color: "inherit", fontFamily: "inherit" }}
       >
-        {roles.map((r) => <option key={r.id} value={r.id} style={{ color: "#111" }}>{r.label}</option>)}
+        {roles.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
       </select>
       <ChevronDown size={13} aria-hidden="true" className="pointer-events-none absolute right-2.5" />
       {error && <span role="alert" className="sr-only">{error}</span>}

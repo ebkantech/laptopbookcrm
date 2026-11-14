@@ -7,6 +7,7 @@ import { C, F, money } from "../lib/theme";
 import { api } from "../lib/api";
 import { toast } from "../lib/toast";
 import { onStoreChanged } from "../lib/storeEvents";
+import { stockTone } from "../lib/stockLevel";
 import { useSession } from "../context/SessionContext";
 import { Eyebrow, ErrorNote, Pill, PillButton, SearchInput, Spinner } from "../components/Atoms";
 import PageHeader from "../components/PageHeader";
@@ -472,6 +473,9 @@ function VariantCost({ variant, onSaved }) {
   );
 }
 
+// "In stock" column: 0 red, 1-3 yellow, 4+ green (lib/stockLevel.js); theme tokens, so both themes stay readable
+const IN_STOCK_COLOR = { red: C.carbon, yellow: C.amber, green: C.green };
+
 export default function Inventory() {
   const { can } = useSession();
   const [products, setProducts] = useState(null);
@@ -648,7 +652,7 @@ export default function Inventory() {
 
       <div className="flex-1 overflow-y-auto px-[1rem] pb-6 pt-1 sm:px-[2rem]">
         <div className="hidden grid-cols-[2fr_1fr_1fr_1fr_1fr_1.8fr] gap-3 px-5 pb-2 text-xs uppercase md:grid" style={{ fontFamily: F.body, fontWeight: 600, letterSpacing: "0.08em", color: C.inkSoft }}>
-          <span>Product</span><span>Product ID · HSN</span><span>Processor</span><span>Sell price</span><span>Shared stock</span><span>Stock location</span>
+          <span>Product</span><span>Product ID · HSN</span><span>Processor</span><span>Sell price</span><span>In stock</span><span>Stock location</span>
         </div>
         <div className="flex flex-col gap-2.5">
           {products.map((p) => {
@@ -684,8 +688,7 @@ export default function Inventory() {
                   {p.variants.length ? money(p.variants[0].sell_price) : "—"}
                 </span>
                 <span className="hidden md:block">
-                  <Pill color={lowest ? C.carbon : C.green}>{totalStock} for sale</Pill>
-                  {forRent > 0 && <span className="mt-1 block"><Pill color={C.blue}>{forRent} for rent</Pill></span>}
+                  <Pill color={IN_STOCK_COLOR[stockTone(totalStock)]}>{totalStock}</Pill>
                 </span>
                 <span className="block min-w-0">
                   <MobileLabel>Stock location</MobileLabel>

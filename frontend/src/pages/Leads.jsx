@@ -49,7 +49,7 @@ export default function Leads() {
       />
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <TabBar value={tab} onChange={setTab} tabs={TABS.map((t) => ({ id: t.id, label: `${t.label} (${counts[t.id]})` }))} />
-        <SearchInput value={term} onChange={setTerm} placeholder="Search job, client, address…" className="min-w-[200px] flex-1" ariaLabel="Search jobs" />
+        <SearchInput value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Search job, client, address…" className="min-w-[200px] flex-1" ariaLabel="Search jobs" />
       </div>
       <ErrorNote message={error} />
       <PartsToReturn onOpenLead={openLead} refreshKey={open ? open.parts?.length : leads.length} />

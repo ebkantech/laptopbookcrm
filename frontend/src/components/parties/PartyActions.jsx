@@ -56,7 +56,7 @@ export function PartyActionsMenu({ onEdit }) {
     ><MoreHorizontal size={19} /></button>
     {open && createPortal(
       <div ref={menuRef} role="menu" aria-label="Customer actions" className="fixed z-[100] w-48 rounded-xl p-1.5" style={{ top: position.top, left: position.left, background: C.slip, border: `1px solid ${C.rule}`, boxShadow: "0 12px 32px rgba(23,32,51,.18)" }}>
-        <button role="menuitem" type="button" onClick={(event) => { event.stopPropagation(); close(); onEdit(); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-slate-50" style={{ color: C.ink }}><Pencil size={15} />Edit customer</button>
+        <button role="menuitem" type="button" onClick={(event) => { event.stopPropagation(); close(); onEdit(); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-slate-50 [[data-theme=dark]_&]:hover:bg-[var(--cb-hover)]" style={{ color: C.ink }}><Pencil size={15} />Edit customer</button>
       </div>, document.body,
     )}
   </>;

@@ -601,6 +601,44 @@ body {
 :root[data-theme="dark"] .cb-shell :is(.text-slate-900, .text-slate-800, .text-slate-700, .text-black) { color: var(--cb-ink); }
 :root[data-theme="dark"] .cb-shell :is(.text-slate-600, .text-slate-500) { color: var(--cb-ink-soft); }
 :root[data-theme="dark"] .cb-shell :is(.text-slate-400, .text-slate-300) { color: var(--cb-ink-faint); }
+:root[data-theme="dark"] .cb-shell :is(.border-slate-200, .border-slate-300) { border-color: var(--cb-rule-strong); }
+:root[data-theme="dark"] .cb-shell :is(.hover\:bg-slate-50, .hover\:bg-slate-100):hover { background-color: var(--cb-hover); }
+:root[data-theme="dark"] .cb-shell .hover\:text-slate-500:hover { color: var(--cb-ink-soft); }
+:root[data-theme="dark"] .cb-shell .bg-blue-50 { background-color: color-mix(in srgb, var(--cb-accent) 16%, transparent); }
+:root[data-theme="dark"] .cb-shell .text-blue-700 { color: var(--cb-accent); }
+:root[data-theme="dark"] .cb-shell :is(.border-blue-400, .border-blue-500) { border-color: var(--cb-accent); }
+:root[data-theme="dark"] .cb-shell :is(.bg-red-50, .hover\:bg-red-50:hover) { background-color: color-mix(in srgb, var(--cb-red) 14%, transparent); }
+:root[data-theme="dark"] .cb-shell :is(.text-red-500, .text-red-600, .text-red-700) { color: var(--cb-red); }
+:root[data-theme="dark"] .cb-shell .border-red-300 { border-color: color-mix(in srgb, var(--cb-red) 55%, transparent); }
+:root[data-theme="dark"] .cb-shell .bg-green-50 { background-color: color-mix(in srgb, var(--cb-green) 14%, transparent); }
+:root[data-theme="dark"] .cb-shell .text-green-700 { color: var(--cb-green); }
+/* Icon-button and menu-row hovers written as a black tint vanish on navy. */
+:root[data-theme="dark"] .cb-shell :is(.hover\:bg-black\/5, .hover\:bg-black\/\[0\.03\]):hover { background-color: var(--cb-hover); }
+
+/* ------------------------------------------------------------------ *
+ * Native <select> option lists, in every theme and every screen.
+ *
+ * Almost every select in the app is `bg-transparent` so it blends into
+ * its field or wrapper. Chromium on Windows/Linux paints the opened list
+ * from the select's own background, and a transparent one falls back to
+ * plain white -- while the options inherit the select's text colour,
+ * which in the dark theme is light ink. Result: white list, near-invisible
+ * text. Giving the options themselves the theme surface and ink fixes
+ * every select at once, whatever its trigger looks like; it switches with
+ * data-theme immediately (no reload). Safari/macOS draws a native menu
+ * that follows color-scheme and ignores these, which is also correct.
+ * Unlayered and low-specificity: an inline style on an <option> still wins.
+ * ------------------------------------------------------------------ */
+select :is(option, optgroup) {
+  background-color: var(--cb-surface);
+  color: var(--cb-ink);
+}
+select optgroup { color: var(--cb-ink-soft); font-weight: 700; }
+select option:checked {
+  background-color: color-mix(in srgb, var(--cb-accent) 22%, var(--cb-surface));
+  color: var(--cb-ink);
+}
+select option:disabled { color: var(--cb-ink-faint); }
 
 /* A page's own dialog (a fixed full-screen overlay inside <main>) sits
    above the app header and context bar, as it did beside the old sidebar. */

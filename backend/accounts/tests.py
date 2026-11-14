@@ -84,7 +84,10 @@ class StaffNotificationTests(TestCase):
         self.client_ = client_for(self.user)
 
     def test_notify_staff_writes_inbox_only_for_roles_with_a_rule(self):
-        notify_staff("payment_received", "Invoice INV-1 settled", "Paid in full.")
+        # alerts go out on commit; TestCase never commits, so run them here
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_staff("payment_received", "Invoice INV-1 settled", "Paid in full.")
+            self.assertEqual(StaffNotification.objects.filter(user=self.user).count(), 0)
         self.assertEqual(StaffNotification.objects.filter(user=self.user).count(), 1)
         self.assertEqual(StaffNotification.objects.filter(user=self.other).count(), 0)
 
